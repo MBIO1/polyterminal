@@ -14,12 +14,15 @@ const categoryIcons = {
   world: '🌍',
 };
 
-export default function MarketCard({ market, onTrade }) {
+export default function MarketCard({ market, onTrade, onSelect }) {
   const yesPercent = Math.round((market.yes_price || 0) * 100);
   const noPercent = 100 - yesPercent;
 
   return (
-    <div className="rounded-xl border border-border bg-card overflow-hidden hover:border-primary/20 transition-all duration-300 group">
+    <div
+      className="rounded-xl border border-border bg-card overflow-hidden hover:border-primary/20 transition-all duration-300 group cursor-pointer"
+      onClick={() => onSelect && onSelect(market)}
+    >
       <div className="p-5">
         {/* Header */}
         <div className="flex items-start gap-3 mb-4">
@@ -78,14 +81,14 @@ export default function MarketCard({ market, onTrade }) {
           <Button
             size="sm"
             className="bg-accent/10 text-accent hover:bg-accent/20 border border-accent/20 font-mono text-xs"
-            onClick={() => onTrade(market, 'yes')}
+            onClick={(e) => { e.stopPropagation(); onTrade(market, 'yes'); }}
           >
             Buy Yes {yesPercent}¢
           </Button>
           <Button
             size="sm"
             className="bg-destructive/10 text-destructive hover:bg-destructive/20 border border-destructive/20 font-mono text-xs"
-            onClick={() => onTrade(market, 'no')}
+            onClick={(e) => { e.stopPropagation(); onTrade(market, 'no'); }}
           >
             Buy No {noPercent}¢
           </Button>

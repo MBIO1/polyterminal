@@ -6,6 +6,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Search } from 'lucide-react';
 import MarketCard from '@/components/markets/MarketCard';
 import TradeModal from '@/components/markets/TradeModal';
+import MarketDetailPanel from '@/components/markets/MarketDetailPanel';
 import { toast } from 'sonner';
 
 const categories = ['all', 'politics', 'crypto', 'sports', 'entertainment', 'science', 'economics', 'world'];
@@ -15,6 +16,7 @@ export default function Markets() {
   const [category, setCategory] = useState('all');
   const [tradeMarket, setTradeMarket] = useState(null);
   const [tradeSide, setTradeSide] = useState('yes');
+  const [selectedMarket, setSelectedMarket] = useState(null);
   const queryClient = useQueryClient();
 
   const { data: markets = [], isLoading } = useQuery({
@@ -121,7 +123,7 @@ export default function Markets() {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((market) => (
-            <MarketCard key={market.id} market={market} onTrade={handleTrade} />
+            <MarketCard key={market.id} market={market} onTrade={handleTrade} onSelect={setSelectedMarket} />
           ))}
           {filtered.length === 0 && (
             <div className="col-span-full text-center py-16 text-muted-foreground">
@@ -138,6 +140,17 @@ export default function Markets() {
         onClose={() => setTradeMarket(null)}
         onSubmit={(data) => tradeMutation.mutateAsync(data)}
       />
+
+      {selectedMarket && (
+        <MarketDetailPanel
+          market={selectedMarket}
+          onClose={() => setSelectedMarket(null)}
+          onTrade={(market, side) => {
+            setSelectedMarket(null);
+            handleTrade(market, side);
+          }}
+        />
+      )}
     </div>
   );
 }
