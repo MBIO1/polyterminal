@@ -6,10 +6,11 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppLayout from '@/components/layout/AppLayout';
-import Dashboard from '@/pages/Dashboard';
+import BotDashboard from '@/pages/BotDashboard';
 import Markets from '@/pages/Markets';
 import Portfolio from '@/pages/Portfolio';
 import Trades from '@/pages/Trades';
+import Dashboard from '@/pages/Dashboard';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -26,18 +27,15 @@ const AuthenticatedApp = () => {
   }
 
   if (authError) {
-    if (authError.type === 'user_not_registered') {
-      return <UserNotRegisteredError />;
-    } else if (authError.type === 'auth_required') {
-      navigateToLogin();
-      return null;
-    }
+    if (authError.type === 'user_not_registered') return <UserNotRegisteredError />;
+    if (authError.type === 'auth_required') { navigateToLogin(); return null; }
   }
 
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/" element={<BotDashboard />} />
+        <Route path="/overview" element={<Dashboard />} />
         <Route path="/markets" element={<Markets />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/trades" element={<Trades />} />
@@ -57,7 +55,7 @@ function App() {
         <Toaster />
       </QueryClientProvider>
     </AuthProvider>
-  )
+  );
 }
 
-export default App
+export default App;

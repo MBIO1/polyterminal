@@ -1,0 +1,34 @@
+{
+  "name": "DrawdownLog",
+  "type": "object",
+  "properties": {
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "daily_halt",
+        "kill_switch",
+        "warning",
+        "resume"
+      ],
+      "description": "Type of drawdown event"
+    },
+    "drawdown_pct": {
+      "type": "number"
+    },
+    "portfolio_value": {
+      "type": "number"
+    },
+    "triggered_at_pct": {
+      "type": "number",
+      "description": "Threshold that was hit"
+    },
+    "message": {
+      "type": "string"
+    },
+    "resolved": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": []
+}

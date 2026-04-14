@@ -1,0 +1,87 @@
+{
+  "name": "BotConfig",
+  "type": "object",
+  "properties": {
+    "paper_trading": {
+      "type": "boolean",
+      "default": true,
+      "description": "Paper trading mode \u2014 three explicit flags required to enable live"
+    },
+    "live_flag_1": {
+      "type": "boolean",
+      "default": false
+    },
+    "live_flag_2": {
+      "type": "boolean",
+      "default": false
+    },
+    "live_flag_3": {
+      "type": "boolean",
+      "default": false
+    },
+    "edge_threshold": {
+      "type": "number",
+      "default": 5,
+      "description": "Minimum edge % required to execute"
+    },
+    "lag_threshold": {
+      "type": "number",
+      "default": 3,
+      "description": "Polymarket vs CEX lag threshold in percentage points"
+    },
+    "max_position_pct": {
+      "type": "number",
+      "default": 8,
+      "description": "Max position size as % of portfolio"
+    },
+    "confidence_threshold": {
+      "type": "number",
+      "default": 85,
+      "description": "Minimum confidence score % to execute"
+    },
+    "kelly_fraction": {
+      "type": "number",
+      "default": 0.5,
+      "description": "Kelly fraction (0.5 = half-Kelly)"
+    },
+    "daily_drawdown_halt": {
+      "type": "number",
+      "default": 20,
+      "description": "Daily drawdown % that triggers kill switch"
+    },
+    "total_drawdown_kill": {
+      "type": "number",
+      "default": 40,
+      "description": "Total drawdown % that kills bot"
+    },
+    "min_liquidity": {
+      "type": "number",
+      "default": 50000,
+      "description": "Minimum market liquidity in USDC"
+    },
+    "telegram_bot_token": {
+      "type": "string"
+    },
+    "telegram_chat_id": {
+      "type": "string"
+    },
+    "polymarket_api_key": {
+      "type": "string"
+    },
+    "starting_balance": {
+      "type": "number",
+      "default": 1000,
+      "description": "Starting paper/live balance in USDC"
+    },
+    "kill_switch_active": {
+      "type": "boolean",
+      "default": false,
+      "description": "Emergency kill switch"
+    },
+    "bot_running": {
+      "type": "boolean",
+      "default": false
+    }
+  },
+  "required": []
+}

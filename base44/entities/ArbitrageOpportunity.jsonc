@@ -1,0 +1,79 @@
+{
+  "name": "ArbitrageOpportunity",
+  "type": "object",
+  "properties": {
+    "market_title": {
+      "type": "string"
+    },
+    "asset": {
+      "type": "string",
+      "enum": [
+        "BTC",
+        "ETH"
+      ],
+      "description": "Underlying asset"
+    },
+    "contract_type": {
+      "type": "string",
+      "enum": [
+        "5min_up",
+        "5min_down",
+        "15min_up",
+        "15min_down"
+      ]
+    },
+    "polymarket_price": {
+      "type": "number",
+      "description": "Polymarket implied probability (0-1)"
+    },
+    "cex_implied_prob": {
+      "type": "number",
+      "description": "CEX-derived implied probability (0-1)"
+    },
+    "lag_pct": {
+      "type": "number",
+      "description": "Lag in percentage points"
+    },
+    "edge_pct": {
+      "type": "number",
+      "description": "Edge percentage"
+    },
+    "confidence_score": {
+      "type": "number",
+      "description": "Confidence score 0-100"
+    },
+    "recommended_side": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "no"
+      ]
+    },
+    "kelly_size_usdc": {
+      "type": "number",
+      "description": "Half-Kelly recommended position in USDC"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "detected",
+        "executed",
+        "missed",
+        "rejected"
+      ],
+      "default": "detected"
+    },
+    "btc_price_at_detect": {
+      "type": "number"
+    },
+    "eth_price_at_detect": {
+      "type": "number"
+    }
+  },
+  "required": [
+    "market_title",
+    "asset",
+    "edge_pct",
+    "confidence_score"
+  ]
+}

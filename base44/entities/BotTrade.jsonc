@@ -1,0 +1,98 @@
+{
+  "name": "BotTrade",
+  "type": "object",
+  "properties": {
+    "market_title": {
+      "type": "string"
+    },
+    "asset": {
+      "type": "string",
+      "enum": [
+        "BTC",
+        "ETH"
+      ]
+    },
+    "contract_type": {
+      "type": "string",
+      "enum": [
+        "5min_up",
+        "5min_down",
+        "15min_up",
+        "15min_down"
+      ]
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "no"
+      ]
+    },
+    "entry_price": {
+      "type": "number",
+      "description": "Entry price (cents)"
+    },
+    "exit_price": {
+      "type": "number",
+      "description": "Exit/settlement price (cents)"
+    },
+    "shares": {
+      "type": "number"
+    },
+    "size_usdc": {
+      "type": "number",
+      "description": "Position size in USDC"
+    },
+    "edge_at_entry": {
+      "type": "number"
+    },
+    "confidence_at_entry": {
+      "type": "number"
+    },
+    "kelly_fraction_used": {
+      "type": "number"
+    },
+    "pnl_usdc": {
+      "type": "number",
+      "description": "Realized P&L in USDC"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "win",
+        "loss",
+        "pending",
+        "cancelled"
+      ],
+      "default": "pending"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "paper",
+        "live"
+      ],
+      "default": "paper"
+    },
+    "btc_price": {
+      "type": "number"
+    },
+    "eth_price": {
+      "type": "number"
+    },
+    "telegram_sent": {
+      "type": "boolean",
+      "default": false
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "market_title",
+    "asset",
+    "side",
+    "entry_price",
+    "size_usdc"
+  ]
+}

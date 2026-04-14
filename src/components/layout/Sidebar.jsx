@@ -1,16 +1,18 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { 
-  LayoutDashboard, 
+  Bot,
   TrendingUp, 
   Briefcase, 
   History, 
   BarChart3,
-  Zap
+  Zap,
+  LayoutDashboard
 } from 'lucide-react';
 
 const navItems = [
-  { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { path: '/', icon: Bot, label: 'Arb Bot' },
+  { path: '/overview', icon: LayoutDashboard, label: 'Overview' },
   { path: '/markets', icon: TrendingUp, label: 'Markets' },
   { path: '/portfolio', icon: Briefcase, label: 'Portfolio' },
   { path: '/trades', icon: History, label: 'Trade History' },
