@@ -1,0 +1,50 @@
+{
+  "name": "Position",
+  "type": "object",
+  "properties": {
+    "market_id": {
+      "type": "string",
+      "description": "Reference to the market"
+    },
+    "market_title": {
+      "type": "string",
+      "description": "Market title for display"
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "yes",
+        "no"
+      ],
+      "description": "Position side"
+    },
+    "shares": {
+      "type": "number",
+      "description": "Number of shares held"
+    },
+    "avg_price": {
+      "type": "number",
+      "description": "Average entry price"
+    },
+    "current_price": {
+      "type": "number",
+      "description": "Current market price for this side"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "closed",
+        "settled"
+      ],
+      "default": "open"
+    }
+  },
+  "required": [
+    "market_id",
+    "market_title",
+    "side",
+    "shares",
+    "avg_price"
+  ]
+}
