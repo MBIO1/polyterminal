@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Bot, TrendingUp, Briefcase, History } from 'lucide-react';
+import { Bot, TrendingUp, Briefcase, History, SlidersHorizontal } from 'lucide-react';
 
 const navItems = [
   { path: '/', icon: Bot, label: 'Bot' },
   { path: '/markets', icon: TrendingUp, label: 'Markets' },
   { path: '/portfolio', icon: Briefcase, label: 'Portfolio' },
+  { path: '/bot-manager', icon: SlidersHorizontal, label: 'Manager' },
   { path: '/trades', icon: History, label: 'History' },
 ];
 

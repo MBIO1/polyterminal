@@ -5,9 +5,9 @@ import {
   TrendingUp, 
   Briefcase, 
   History, 
-  BarChart3,
   Zap,
-  LayoutDashboard
+  LayoutDashboard,
+  SlidersHorizontal
 } from 'lucide-react';
 
 const navItems = [
@@ -15,6 +15,7 @@ const navItems = [
   { path: '/overview', icon: LayoutDashboard, label: 'Overview' },
   { path: '/markets', icon: TrendingUp, label: 'Markets' },
   { path: '/portfolio', icon: Briefcase, label: 'Portfolio' },
+  { path: '/bot-manager', icon: SlidersHorizontal, label: 'Bot Manager' },
   { path: '/trades', icon: History, label: 'Trade History' },
 ];
 
