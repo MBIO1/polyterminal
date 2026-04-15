@@ -5,9 +5,9 @@ export default function PriceTickerBar({ btc, eth, connected }) {
   return (
     <div className="flex items-center gap-6 px-4 py-2 bg-secondary/50 border-b border-border text-xs font-mono">
       <div className="flex items-center gap-1.5">
-        <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-accent animate-pulse' : 'bg-destructive'}`} />
-        <span className="text-muted-foreground">
-          {connected ? 'Binance WS Live' : 'Simulated Feed'}
+        <div className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-accent animate-pulse' : 'bg-chart-4 animate-pulse'}`} />
+        <span className={connected ? 'text-accent font-semibold' : 'text-chart-4'}>
+          {connected ? 'CoinGecko LIVE' : 'Connecting…'}
         </span>
       </div>
 

@@ -10,6 +10,7 @@ import BotControls from '@/components/bot/BotControls';
 import ConfigPanel from '@/components/bot/ConfigPanel';
 import PerformanceMetrics from '@/components/bot/PerformanceMetrics';
 import ChecklistPanel from '@/components/bot/ChecklistPanel';
+import BacktestPanel from '@/components/bot/BacktestPanel';
 import { calcStats, calcDailyDrawdown, halfKelly, detectOpportunity } from '@/lib/botEngine';
 import {
   startPriceSimulator,
@@ -37,7 +38,7 @@ const DEFAULT_CONFIG = {
 
 export default function BotDashboard() {
   const queryClient = useQueryClient();
-  const [prices, setPrices] = useState({ btc: { price: 97500, change: 0 }, eth: { price: 3200, change: 0 } });
+  const [prices, setPrices] = useState({ btc: { price: 97500, change: 0, live: false }, eth: { price: 3200, change: 0 } });
   const [opportunities, setOpportunities] = useState([]);
   const [localConfig, setLocalConfig] = useState(DEFAULT_CONFIG);
   const [running, setRunning] = useState(false);
@@ -233,7 +234,7 @@ export default function BotDashboard() {
 
   return (
     <div className="flex flex-col min-h-screen">
-      <PriceTickerBar btc={prices.btc} eth={prices.eth} connected={false} />
+      <PriceTickerBar btc={prices.btc} eth={prices.eth} connected={prices.btc?.live || false} />
 
       <div className="flex-1 p-4 md:p-5 max-w-[1600px] mx-auto w-full">
         {/* Header */}
@@ -359,6 +360,7 @@ export default function BotDashboard() {
             </div>
 
             <PerformanceMetrics stats={stats} portfolioValue={portfolioValue} startingBalance={startingBalance} paperTrades={trades} />
+            <BacktestPanel onApplyThresholds={handleConfigUpdate} />
             <ChecklistPanel />
           </div>
         </div>
