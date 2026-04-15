@@ -166,7 +166,7 @@ export default function BotDashboard() {
       : -opp.kelly_size_usdc;
 
     await tradeMutation.mutateAsync({
-      market_title: opp.market_title,
+      market_title: opp.market_title || opp.title,
       asset: opp.asset,
       contract_type: opp.contract_type,
       side: opp.recommended_side,
