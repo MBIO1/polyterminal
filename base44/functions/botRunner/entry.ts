@@ -11,7 +11,7 @@
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-// ── Oxylabs proxy helper ───────────────────────────────────────────────────────
+// ── Oxylabs Scraper API helper (works in Deno sandboxed environment) ─────────
 async function fetchViaOxylabs(url, opts = {}) {
   const oxyUser = Deno.env.get('OXYLABS_USER');
   const oxyPass = Deno.env.get('OXYLABS_PASS');
@@ -20,12 +20,23 @@ async function fetchViaOxylabs(url, opts = {}) {
     return fetch(url, opts); // fallback to direct
   }
 
-  const { ProxyAgent, fetch: proxyFetch } = await import('npm:undici@6.19.2');
-  const oxyUsername = `${oxyUser}-cc-de`;
-  const proxyUrl = `https://${encodeURIComponent(oxyUsername)}:${encodeURIComponent(oxyPass)}@realtime.oxylabs.io:60000`;
-  const proxyAgent = new ProxyAgent(proxyUrl);
-
-  return proxyFetch(url, { ...opts, dispatcher: proxyAgent });
+  const oxyAuth = btoa(`${oxyUser}:${oxyPass}`);
+  const res = await fetch('https://api.oxylabs.io/v1/queries', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Basic ${oxyAuth}`,
+    },
+    body: JSON.stringify({ source: 'universal', url }),
+    signal: AbortSignal.timeout(20000),
+  });
+  
+  if (!res.ok) throw new Error(`Oxylabs error: ${res.status}`);
+  const data = await res.json();
+  const content = data?.results?.[0]?.content;
+  if (!content) throw new Error('No content from Oxylabs');
+  
+  return { ok: true, json: async () => JSON.parse(content), text: async () => content };
 }
 
 // ── Polymarket CLOB order book depth (public API, no auth required) ───────────

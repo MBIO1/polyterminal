@@ -20,9 +20,7 @@ Deno.serve(async (req) => {
 
   const allSet = !!(apiKey && apiSecret && passphrase && walletAddress && privateKey);
 
-  // Route via Oxylabs Web Unblocker (reverse-proxy API — works in sandboxed Deno)
-  // Instead of CONNECT tunneling, we POST the target URL to Oxylabs' scraper API
-  // which fetches it from a residential German IP and returns the response body.
+  // Route via Oxylabs Scraper API (HTTP POST, works in Deno sandboxed environment)
   const oxyUser = Deno.env.get('OXYLABS_USER');
   const oxyPass = Deno.env.get('OXYLABS_PASS');
   const proxyUsed = !!(oxyUser && oxyPass);
@@ -32,25 +30,25 @@ Deno.serve(async (req) => {
     if (!proxyUsed) {
       return fetch(targetUrl, { signal: AbortSignal.timeout(8000) });
     }
-    // Oxylabs Scraper API — fetches the URL from a DE residential IP
-    const res = await fetch('https://realtime.oxylabs.io/v1/queries', {
+    
+    // Web Unblocker requires specific source & format
+    const res = await fetch('https://api.oxylabs.io/v1/queries', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Basic ${oxyAuth}`,
       },
       body: JSON.stringify({
-        source: 'universal',
+        source: 'universal_ecommerce',
         url: targetUrl,
-        geo_location: 'Germany',
+        render: 'html',
       }),
-      signal: AbortSignal.timeout(20000),
+      signal: AbortSignal.timeout(25000),
     });
     if (!res.ok) throw new Error(`Oxylabs API error: ${res.status}`);
     const data = await res.json();
     const content = data?.results?.[0]?.content;
     if (!content) throw new Error('No content from Oxylabs');
-    // Return a mock Response-like object
     return { ok: true, json: async () => JSON.parse(content), text: async () => content };
   }
 
@@ -88,6 +86,6 @@ Deno.serve(async (req) => {
     proxyUsed,
     clobError,
     feeError,
-    note: proxyUsed ? 'Routing via Oxylabs Web Unblocker (Germany residential IP)' : 'No proxy configured',
+    note: proxyUsed ? 'Routing via Oxylabs Web Unblocker' : 'No proxy configured',
   });
 });
