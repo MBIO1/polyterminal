@@ -277,7 +277,21 @@ Deno.serve(async (req) => {
     const maxPosPct    = (config.max_position_pct || 8) / 100;
 
     // Adaptive kelly based on recent win/loss streak
-    const kellyFrac = adaptiveKellyFraction(recentTrades, config.kelly_fraction || 0.5);
+    const baseKelly = adaptiveKellyFraction(recentTrades, config.kelly_fraction || 0.5);
+    let kellyFrac = baseKelly;
+
+    // ── Get loss pattern blocklist ────────────────────────────────────────────
+    let blockedPatterns = [];
+    let adjustedKelly = kellyFrac;
+    try {
+      const patternRes = await base44.asServiceRole.functions.invoke('detectLossPatterns', {});
+      blockedPatterns = patternRes.blockedPatterns || [];
+      if (patternRes.shouldReduceSizing) {
+        adjustedKelly = kellyFrac * 0.75; // reduce by 25% if on a losing streak
+      }
+    } catch (_) {
+      // pattern detection failed, continue with original kelly
+    }
 
     // Filter + rank opportunities
     // Note: depth gate is skipped for paper trading — real depth from Polymarket CLOB
@@ -288,11 +302,18 @@ Deno.serve(async (req) => {
         const depthLiquidity = (depth.bids_depth + depth.asks_depth) * 100;
         return { ...c, depth, depthLiquidity };
       })
-      .filter(c =>
-        c.lag_pct >= lagThresh &&
-        c.edge_pct >= edgeThresh &&
-        c.confidence_score >= confThresh
-      )
+      .filter(c => {
+        // Check if this contract is in the blocklist
+        const isBlocked = blockedPatterns.some(p =>
+          p.asset === c.asset && p.contractType === c.type && p.side === c.recommended_side
+        );
+        return (
+          !isBlocked &&
+          c.lag_pct >= lagThresh &&
+          c.edge_pct >= edgeThresh &&
+          c.confidence_score >= confThresh
+        );
+      })
       .sort((a, b) => b.edge_pct - a.edge_pct);
 
     const executed = [];
@@ -306,7 +327,7 @@ Deno.serve(async (req) => {
       if (lastTradeTs[key] && now - lastTradeTs[key] < 120000) continue;
       lastTradeTs[key] = now;
 
-      const kellySize = halfKelly(opp.edge_pct, opp.polymarket_price, portfolio, maxPosPct, kellyFrac);
+      const kellySize = halfKelly(opp.edge_pct, opp.polymarket_price, portfolio, maxPosPct, adjustedKelly);
       if (kellySize < 1) continue;
 
       const isPaper  = config.paper_trading !== false;
@@ -329,7 +350,8 @@ Deno.serve(async (req) => {
       // Adaptive notes: include streak info
       const recentWins  = recentTrades.slice(0, 10).filter(t => t.outcome === 'win').length;
       const recentLosses = 10 - recentWins;
-      const adaptNote  = `kelly_adj=${kellyFrac.toFixed(2)} streak=${recentWins}W/${recentLosses}L depth_liq=$${Math.round(opp.depthLiquidity)} book_spread=${opp.depth.spread_pct.toFixed(2)}%`;
+      const blockedNote = blockedPatterns.length > 0 ? ` [${blockedPatterns.length} patterns blocked]` : '';
+      const adaptNote  = `kelly_adj=${adjustedKelly.toFixed(2)} streak=${recentWins}W/${recentLosses}L depth_liq=$${Math.round(opp.depthLiquidity)} book_spread=${opp.depth.spread_pct.toFixed(2)}%${blockedNote}`;
 
       await base44.asServiceRole.entities.BotTrade.create({
         market_title:          opp.title,
@@ -342,7 +364,7 @@ Deno.serve(async (req) => {
         size_usdc:             Number(kellySize.toFixed(4)),
         edge_at_entry:         opp.edge_pct,
         confidence_at_entry:   opp.confidence_score,
-        kelly_fraction_used:   kellyFrac,
+        kelly_fraction_used:   adjustedKelly,
         pnl_usdc:              Number(pnl.toFixed(4)),
         outcome,
         mode:                  isPaper ? 'paper' : 'live',
@@ -362,7 +384,8 @@ Deno.serve(async (req) => {
       prices: { btc: prices.btc, eth: prices.eth },
       portfolio,
       dailyDD,
-      adaptedKelly: kellyFrac,
+      adaptedKelly: adjustedKelly,
+      blockedPatterns: blockedPatterns.length,
     });
   }
 

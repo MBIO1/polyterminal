@@ -5,6 +5,7 @@ import { Wallet, TrendingUp, CheckCircle, Activity, TrendingDown, BarChart2, Per
 import StatCard from '@/components/dashboard/StatCard';
 import PortfolioChart from '@/components/dashboard/PortfolioChart';
 import RecentTrades from '@/components/dashboard/RecentTrades';
+import LivePnLTicker from '@/components/dashboard/LivePnLTicker';
 import { Link } from 'react-router-dom';
 import { computeMetrics } from '@/lib/tradeMetrics';
 
@@ -47,18 +48,21 @@ export default function Dashboard() {
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Overview</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">
             {trades.length} total bot trades · {config.paper_trading !== false ? '📄 Paper' : '💰 Live'} mode
           </p>
         </div>
-        <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${isRunning ? 'bg-accent/10' : 'bg-muted/50'}`}>
-          <div className={`w-2 h-2 rounded-full ${isRunning ? 'bg-accent animate-pulse' : 'bg-muted-foreground'}`} />
-          <span className={`text-xs font-mono ${isRunning ? 'text-accent' : 'text-muted-foreground'}`}>
-            {isRunning ? 'Bot Running' : 'Bot Paused'}
-          </span>
+        <div className="flex items-center gap-3">
+          <LivePnLTicker />
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${isRunning ? 'bg-accent/10' : 'bg-muted/50'}`}>
+            <div className={`w-2 h-2 rounded-full ${isRunning ? 'bg-accent animate-pulse' : 'bg-muted-foreground'}`} />
+            <span className={`text-xs font-mono ${isRunning ? 'text-accent' : 'text-muted-foreground'}`}>
+              {isRunning ? 'Bot Running' : 'Bot Paused'}
+            </span>
+          </div>
         </div>
       </div>
 

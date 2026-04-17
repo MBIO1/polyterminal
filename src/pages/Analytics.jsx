@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import LivePnLTicker from '@/components/dashboard/LivePnLTicker';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
@@ -122,11 +123,14 @@ export default function Analytics() {
 
   return (
     <div className="p-4 md:p-6 max-w-[1400px] mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
-        <p className="text-xs text-muted-foreground mt-1 font-mono">
-          {trades.length} trades · Win rate {winRate}% · Total P&L {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
-        </p>
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Analytics</h1>
+          <p className="text-xs text-muted-foreground mt-1 font-mono">
+            {trades.length} trades · Win rate {winRate}% · Total P&L {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
+          </p>
+        </div>
+        <LivePnLTicker />
       </div>
 
       {trades.length === 0 ? (
