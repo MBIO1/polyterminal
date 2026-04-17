@@ -8,21 +8,14 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import {
-  Shield, Zap, KeyRound, Eye, EyeOff, CheckCircle, XCircle,
-  AlertTriangle, Wifi, WifiOff, ChevronRight, Loader2,
-  FlaskConical, BookOpen, ArrowUpDown, Trash2, Info,
+  Shield, Zap, KeyRound, CheckCircle, XCircle,
+  AlertTriangle, Wifi, ChevronRight, Loader2,
+  FlaskConical, BookOpen, ArrowUpDown, Info, Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { toast } from 'sonner';
-import {
-  CREDENTIAL_FIELDS,
-  saveCredentials,
-  loadCredentials,
-  clearCredentials,
-  hasRequiredCredentials,
-  maskSecret,
-} from '@/lib/polymarket/credentials.js';
+import { base44 } from '@/api/base44Client';
 import {
   buildOrderStruct,
   buildRestAuthHeaders,
@@ -69,10 +62,9 @@ const Row = ({ label, value, color = 'text-foreground' }) => (
 
 // ── Main Page ──────────────────────────────────────────────────────────────────
 export default function TradingEngine() {
-  const [creds, setCreds] = useState({});
-  const [revealed, setRevealed] = useState({});
-  const [saved, setSaved] = useState(false);
-  const [connStatus, setConnStatus] = useState(null); // null | 'testing' | 'ok' | 'error'
+  const [serverCreds, setServerCreds] = useState(null); // { walletAddress, apiKey (masked), allSet }
+  const [loadingCreds, setLoadingCreds] = useState(true);
+  const [connStatus, setConnStatus] = useState(null);
   const [connError, setConnError] = useState('');
   const [livePrice, setLivePrice] = useState(null);
   const [orderPreview, setOrderPreview] = useState(null);
@@ -86,11 +78,12 @@ export default function TradingEngine() {
   const [signedPayload, setSignedPayload] = useState(null);
   const [signingStatus, setSigningStatus] = useState(null);
 
-  // Load from storage on mount
+  // Load credential status from server on mount
   useEffect(() => {
-    const stored = loadCredentials();
-    setCreds(stored);
-    setSaved(hasRequiredCredentials(stored));
+    base44.functions.invoke('polyCredentials', { action: 'check' })
+      .then(res => setServerCreds(res.data))
+      .catch(() => setServerCreds({ allSet: false }))
+      .finally(() => setLoadingCreds(false));
   }, []);
 
   // Auto-compute order preview whenever form changes
@@ -105,38 +98,16 @@ export default function TradingEngine() {
     setOrderPreview({ shares: shares.toFixed(2), fee: fee.toFixed(4), netWin: netWin.toFixed(4), netLoss: netLoss.toFixed(4), breakEvenEdge: breakEvenEdge.toFixed(2) });
   }, [orderForm]);
 
-  const handleCredChange = (key, value) => {
-    setCreds(prev => ({ ...prev, [key]: value }));
-    setSaved(false);
-  };
-
-  const handleSave = () => {
-    saveCredentials(creds);
-    setSaved(true);
-    toast.success('Credentials saved to browser storage');
-  };
-
-  const handleClear = () => {
-    clearCredentials();
-    setCreds({});
-    setSaved(false);
-    setConnStatus(null);
-    toast.info('Credentials cleared');
-  };
-
   const handleTestConnection = async () => {
-    if (!hasRequiredCredentials(creds)) {
-      toast.error('Fill in all credential fields first');
+    if (!serverCreds?.allSet) {
+      toast.error('Set all credentials in the Base44 dashboard first');
       return;
     }
     setConnStatus('testing');
     setConnError('');
     try {
-      // Test 1: public CLOB reachability — fetch live BTC midpoint
       const price = await getMidpointPrice(TEST_TOKEN);
       setLivePrice(price);
-      // Test 2: auth header construction (verifies secret format)
-      await buildRestAuthHeaders('GET', '/auth/api-key', '', creds);
       setConnStatus('ok');
       toast.success(`CLOB reachable · BTC midpoint ${(price.price * 100).toFixed(1)}¢`);
     } catch (err) {
@@ -147,13 +118,13 @@ export default function TradingEngine() {
   };
 
   const handleBuildOrder = useCallback(() => {
-    if (!creds.walletAddress) {
-      toast.error('Wallet address required to build order struct');
+    if (!serverCreds?.walletAddress) {
+      toast.error('Wallet address not set in environment secrets');
       return;
     }
     try {
       const struct = buildOrderStruct({
-        maker:          creds.walletAddress,
+        maker:          serverCreds.walletAddress,
         tokenId:        orderForm.tokenId,
         side:           orderForm.side === 'BUY' ? SIDE.BUY : SIDE.SELL,
         price:          Number(orderForm.price),
@@ -164,33 +135,22 @@ export default function TradingEngine() {
       });
       setSignedPayload({ struct, signed: null });
       setSigningStatus(null);
-      toast.success('Order struct built — ready to sign with private key');
+      toast.success('Order struct built — signing happens server-side');
     } catch (err) {
       toast.error(`Build failed: ${err.message}`);
     }
-  }, [creds, orderForm]);
+  }, [serverCreds, orderForm]);
 
   const handleSignOrder = async () => {
     if (!signedPayload?.struct) return;
-    if (!creds.privateKey) {
-      toast.error('Private key required for EIP-712 signing');
-      return;
-    }
     setSigningStatus('signing');
     try {
-      // Dynamic import ethers — must be available in the environment.
-      // In production, install ethers: npm install ethers
-      const { ethers } = await import('https://esm.sh/ethers@6.13.0');
-      const wallet  = new ethers.Wallet(creds.privateKey);
-      const { getEIP712Domain, getOrderTypes } = await import('@/lib/polymarket/eip712.js');
-      const signature = await wallet.signTypedData(
-        getEIP712Domain(),
-        getOrderTypes(),
-        signedPayload.struct,
-      );
-      setSignedPayload(prev => ({ ...prev, signed: signature }));
+      // Signing is now proxied through the backend — private key stays server-side
+      const res = await base44.functions.invoke('polySign', { struct: signedPayload.struct });
+      if (res.data?.error) throw new Error(res.data.error);
+      setSignedPayload(prev => ({ ...prev, signed: res.data.signature }));
       setSigningStatus('done');
-      toast.success('Order signed via EIP-712 ✓');
+      toast.success('Order signed via EIP-712 (server-side) ✓');
     } catch (err) {
       setSigningStatus('error');
       toast.error(`Signing failed: ${err.message}`);
@@ -208,12 +168,12 @@ export default function TradingEngine() {
         </p>
       </div>
 
-      {/* Warning banner */}
-      <div className="rounded-xl border border-chart-4/40 bg-chart-4/5 p-4 flex items-start gap-3">
-        <AlertTriangle className="w-4 h-4 text-chart-4 mt-0.5 flex-shrink-0" />
+      {/* Security banner */}
+      <div className="rounded-xl border border-accent/30 bg-accent/5 p-4 flex items-start gap-3">
+        <Lock className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
         <div className="text-xs text-muted-foreground space-y-1">
-          <p><strong className="text-chart-4">Private keys are stored in your browser only.</strong> They are never sent to any server. Use a dedicated trading wallet — never your main wallet.</p>
-          <p>Live order broadcast requires a funded Polygon wallet with USDC. Placing orders on a real market will spend real money.</p>
+          <p><strong className="text-accent">Credentials are stored as server-side environment secrets.</strong> They are never sent to or stored in the browser. Private keys only exist in the secure server environment.</p>
+          <p>To update credentials, go to <strong className="text-foreground">Base44 Dashboard → Settings → Environment Variables</strong>.</p>
         </div>
       </div>
 
@@ -222,48 +182,38 @@ export default function TradingEngine() {
         {/* LEFT: Credentials */}
         <div className="space-y-4">
           <Card>
-            <SectionTitle icon={KeyRound} title="API Credentials" subtitle="Stored in browser localStorage — never transmitted" color="text-primary" />
-            <div className="space-y-3">
-              {CREDENTIAL_FIELDS.map(field => (
-                <div key={field.key}>
-                  <label className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider block mb-1">
-                    {field.label}
-                  </label>
-                  <div className="relative">
-                    <Input
-                      type={field.sensitive && !revealed[field.key] ? 'password' : 'text'}
-                      placeholder={field.placeholder}
-                      value={creds[field.key] || ''}
-                      onChange={e => handleCredChange(field.key, e.target.value)}
-                      className="font-mono text-xs pr-9"
-                    />
-                    {field.sensitive && (
-                      <button
-                        type="button"
-                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                        onClick={() => setRevealed(r => ({ ...r, [field.key]: !r[field.key] }))}
-                      >
-                        {revealed[field.key] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                      </button>
-                    )}
+            <SectionTitle icon={KeyRound} title="API Credentials" subtitle="Loaded from server environment secrets — never in browser" color="text-primary" />
+            {loadingCreds ? (
+              <div className="flex items-center gap-2 text-xs text-muted-foreground py-4">
+                <Loader2 className="w-4 h-4 animate-spin" /> Checking server credentials…
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {[
+                  { label: 'WALLET ADDRESS',   value: serverCreds?.walletAddress || '', secret: false },
+                  { label: 'PRIVATE KEY',       value: serverCreds?.privateKey    || '', secret: true  },
+                  { label: 'POLYMARKET API KEY',    value: serverCreds?.apiKey    || '', secret: true  },
+                  { label: 'POLYMARKET API SECRET', value: serverCreds?.apiSecret || '', secret: true  },
+                  { label: 'POLYMARKET PASSPHRASE', value: serverCreds?.passphrase|| '', secret: true  },
+                ].map(({ label, value, secret }) => (
+                  <div key={label}>
+                    <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-0.5">{label}</p>
+                    <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/30 px-3 py-1.5">
+                      <Lock className="w-3 h-3 text-muted-foreground flex-shrink-0" />
+                      <span className="font-mono text-xs text-foreground flex-1 truncate">
+                        {value ? value : <span className="text-destructive">Not set</span>}
+                      </span>
+                      {value && <CheckCircle className="w-3 h-3 text-accent flex-shrink-0" />}
+                    </div>
                   </div>
-                  <p className="text-[10px] text-muted-foreground mt-0.5">{field.description}</p>
+                ))}
+                <div className={`mt-3 rounded-lg p-3 flex items-center gap-2 ${serverCreds?.allSet ? 'bg-accent/10 border border-accent/20' : 'bg-destructive/10 border border-destructive/20'}`}>
+                  {serverCreds?.allSet
+                    ? <><CheckCircle className="w-4 h-4 text-accent" /><span className="text-xs text-accent font-mono font-bold">All credentials set ✓</span></>
+                    : <><XCircle className="w-4 h-4 text-destructive" /><span className="text-xs text-destructive font-mono">Missing credentials — set them in Dashboard → Settings → Environment Variables</span></>
+                  }
                 </div>
-              ))}
-            </div>
-            <div className="flex gap-2 mt-5">
-              <Button onClick={handleSave} size="sm" className="flex-1">
-                <Shield className="w-3.5 h-3.5 mr-1.5" />
-                Save Credentials
-              </Button>
-              <Button onClick={handleClear} size="sm" variant="outline" className="text-destructive border-destructive/30 hover:bg-destructive/10">
-                <Trash2 className="w-3.5 h-3.5" />
-              </Button>
-            </div>
-            {saved && (
-              <p className="text-[10px] font-mono text-accent mt-2 flex items-center gap-1">
-                <CheckCircle className="w-3 h-3" /> Credentials saved
-              </p>
+              </div>
             )}
           </Card>
 
@@ -449,7 +399,7 @@ export default function TradingEngine() {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
           {[
             { step: '1', title: 'Build Struct', desc: 'Order params (tokenId, side, price, size) are packed into the CTF Exchange EIP-712 typed struct with a random salt and nonce.' },
-            { step: '2', title: 'EIP-712 Sign', desc: 'ethers.js signs the typed data hash with your private key locally. The key never leaves the browser. Signature: 65-byte ECDSA (r,s,v).' },
+            { step: '2', title: 'EIP-712 Sign', desc: 'The unsigned struct is sent to the polySign backend function. ethers.js signs it server-side using POLY_PRIVATE_KEY env var. Key never touches the browser.' },
             { step: '3', title: 'REST Auth', desc: 'HMAC-SHA256 signs the request timestamp + method + path using your API secret. Produces POLY-SIGNATURE header.' },
             { step: '4', title: 'CLOB Broadcast', desc: 'POST /order with the signed struct + signature. Polymarket\'s engine verifies on-chain, matches, and settles on Polygon.' },
           ].map(({ step, title, desc }) => (
@@ -465,7 +415,7 @@ export default function TradingEngine() {
           <p className="text-[10px] font-mono text-muted-foreground uppercase tracking-wider mb-2">Module Structure</p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs font-mono">
             {[
-              { file: 'lib/polymarket/credentials.js', desc: 'LocalStorage credential manager · mask/reveal · validation' },
+              { file: 'functions/polyCredentials', desc: 'Server-side credential status check · masked values · env var backed' },
               { file: 'lib/polymarket/eip712.js', desc: 'Order struct builder · EIP-712 domain · signOrder() · HMAC REST auth' },
               { file: 'lib/polymarket/clobClient.js', desc: 'REST client · getOrderBook · placeLimitOrder · cancelOrder · computeNetPnl' },
             ].map(({ file, desc }) => (
