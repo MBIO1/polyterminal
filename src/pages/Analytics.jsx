@@ -8,6 +8,7 @@ import {
 } from 'recharts';
 import BacktestScenarioBuilder from '@/components/analytics/BacktestScenarioBuilder';
 import PerformanceSection from '@/components/analytics/PerformanceSection';
+import CorrelationHeatmap from '@/components/analytics/CorrelationHeatmap';
 import { toast } from 'sonner';
 
 // ── Tooltip helper ────────────────────────────────────────────────────────────
@@ -224,6 +225,15 @@ export default function Analytics() {
           </div>
         </div>
       )}
+
+      {/* ── Correlation Heatmap ──────────────────────────────────────────── */}
+      <div className="rounded-xl border border-border bg-card p-5">
+        <h3 className="text-sm font-semibold text-foreground mb-1">Contract Correlation Heatmap</h3>
+        <p className="text-xs text-muted-foreground mb-5">
+          Win-rate co-movement across all 8 contract types. Diagonal = individual win rate. Off-diagonal = similarity score. Green = positive correlation, red = inverse.
+        </p>
+        <CorrelationHeatmap trades={trades} />
+      </div>
 
       {/* ── Multi-Scenario Backtest ───────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card p-5">
