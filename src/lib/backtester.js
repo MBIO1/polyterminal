@@ -37,9 +37,9 @@ function cexProb(contractType, curr, prev, vol) {
 }
 
 // ── Run one back-test scenario ────────────────────────────────────────────────
-function runScenario(prices, contractType, asset, lagThresh, edgeThresh, confThresh, kellyFrac = 0.5) {
+function runScenario(prices, contractType, asset, lagThresh, edgeThresh, confThresh, kellyFrac = 0.5, capital = 1000) {
   const vol = asset === 'BTC' ? 0.012 : 0.018;
-  let balance = 1000;
+  let balance = capital;
   const trades = [];
 
   for (let i = 1; i < prices.length - 1 && trades.length < 200; i++) {
@@ -79,7 +79,7 @@ function runScenario(prices, contractType, asset, lagThresh, edgeThresh, confThr
 
   const wins = trades.filter(t => t.win).length;
   const winRate = trades.length > 0 ? (wins / trades.length) * 100 : 0;
-  const totalPnl = balance - 1000;
+  const totalPnl = balance - capital;
   const maxDD = computeMaxDrawdown(trades);
   const profitFactor = computeProfitFactor(trades);
 
@@ -126,10 +126,13 @@ function gridSearch(prices, contractType, asset) {
 }
 
 // ── Main entry point ──────────────────────────────────────────────────────────
-export async function runBacktest(onProgress) {
-  onProgress?.('Fetching BTC price history from CoinGecko…', 5);
+// params (optional): { lagThresh, edgeThresh, confThresh, kellyFrac, capital, contractType }
+// If params provided → run single fixed scenario. Otherwise → run grid search.
+export async function runBacktest(onProgress, params = null) {
+  onProgress?.('Fetching price history from CoinGecko…', 5);
 
   let btcPrices, ethPrices;
+  let dataSource = 'CoinGecko (real)';
   try {
     [btcPrices, ethPrices] = await Promise.all([
       fetchPriceHistory('bitcoin'),
@@ -140,47 +143,74 @@ export async function runBacktest(onProgress) {
     onProgress?.('API unavailable — using synthetic GBM series…', 20);
     btcPrices = syntheticHistory(97500, 0.00005, 0.012);
     ethPrices = syntheticHistory(3200, 0.00006, 0.018);
+    dataSource = 'Synthetic GBM';
   }
 
+  // ── Fixed-param single scenario ───────────────────────────────────────────
+  if (params) {
+    const { lagThresh = 3, edgeThresh = 5, confThresh = 85, kellyFrac = 0.5, capital = 1000, contractType = '5min_up' } = params;
+    const asset = contractType.startsWith('5') || contractType.startsWith('15') ? 'BTC' : 'BTC';
+    const prices = contractType.includes('eth') ? ethPrices : btcPrices;
+
+    onProgress?.(`Running ${contractType} scenario…`, 50);
+    const result = runScenario(prices, contractType, asset, lagThresh, edgeThresh, confThresh, kellyFrac, capital);
+
+    // Also run grid search for recommended thresholds
+    onProgress?.('Grid-searching optimal thresholds…', 75);
+    const best = gridSearch(prices, contractType, asset);
+    onProgress?.('Done', 100);
+
+    return {
+      recommendedThresholds: best
+        ? { lag: best.lag, edge: best.edge, confidence: best.conf }
+        : { lag: lagThresh, edge: edgeThresh, confidence: confThresh },
+      tradeCount: result.trades.length,
+      winRate: result.winRate,
+      totalPnl: result.totalPnl,
+      maxDrawdown: result.maxDD,
+      profitFactor: result.profitFactor,
+      finalBalance: result.finalBalance,
+      priceSeries: result.trades.slice(0, 200).map((t, idx) => ({
+        idx: idx + 1,
+        pnl: Number(t.pnl.toFixed(4)),
+        balance: Number(t.balance.toFixed(2)),
+        win: t.win,
+      })),
+      dataSource,
+    };
+  }
+
+  // ── Grid-search (original behaviour) ─────────────────────────────────────
   onProgress?.('Running 200-trade grid search across BTC contracts…', 35);
-  const btcBest5up   = gridSearch(btcPrices, '5min_up',   'BTC');
-  const btcBest15up  = gridSearch(btcPrices, '15min_up',  'BTC');
+  const btcBest5up  = gridSearch(btcPrices, '5min_up',  'BTC');
+  const btcBest15up = gridSearch(btcPrices, '15min_up', 'BTC');
 
   onProgress?.('Running 200-trade grid search across ETH contracts…', 60);
-  const ethBest5up   = gridSearch(ethPrices, '5min_up',   'ETH');
-  const ethBest15up  = gridSearch(ethPrices, '15min_up',  'ETH');
+  const ethBest5up  = gridSearch(ethPrices, '5min_up',  'ETH');
+  const ethBest15up = gridSearch(ethPrices, '15min_up', 'ETH');
 
   onProgress?.('Averaging optimal thresholds…', 85);
-
   const results = [btcBest5up, btcBest15up, ethBest5up, ethBest15up].filter(Boolean);
   const avgLag  = Math.round(results.reduce((s, r) => s + r.lag,  0) / results.length);
   const avgEdge = Math.round(results.reduce((s, r) => s + r.edge, 0) / results.length);
   const avgConf = Math.round(results.reduce((s, r) => s + r.conf, 0) / results.length);
-
-  // Representative sample of the best run's trades (up to 200)
   const repResult = results.reduce((a, b) => (a?.score > b?.score ? a : b));
 
   onProgress?.('Backtest complete', 100);
-
   return {
     recommendedThresholds: { lag: avgLag, edge: avgEdge, confidence: avgConf },
-    scenarios: {
-      'BTC 5-min': btcBest5up,
-      'BTC 15-min': btcBest15up,
-      'ETH 5-min': ethBest5up,
-      'ETH 15-min': ethBest15up,
-    },
     tradeCount: repResult?.trades?.length || 0,
     winRate: repResult?.winRate || 0,
     totalPnl: repResult?.totalPnl || 0,
     maxDrawdown: repResult?.maxDD || 0,
     profitFactor: repResult?.profitFactor || 0,
+    finalBalance: repResult?.finalBalance || 1000,
     priceSeries: repResult?.trades?.slice(0, 200).map((t, idx) => ({
       idx: idx + 1,
       pnl: Number(t.pnl.toFixed(4)),
       balance: Number(t.balance.toFixed(2)),
       win: t.win,
     })) || [],
-    dataSource: btcPrices[0]?.ts ? 'CoinGecko (real)' : 'Synthetic GBM',
+    dataSource,
   };
 }

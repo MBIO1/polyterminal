@@ -1,16 +1,13 @@
 import React, { useState, useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import {
   LineChart, Line, BarChart, Bar, ScatterChart, Scatter,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ReferenceLine, Cell
 } from 'recharts';
-import { format, startOfDay, subDays } from 'date-fns';
-import { runBacktest } from '@/lib/backtester';
-import { Button } from '@/components/ui/button';
-import { Slider } from '@/components/ui/slider';
-import { Label } from '@/components/ui/label';
+import BacktestScenarioBuilder from '@/components/analytics/BacktestScenarioBuilder';
+import { toast } from 'sonner';
 
 // ── Tooltip helper ────────────────────────────────────────────────────────────
 const ChartTooltip = ({ active, payload, label, prefix = '', suffix = '' }) => {
@@ -96,23 +93,25 @@ export default function Analytics() {
       .map(([date, pnl]) => ({ date: date.slice(5), pnl: Number(pnl.toFixed(2)) }));
   }, [trades]);
 
-  // ── Backtest state ────────────────────────────────────────────────────────
-  const [btLag, setBtLag] = useState(3);
-  const [btEdge, setBtEdge] = useState(5);
-  const [btConf, setBtConf] = useState(85);
-  const [btResult, setBtResult] = useState(null);
-  const [btRunning, setBtRunning] = useState(false);
-  const [btLog, setBtLog] = useState('');
+  const queryClient = useQueryClient();
 
-  const runBt = async () => {
-    setBtRunning(true);
-    setBtResult(null);
-    try {
-      const res = await runBacktest((msg, pct) => setBtLog(`${msg} (${pct}%)`));
-      setBtResult(res);
-    } finally {
-      setBtRunning(false);
-    }
+  // ── Load bot config (for "Set as Live" mutation) ──────────────────────────
+  const { data: configs = [] } = useQuery({
+    queryKey: ['bot-config'],
+    queryFn: () => base44.entities.BotConfig.list(),
+  });
+
+  const saveConfig = useMutation({
+    mutationFn: async (updates) => {
+      if (configs.length > 0) return base44.entities.BotConfig.update(configs[0].id, updates);
+      return base44.entities.BotConfig.create(updates);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bot-config'] }),
+  });
+
+  const handleSetLiveParams = async (params) => {
+    await saveConfig.mutateAsync(params);
+    toast.success(`✅ Live parameters updated — Lag ${params.lag_threshold}pp · Edge ${params.edge_threshold}% · Conf ${params.confidence_threshold}% · Bot ${params.bot_running ? 'started' : 'unchanged'}`);
   };
 
   const totalPnl = trades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
@@ -223,87 +222,13 @@ export default function Analytics() {
         </div>
       )}
 
-      {/* ── Backtest Section ──────────────────────────────────────────────── */}
+      {/* ── Multi-Scenario Backtest ───────────────────────────────────────── */}
       <div className="rounded-xl border border-border bg-card p-5">
-        <h3 className="text-sm font-semibold text-foreground mb-1">Backtest — 90-Day Simulation</h3>
+        <h3 className="text-sm font-semibold text-foreground mb-1">Backtest — Multi-Scenario Comparison</h3>
         <p className="text-xs text-muted-foreground mb-5">
-          Simulate how the bot would have performed on real BTC/ETH price history (CoinGecko). Adjust thresholds and run to find optimal parameters.
+          Define up to 4 scenarios with different parameters. Run them side-by-side, compare equity curves, then click <strong className="text-foreground">Set as Live Parameters</strong> to deploy the winner instantly.
         </p>
-
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-5">
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <Label className="text-xs text-muted-foreground">Lag Threshold</Label>
-              <span className="text-xs font-mono font-bold text-foreground">{btLag}pp</span>
-            </div>
-            <Slider value={[btLag]} onValueChange={([v]) => setBtLag(v)} min={1} max={10} step={0.5} />
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <Label className="text-xs text-muted-foreground">Edge Threshold</Label>
-              <span className="text-xs font-mono font-bold text-foreground">{btEdge}%</span>
-            </div>
-            <Slider value={[btEdge]} onValueChange={([v]) => setBtEdge(v)} min={1} max={20} step={0.5} />
-          </div>
-          <div className="space-y-2">
-            <div className="flex justify-between">
-              <Label className="text-xs text-muted-foreground">Confidence Threshold</Label>
-              <span className="text-xs font-mono font-bold text-foreground">{btConf}%</span>
-            </div>
-            <Slider value={[btConf]} onValueChange={([v]) => setBtConf(v)} min={50} max={99} />
-          </div>
-        </div>
-
-        <Button onClick={runBt} disabled={btRunning} className="mb-5 bg-primary text-primary-foreground">
-          {btRunning ? `Running… ${btLog}` : '▶ Run Backtest (90-day real data)'}
-        </Button>
-
-        {btResult && (
-          <div className="space-y-5">
-            {/* KPI row */}
-            <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-              {[
-                { label: 'Trades', value: btResult.tradeCount },
-                { label: 'Win Rate', value: `${btResult.winRate.toFixed(1)}%`, color: btResult.winRate >= 50 ? 'text-accent' : 'text-destructive' },
-                { label: 'Total P&L', value: `${btResult.totalPnl >= 0 ? '+' : ''}$${btResult.totalPnl.toFixed(2)}`, color: btResult.totalPnl >= 0 ? 'text-accent' : 'text-destructive' },
-                { label: 'Max Drawdown', value: `${btResult.maxDrawdown.toFixed(1)}%`, color: btResult.maxDrawdown > 20 ? 'text-destructive' : 'text-foreground' },
-                { label: 'Profit Factor', value: btResult.profitFactor.toFixed(2), color: btResult.profitFactor >= 1.2 ? 'text-accent' : 'text-destructive' },
-              ].map(({ label, value, color }) => (
-                <div key={label} className="rounded-lg bg-secondary/40 border border-border px-3 py-2.5 text-center">
-                  <p className="text-[10px] text-muted-foreground mb-1">{label}</p>
-                  <p className={`text-sm font-mono font-bold ${color || 'text-foreground'}`}>{value}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Recommended thresholds */}
-            <div className="rounded-lg bg-accent/5 border border-accent/20 px-4 py-3 text-xs font-mono">
-              <span className="text-accent font-bold">✓ Grid-search optimum: </span>
-              Lag {btResult.recommendedThresholds.lag}pp · Edge {btResult.recommendedThresholds.edge}% · Conf {btResult.recommendedThresholds.confidence}%
-              <span className="text-muted-foreground ml-2">(avg across BTC/ETH 5-min &amp; 15-min)</span>
-            </div>
-
-            {/* Equity curve */}
-            {btResult.priceSeries?.length > 0 && (
-              <div>
-                <p className="text-xs text-muted-foreground mb-2">Equity Curve</p>
-                <div className="h-44">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <LineChart data={btResult.priceSeries}>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 14% 14%)" />
-                      <XAxis dataKey="idx" tick={{ fontSize: 9, fill: 'hsl(215 14% 50%)' }} tickLine={false} />
-                      <YAxis tick={{ fontSize: 10, fill: 'hsl(215 14% 50%)' }} tickLine={false} tickFormatter={v => `$${v}`} />
-                      <Tooltip content={<ChartTooltip prefix="$" />} />
-                      <Line type="monotone" dataKey="balance" name="Balance" stroke="hsl(199 89% 48%)" strokeWidth={2} dot={false} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
-              </div>
-            )}
-
-            <p className="text-[10px] text-muted-foreground">Data source: {btResult.dataSource}</p>
-          </div>
-        )}
+        <BacktestScenarioBuilder onSetLiveParams={handleSetLiveParams} />
       </div>
     </div>
   );
