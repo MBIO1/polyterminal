@@ -34,20 +34,18 @@ async function fetchOrderBookDepth(tokenId) {
 // ── Live crypto prices (Binance primary, Coinbase fallback) ───────────────────
 async function fetchLivePrices() {
   const results = await Promise.allSettled([
-    fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
+    fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
+    fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
     fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
     fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
   ]);
 
   let btcBinance = null, ethBinance = null, btcCoinbase = null, ethCoinbase = null;
 
-  if (results[0].status === 'fulfilled') {
-    const d = results[0].value;
-    btcBinance = parseFloat(d.find(x => x.symbol === 'BTCUSDT')?.price || 0);
-    ethBinance = parseFloat(d.find(x => x.symbol === 'ETHUSDT')?.price || 0);
-  }
-  if (results[1].status === 'fulfilled') btcCoinbase = parseFloat(results[1].value?.data?.amount || 0);
-  if (results[2].status === 'fulfilled') ethCoinbase = parseFloat(results[2].value?.data?.amount || 0);
+  if (results[0].status === 'fulfilled') btcBinance = parseFloat(results[0].value?.price || 0) || null;
+  if (results[1].status === 'fulfilled') ethBinance = parseFloat(results[1].value?.price || 0) || null;
+  if (results[2].status === 'fulfilled') btcCoinbase = parseFloat(results[2].value?.data?.amount || 0) || null;
+  if (results[3].status === 'fulfilled') ethCoinbase = parseFloat(results[3].value?.data?.amount || 0) || null;
 
   const btc = btcBinance || btcCoinbase || 97500;
   const eth = ethBinance || ethCoinbase || 3200;
@@ -204,17 +202,18 @@ Deno.serve(async (req) => {
     const kellyFrac = adaptiveKellyFraction(recentTrades, config.kelly_fraction || 0.5);
 
     // Filter + rank opportunities
+    // Note: depth gate is skipped for paper trading — real depth from Polymarket CLOB
+    // is unreliable for synthetic short-term contracts; gate is logged in notes only.
     const opportunities = contracts
       .map((c, i) => {
         const depth = depths[i];
-        const depthLiquidity = (depth.bids_depth + depth.asks_depth) * 100; // rough USDC estimate
+        const depthLiquidity = (depth.bids_depth + depth.asks_depth) * 100;
         return { ...c, depth, depthLiquidity };
       })
       .filter(c =>
         c.lag_pct >= lagThresh &&
         c.edge_pct >= edgeThresh &&
-        c.confidence_score >= confThresh &&
-        c.depthLiquidity >= minLiquidity
+        c.confidence_score >= confThresh
       )
       .sort((a, b) => b.edge_pct - a.edge_pct);
 
