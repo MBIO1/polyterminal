@@ -95,7 +95,7 @@ export default function BotManager() {
       <div className="flex items-start gap-3 rounded-xl border border-chart-4/20 bg-chart-4/5 px-4 py-3">
         <AlertTriangle className="w-4 h-4 text-chart-4 mt-0.5 shrink-0" />
         <p className="text-xs font-mono text-muted-foreground leading-relaxed">
-          Arm the bot on each position independently. The system simulates live price feeds and automatically fires a market sell when your trailing stop (tracks peak price) or take-profit threshold is breached.
+          All positions are <span className="text-accent font-bold">auto-monitored</span> from the moment they open. The bot continuously tracks live prices and automatically fires a market sell when the trailing stop (tracks peak) or take-profit is breached. You can pause any position manually.
         </p>
       </div>
 

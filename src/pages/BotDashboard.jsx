@@ -43,6 +43,7 @@ export default function BotDashboard() {
   const [localConfig, setLocalConfig] = useState(DEFAULT_CONFIG);
   const [running, setRunning] = useState(false);
   const scanIntervalRef = useRef(null);
+  const lastTradeRef = useRef({}); // throttle: contractId → timestamp
 
   const { data: configs = [] } = useQuery({
     queryKey: ['bot-config'],
@@ -101,7 +102,7 @@ export default function BotDashboard() {
     return () => stopPriceSimulator(handlePriceUpdate);
   }, [handlePriceUpdate]);
 
-  // Opportunity scanner loop
+  // Opportunity scanner loop — fully automated: scans + auto-executes qualifying opportunities
   useEffect(() => {
     if (!running || isHalted) {
       setOpportunities([]);
@@ -109,7 +110,7 @@ export default function BotDashboard() {
       return;
     }
 
-    const scan = () => {
+    const scan = async () => {
       const btcP = prices.btc?.price || 97500;
       const ethP = prices.eth?.price || 3200;
       const btcPr = btcP * (1 - (prices.btc?.change || 0) / 100);
@@ -138,12 +139,77 @@ export default function BotDashboard() {
         .sort((a, b) => b.edge_pct - a.edge_pct);
 
       setOpportunities(opps);
+
+      // ── AUTO-EXECUTE top qualifying opportunity each scan ─────────────────
+      const confThresh = config.confidence_threshold || 85;
+      const edgeThresh = config.edge_threshold || 5;
+      const best = opps.find(
+        o => o.confidence_score >= confThresh && o.edge_pct >= edgeThresh && o.kelly_size_usdc >= 1
+      );
+      if (best) {
+        await autoExecute(best);
+      }
     };
 
     scan();
-    scanIntervalRef.current = setInterval(scan, 2000);
+    scanIntervalRef.current = setInterval(scan, 8000); // scan every 8s
     return () => clearInterval(scanIntervalRef.current);
   }, [running, isHalted, prices, config, portfolioValue]);
+
+  // ── Automated execution (called from scan loop) ───────────────────────────
+  const autoExecute = async (opp) => {
+    const key = `${opp.id}`;
+    const now = Date.now();
+    // Throttle: don't re-enter same contract within 60s
+    if (lastTradeRef.current[key] && now - lastTradeRef.current[key] < 60000) return;
+    lastTradeRef.current[key] = now;
+
+    const isPaper = config.paper_trading !== false || !(config.live_flag_1 && config.live_flag_2 && config.live_flag_3);
+    const winProb = opp.cex_implied_prob;
+    const outcome = Math.random() < winProb ? 'win' : 'loss';
+    const pnl = outcome === 'win'
+      ? opp.kelly_size_usdc * ((1 - opp.polymarket_price) / opp.polymarket_price)
+      : -opp.kelly_size_usdc;
+
+    await tradeMutation.mutateAsync({
+      market_title: opp.market_title || opp.title,
+      asset: opp.asset,
+      contract_type: opp.contract_type,
+      side: opp.recommended_side,
+      entry_price: opp.polymarket_price,
+      exit_price: outcome === 'win' ? 1.0 : 0.0,
+      shares: Math.floor(opp.kelly_size_usdc / opp.polymarket_price),
+      size_usdc: opp.kelly_size_usdc,
+      edge_at_entry: opp.edge_pct,
+      confidence_at_entry: opp.confidence_score,
+      kelly_fraction_used: config.kelly_fraction || 0.5,
+      pnl_usdc: Number(pnl.toFixed(4)),
+      outcome,
+      mode: isPaper ? 'paper' : 'live',
+      btc_price: prices.btc?.price,
+      eth_price: prices.eth?.price,
+      telegram_sent: false,
+      notes: '🤖 Auto-executed',
+    });
+
+    toast.success(
+      `🤖 AUTO · ${opp.asset} ${opp.contract_type?.replace('_', ' ')} ${opp.recommended_side?.toUpperCase()} · ${outcome === 'win' ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`}`,
+      { duration: 5000 }
+    );
+
+    const newDailyPnl = todayPnl + pnl;
+    const newDailyDD = Math.abs(Math.min(0, newDailyPnl)) / startingBalance * 100;
+    if (newDailyDD >= (config.daily_drawdown_halt || 20)) {
+      toast.error('⚠️ Daily drawdown limit hit — trading halted!', { duration: 10000 });
+      await drawdownMutation.mutateAsync({
+        event_type: 'daily_halt',
+        drawdown_pct: newDailyDD,
+        portfolio_value: portfolioValue + pnl,
+        triggered_at_pct: config.daily_drawdown_halt || 20,
+        message: `Daily drawdown ${newDailyDD.toFixed(1)}% exceeded limit`,
+      });
+    }
+  };
 
   const handleExecute = async (opp) => {
     if (isHalted) return;

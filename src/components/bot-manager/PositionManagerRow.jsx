@@ -10,9 +10,9 @@ export default function PositionManagerRow({ position, onSell }) {
   // Simulate live price drift around current_price
   const [livePrice, setLivePrice] = useState(position.current_price || avgPrice);
   const [trailingHigh, setTrailingHigh] = useState(position.current_price || avgPrice);
-  const [stopPct, setStopPct] = useState(10);   // trailing stop %
-  const [takePct, setTakePct] = useState(20);   // take-profit %
-  const [armed, setArmed] = useState(false);
+  const [stopPct, setStopPct] = useState(8);    // trailing stop %
+  const [takePct, setTakePct] = useState(12);   // take-profit %
+  const [armed, setArmed] = useState(true); // auto-arm on mount
   const [triggered, setTriggered] = useState(null); // 'stop' | 'tp'
   const intervalRef = useRef(null);
   const priceRef = useRef(livePrice);
@@ -173,12 +173,12 @@ export default function PositionManagerRow({ position, onSell }) {
             onClick={() => setArmed(a => !a)}
             className={`flex-1 font-mono text-xs ${
               armed
-                ? 'bg-chart-4/10 text-chart-4 border border-chart-4/30 hover:bg-chart-4/20'
-                : 'bg-primary/10 text-primary border border-primary/30 hover:bg-primary/20'
+                ? 'bg-accent/10 text-accent border border-accent/30 hover:bg-accent/20'
+                : 'bg-secondary text-muted-foreground border border-border hover:bg-secondary/80'
             }`}
           >
             <Zap className="w-3 h-3 mr-1" />
-            {armed ? '⏸ Disarm Bot' : '▶ Arm Bot'}
+            {armed ? '🤖 AUTO — Click to Pause' : '▶ Resume Auto'}
           </Button>
           <Button
             size="sm"
