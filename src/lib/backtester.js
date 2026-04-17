@@ -103,18 +103,38 @@ function computeProfitFactor(trades) {
   return loss > 0 ? gross / loss : gross > 0 ? 99 : 0;
 }
 
-// ── Grid search to find best thresholds ─────────────────────────────────────
+// ── Quick search (3×3 = 9 combos, browser-safe) ──────────────────────────────
+function quickSearch(prices, contractType, asset) {
+  const lagOptions  = [3, 5, 7];
+  const edgeOptions = [4, 7, 10];
+  const conf        = 85; // fixed to keep combos low
+
+  let best = null;
+  for (const lag of lagOptions) {
+    for (const edge of edgeOptions) {
+      const r = runScenario(prices, contractType, asset, lag, edge, conf);
+      if (r.trades.length < 5) continue;
+      const score = r.winRate * 0.4 + r.profitFactor * 10 - r.maxDD * 0.5;
+      if (!best || score > best.score) {
+        best = { lag, edge, conf, score, ...r };
+      }
+    }
+  }
+  return best;
+}
+
+// ── Full grid search (only used in non-params path) ──────────────────────────
 function gridSearch(prices, contractType, asset) {
-  const lagOptions   = [2, 3, 4, 5, 6];
-  const edgeOptions  = [3, 5, 7, 10];
-  const confOptions  = [70, 80, 85, 90, 95];
+  const lagOptions   = [3, 5, 7];
+  const edgeOptions  = [4, 7, 10];
+  const confOptions  = [80, 85, 90];
 
   let best = null;
   for (const lag of lagOptions) {
     for (const edge of edgeOptions) {
       for (const conf of confOptions) {
         const r = runScenario(prices, contractType, asset, lag, edge, conf);
-        if (r.trades.length < 10) continue;
+        if (r.trades.length < 5) continue;
         const score = r.winRate * 0.4 + r.profitFactor * 10 - r.maxDD * 0.5;
         if (!best || score > best.score) {
           best = { lag, edge, conf, score, ...r };
@@ -149,15 +169,15 @@ export async function runBacktest(onProgress, params = null) {
   // ── Fixed-param single scenario ───────────────────────────────────────────
   if (params) {
     const { lagThresh = 3, edgeThresh = 5, confThresh = 85, kellyFrac = 0.5, capital = 1000, contractType = '5min_up' } = params;
-    const asset = contractType.startsWith('5') || contractType.startsWith('15') ? 'BTC' : 'BTC';
+    const asset = 'BTC';
     const prices = contractType.includes('eth') ? ethPrices : btcPrices;
 
     onProgress?.(`Running ${contractType} scenario…`, 50);
     const result = runScenario(prices, contractType, asset, lagThresh, edgeThresh, confThresh, kellyFrac, capital);
 
-    // Also run grid search for recommended thresholds
-    onProgress?.('Grid-searching optimal thresholds…', 75);
-    const best = gridSearch(prices, contractType, asset);
+    // Skip full grid search (too slow in browser) — use a lightweight 2D search only
+    onProgress?.('Finding optimal thresholds (quick search)…', 75);
+    const best = quickSearch(prices, contractType, asset);
     onProgress?.('Done', 100);
 
     return {

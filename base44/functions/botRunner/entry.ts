@@ -266,11 +266,14 @@ Deno.serve(async (req) => {
       .sort((a, b) => b.edge_pct - a.edge_pct);
 
     const executed = [];
+    // Execute up to 3 opportunities per scan (respect max_open_positions gate above)
+    const slotsLeft = Math.min(3, maxPos - openCount);
 
-    for (const opp of opportunities.slice(0, 1)) { // execute top-1 per scan
+    for (const opp of opportunities.slice(0, slotsLeft)) {
       const now = Date.now();
       const key = opp.id;
-      if (lastTradeTs[key] && now - lastTradeTs[key] < 60000) continue;
+      // Throttle same contract: don't re-enter within 2 minutes
+      if (lastTradeTs[key] && now - lastTradeTs[key] < 120000) continue;
       lastTradeTs[key] = now;
 
       const kellySize = halfKelly(opp.edge_pct, opp.polymarket_price, portfolio, maxPosPct, kellyFrac);
