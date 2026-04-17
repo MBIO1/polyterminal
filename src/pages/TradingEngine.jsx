@@ -22,7 +22,6 @@ import {
   SIDE,
 } from '@/lib/polymarket/eip712.js';
 import {
-  getMidpointPrice,
   computeTakerFee,
   computeNetPnl,
 } from '@/lib/polymarket/clobClient.js';
@@ -66,7 +65,7 @@ export default function TradingEngine() {
   const [loadingCreds, setLoadingCreds] = useState(true);
   const [connStatus, setConnStatus] = useState(null);
   const [connError, setConnError] = useState('');
-  const [livePrice, setLivePrice] = useState(null);
+  const [connAddress, setConnAddress] = useState(null);
   const [orderPreview, setOrderPreview] = useState(null);
   const [orderForm, setOrderForm] = useState({
     tokenId: TEST_TOKEN,
@@ -106,10 +105,13 @@ export default function TradingEngine() {
     setConnStatus('testing');
     setConnError('');
     try {
-      const price = await getMidpointPrice(TEST_TOKEN);
-      setLivePrice(price);
+      const res = await base44.functions.invoke('polyTestConnection', {});
+      const d = res.data;
+      if (!d?.clobReachable) throw new Error('CLOB unreachable');
+      if (!d?.allCredsSet)   throw new Error('Missing credentials');
+      setConnAddress(d.address);
       setConnStatus('ok');
-      toast.success(`CLOB reachable · BTC midpoint ${(price.price * 100).toFixed(1)}¢`);
+      toast.success(`CLOB reachable ✓ · All credentials set · ${d.address?.slice(0, 8)}…`);
     } catch (err) {
       setConnStatus('error');
       setConnError(err.message);
@@ -225,11 +227,10 @@ export default function TradingEngine() {
               <Row label="Polygon Chain ID" value="137 (mainnet)" />
               <Row label="Exchange contract" value="0x4bFb41d5B...8982E" />
               <Row label="Test token (BTC YES)" value="21742...6455" />
-              {livePrice && (
+              {connAddress && (
                 <>
-                  <Row label="BTC market bid" value={`${(livePrice.bid * 100).toFixed(1)}¢`} color="text-accent" />
-                  <Row label="BTC market ask" value={`${(livePrice.ask * 100).toFixed(1)}¢`} color="text-destructive" />
-                  <Row label="BTC midpoint" value={`${(livePrice.price * 100).toFixed(1)}¢`} color="text-primary" />
+                  <Row label="Verified address" value={`${connAddress.slice(0, 10)}…${connAddress.slice(-6)}`} color="text-accent" />
+                  <Row label="Auth endpoints" value="Require non-US IP" color="text-chart-4" />
                 </>
               )}
             </div>
