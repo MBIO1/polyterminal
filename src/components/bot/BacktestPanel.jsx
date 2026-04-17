@@ -150,18 +150,6 @@ export default function BacktestPanel({ onApplyThresholds }) {
               ))}
             </div>
 
-            {/* Per-scenario breakdown */}
-            <div className="space-y-1">
-              {Object.entries(result.scenarios).filter(([, v]) => v).map(([name, s]) => (
-                <div key={name} className="flex items-center justify-between text-[10px] font-mono text-muted-foreground">
-                  <span className="text-foreground/70">{name}</span>
-                  <span>lag≥{s.lag}pp edge≥{s.edge}% conf≥{s.conf}%</span>
-                  <span className={s.winRate >= 55 ? 'text-accent' : 'text-chart-4'}>{s.winRate.toFixed(0)}% WR</span>
-                  <span className={s.totalPnl >= 0 ? 'text-accent' : 'text-destructive'}>{s.totalPnl >= 0 ? '+' : ''}${s.totalPnl.toFixed(0)}</span>
-                </div>
-              ))}
-            </div>
-
             <Button
               onClick={handleApply}
               className="w-full bg-accent/10 text-accent border border-accent/20 hover:bg-accent/20 font-mono text-xs h-8"
