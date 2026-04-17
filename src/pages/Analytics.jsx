@@ -7,6 +7,7 @@ import {
   ReferenceLine, Cell
 } from 'recharts';
 import BacktestScenarioBuilder from '@/components/analytics/BacktestScenarioBuilder';
+import PerformanceSection from '@/components/analytics/PerformanceSection';
 import { toast } from 'sonner';
 
 // ── Tooltip helper ────────────────────────────────────────────────────────────
@@ -133,6 +134,8 @@ export default function Analytics() {
         </div>
       ) : (
         <div className="space-y-6">
+          {/* Performance Metrics Section */}
+          <PerformanceSection trades={trades} />
           {/* Row 1: cumulative P&L + daily P&L */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Section title="Cumulative P&L" subtitle="Running total across all bot trades">
