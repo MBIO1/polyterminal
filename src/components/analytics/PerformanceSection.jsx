@@ -97,7 +97,7 @@ export default function PerformanceSection({ trades, startingBalance = 1000 }) {
           />
           <MiniStat
             label="Peak P&L"
-            value={`$${Math.max(0, ...m.equityCurve.map(e => e.cumPnl)).toFixed(2)}`}
+            value={`$${(m.equityCurve.length > 0 ? Math.max(...m.equityCurve.map(e => e.cumPnl)) : 0).toFixed(2)}`}
             color="text-accent"
           />
         </div>
