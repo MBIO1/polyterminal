@@ -1,11 +1,20 @@
 import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Wallet, TrendingUp, BarChart3, CheckCircle, Activity } from 'lucide-react';
+import { Wallet, TrendingUp, CheckCircle, Activity, TrendingDown, BarChart2, Percent } from 'lucide-react';
 import StatCard from '@/components/dashboard/StatCard';
 import PortfolioChart from '@/components/dashboard/PortfolioChart';
 import RecentTrades from '@/components/dashboard/RecentTrades';
 import { Link } from 'react-router-dom';
+import { computeMetrics } from '@/lib/tradeMetrics';
+
+const MiniMetric = ({ label, value, color = 'text-foreground', sub }) => (
+  <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
+    <p className="text-[10px] text-muted-foreground font-mono mb-1">{label}</p>
+    <p className={`text-base font-bold font-mono ${color}`}>{value}</p>
+    {sub && <p className="text-[9px] text-muted-foreground mt-0.5">{sub}</p>}
+  </div>
+);
 
 export default function Dashboard() {
   const { data: configs = [] } = useQuery({
@@ -23,17 +32,16 @@ export default function Dashboard() {
   const config = configs[0] || {};
   const startingBalance = config.starting_balance || 1000;
 
-  const { totalPnl, portfolioValue, winRate, openCount } = useMemo(() => {
-    const totalPnl = trades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-    const portfolioValue = startingBalance + totalPnl;
-    const resolved = trades.filter(t => t.outcome === 'win' || t.outcome === 'loss');
-    const wins = resolved.filter(t => t.outcome === 'win').length;
-    const winRate = resolved.length > 0 ? (wins / resolved.length * 100).toFixed(1) : '0.0';
-    const openCount = trades.filter(t => t.outcome === 'pending').length;
-    return { totalPnl, portfolioValue, winRate, openCount };
-  }, [trades, startingBalance]);
+  const m = useMemo(() => computeMetrics(trades, startingBalance), [trades, startingBalance]);
 
-  const pnlPct = startingBalance > 0 ? ((totalPnl / startingBalance) * 100) : 0;
+  const { totalPnl, portfolioValue, winRate, openCount } = {
+    totalPnl: m.totalPnl,
+    portfolioValue: m.portfolioValue,
+    winRate: m.winRate.toFixed(1),
+    openCount: m.pendingCount,
+  };
+
+  const pnlPct = startingBalance > 0 ? ((m.realizedPnl / startingBalance) * 100) : 0;
   const isRunning = config.bot_running && !config.kill_switch_active;
 
   return (
@@ -54,7 +62,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats */}
+      {/* Stats Row 1 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         <StatCard
           label="Portfolio Value"
@@ -65,8 +73,8 @@ export default function Dashboard() {
           highlight
         />
         <StatCard
-          label="Total P&L"
-          value={`${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`}
+          label="Realized P&L"
+          value={`${m.realizedPnl >= 0 ? '+' : ''}$${m.realizedPnl.toFixed(2)}`}
           change={Number(pnlPct.toFixed(1))}
           icon={TrendingUp}
         />
@@ -79,6 +87,46 @@ export default function Dashboard() {
           label="Open Trades"
           value={openCount}
           icon={Activity}
+        />
+      </div>
+
+      {/* Stats Row 2: Advanced metrics */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+        <MiniMetric
+          label="Unrealized P&L"
+          value={m.pendingCount > 0 ? `${m.unrealizedPnl >= 0 ? '+' : ''}$${m.unrealizedPnl.toFixed(2)}` : '—'}
+          color={m.unrealizedPnl >= 0 ? 'text-primary' : 'text-chart-4'}
+          sub={`${m.pendingCount} open`}
+        />
+        <MiniMetric
+          label="Profit Factor"
+          value={m.profitFactor >= 999 ? '∞' : m.profitFactor.toFixed(2)}
+          color={m.profitFactor >= 1.5 ? 'text-accent' : m.profitFactor >= 1 ? 'text-chart-4' : 'text-destructive'}
+          sub="win $ / loss $"
+        />
+        <MiniMetric
+          label="Sharpe Ratio"
+          value={m.sharpeRatio !== 0 ? m.sharpeRatio.toFixed(2) : '—'}
+          color={m.sharpeRatio >= 1 ? 'text-accent' : m.sharpeRatio >= 0 ? 'text-chart-4' : 'text-destructive'}
+          sub="annualized"
+        />
+        <MiniMetric
+          label="Max Drawdown"
+          value={`${m.maxDrawdown.toFixed(1)}%`}
+          color={m.maxDrawdown < -20 ? 'text-destructive' : m.maxDrawdown < -10 ? 'text-chart-4' : 'text-foreground'}
+          sub="peak-to-trough"
+        />
+        <MiniMetric
+          label="📄 Paper Win Rate"
+          value={m.paperWinRate !== null ? `${m.paperWinRate.toFixed(1)}%` : '—'}
+          color={m.paperWinRate !== null ? (m.paperWinRate >= 50 ? 'text-accent' : 'text-destructive') : 'text-muted-foreground'}
+          sub={m.paperCount > 0 ? `${m.paperCount} trades` : 'no paper trades'}
+        />
+        <MiniMetric
+          label="💰 Live Win Rate"
+          value={m.liveWinRate !== null ? `${m.liveWinRate.toFixed(1)}%` : '—'}
+          color={m.liveWinRate !== null ? (m.liveWinRate >= 50 ? 'text-accent' : 'text-destructive') : 'text-muted-foreground'}
+          sub={m.liveCount > 0 ? `${m.liveCount} trades` : 'no live trades'}
         />
       </div>
 

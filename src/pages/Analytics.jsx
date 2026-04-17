@@ -136,7 +136,7 @@ export default function Analytics() {
       ) : (
         <div className="space-y-6">
           {/* Performance Metrics Section */}
-          <PerformanceSection trades={trades} />
+          <PerformanceSection trades={trades} startingBalance={configs[0]?.starting_balance || 1000} />
           {/* Row 1: cumulative P&L + daily P&L */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Section title="Cumulative P&L" subtitle="Running total across all bot trades">

@@ -1,8 +1,9 @@
 import React, { useMemo } from 'react';
 import {
-  LineChart, Line, AreaChart, Area,
+  AreaChart, Area,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine,
 } from 'recharts';
+import { computeMetrics } from '@/lib/tradeMetrics';
 
 const ChartTooltip = ({ active, payload, label, prefix = '', suffix = '' }) => {
   if (!active || !payload?.length) return null;
@@ -18,85 +19,128 @@ const ChartTooltip = ({ active, payload, label, prefix = '', suffix = '' }) => {
   );
 };
 
-const MetricCard = ({ label, value, sub, color = 'text-foreground' }) => (
+const MetricCard = ({ label, value, sub, color = 'text-foreground', badge }) => (
   <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3">
-    <p className="text-[11px] text-muted-foreground font-mono mb-1">{label}</p>
+    <div className="flex items-center justify-between mb-1">
+      <p className="text-[11px] text-muted-foreground font-mono">{label}</p>
+      {badge && (
+        <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">{badge}</span>
+      )}
+    </div>
     <p className={`text-xl font-bold font-mono ${color}`}>{value}</p>
     {sub && <p className="text-[10px] text-muted-foreground mt-0.5">{sub}</p>}
   </div>
 );
 
-export default function PerformanceSection({ trades }) {
-  const resolved = useMemo(() => trades.filter(t => t.outcome === 'win' || t.outcome === 'loss'), [trades]);
+const MiniStat = ({ label, value, color = 'text-foreground' }) => (
+  <div className="flex justify-between items-center py-1 border-b border-border/30 last:border-0">
+    <span className="text-xs text-muted-foreground">{label}</span>
+    <span className={`text-xs font-mono font-bold ${color}`}>{value}</span>
+  </div>
+);
 
-  // ── Core metrics ──────────────────────────────────────────────────────────
-  const metrics = useMemo(() => {
-    const wins  = resolved.filter(t => t.outcome === 'win');
-    const losses = resolved.filter(t => t.outcome === 'loss');
-    const winRate = resolved.length > 0 ? (wins.length / resolved.length * 100) : 0;
-
-    const grossWin  = wins.reduce((s, t)   => s + (t.pnl_usdc || 0), 0);
-    const grossLoss = losses.reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
-    const profitFactor = grossLoss > 0 ? grossWin / grossLoss : wins.length > 0 ? Infinity : 0;
-
-    const totalPnl = trades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-    const avgPnl   = resolved.length > 0 ? totalPnl / resolved.length : 0;
-
-    return { winRate, profitFactor, avgPnl, totalPnl, tradeCount: trades.length };
-  }, [trades, resolved]);
-
-  // ── Equity curve + drawdown ───────────────────────────────────────────────
-  const { equityCurve, drawdownSeries } = useMemo(() => {
-    const sorted = [...trades].sort((a, b) => new Date(a.created_date) - new Date(b.created_date));
-    let cum = 0, peak = 0;
-    const equity = [];
-    const dd     = [];
-    sorted.forEach((t, i) => {
-      cum += t.pnl_usdc || 0;
-      if (cum > peak) peak = cum;
-      const drawdown = peak > 0 ? ((peak - cum) / peak) * 100 : 0;
-      const label = t.created_date?.slice(5, 10) || String(i + 1);
-      equity.push({ idx: i + 1, label, cumPnl: Number(cum.toFixed(2)) });
-      dd.push({ idx: i + 1, label, drawdown: Number((-drawdown).toFixed(2)) });
-    });
-    return { equityCurve: equity, drawdownSeries: dd };
-  }, [trades]);
-
-  const maxDD = useMemo(() => {
-    if (!drawdownSeries.length) return 0;
-    return Math.min(...drawdownSeries.map(d => d.drawdown));
-  }, [drawdownSeries]);
+export default function PerformanceSection({ trades, startingBalance = 1000 }) {
+  const m = useMemo(() => computeMetrics(trades, startingBalance), [trades, startingBalance]);
 
   if (trades.length === 0) return null;
 
+  const pfColor    = m.profitFactor >= 1.5 ? 'text-accent' : m.profitFactor >= 1 ? 'text-chart-4' : 'text-destructive';
+  const sharpeColor = m.sharpeRatio >= 1 ? 'text-accent' : m.sharpeRatio >= 0 ? 'text-chart-4' : 'text-destructive';
+  const ddColor    = m.maxDrawdown < -20 ? 'text-destructive' : m.maxDrawdown < -10 ? 'text-chart-4' : 'text-foreground';
+
   return (
     <div className="space-y-5">
-      {/* KPI cards */}
+      {/* Row 1: Core KPIs */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <MetricCard
           label="Win Rate"
-          value={`${metrics.winRate.toFixed(1)}%`}
-          sub={`${resolved.length} resolved trades`}
-          color={metrics.winRate >= 50 ? 'text-accent' : 'text-destructive'}
+          value={`${m.winRate.toFixed(1)}%`}
+          sub={`${m.resolvedCount} resolved trades`}
+          color={m.winRate >= 50 ? 'text-accent' : 'text-destructive'}
         />
         <MetricCard
           label="Profit Factor"
-          value={isFinite(metrics.profitFactor) ? metrics.profitFactor.toFixed(2) : '∞'}
+          value={m.profitFactor >= 999 ? '∞' : m.profitFactor.toFixed(2)}
           sub="gross win / gross loss"
-          color={metrics.profitFactor >= 1 ? 'text-accent' : 'text-destructive'}
+          color={pfColor}
+        />
+        <MetricCard
+          label="Sharpe Ratio"
+          value={m.sharpeRatio !== 0 ? m.sharpeRatio.toFixed(2) : '—'}
+          sub="annualized · risk-free=0"
+          color={sharpeColor}
+          badge="annlzd"
         />
         <MetricCard
           label="Avg P&L / Trade"
-          value={`${metrics.avgPnl >= 0 ? '+' : ''}$${metrics.avgPnl.toFixed(2)}`}
-          sub="across resolved trades"
-          color={metrics.avgPnl >= 0 ? 'text-accent' : 'text-destructive'}
+          value={`${m.avgPnl >= 0 ? '+' : ''}$${m.avgPnl.toFixed(2)}`}
+          sub="realized trades only"
+          color={m.avgPnl >= 0 ? 'text-accent' : 'text-destructive'}
         />
-        <MetricCard
-          label="Max Drawdown"
-          value={`${maxDD.toFixed(1)}%`}
-          sub="peak-to-trough"
-          color={maxDD < -20 ? 'text-destructive' : maxDD < -10 ? 'text-chart-4' : 'text-foreground'}
-        />
+      </div>
+
+      {/* Row 2: Drawdown + Realized/Unrealized + Mode Win Rates */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+
+        {/* Drawdown block */}
+        <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3 space-y-1.5">
+          <p className="text-[11px] text-muted-foreground font-mono mb-2">Drawdown Analysis</p>
+          <MiniStat
+            label="Max Drawdown"
+            value={`${m.maxDrawdown.toFixed(1)}%`}
+            color={ddColor}
+          />
+          <MiniStat
+            label="Trailing (current)"
+            value={`${m.trailingDrawdown.toFixed(1)}%`}
+            color={m.trailingDrawdown < -10 ? 'text-chart-4' : 'text-foreground'}
+          />
+          <MiniStat
+            label="Peak P&L"
+            value={`$${Math.max(0, ...m.equityCurve.map(e => e.cumPnl)).toFixed(2)}`}
+            color="text-accent"
+          />
+        </div>
+
+        {/* Realized vs Unrealized */}
+        <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3 space-y-1.5">
+          <p className="text-[11px] text-muted-foreground font-mono mb-2">P&L Breakdown</p>
+          <MiniStat
+            label="Realized P&L"
+            value={`${m.realizedPnl >= 0 ? '+' : ''}$${m.realizedPnl.toFixed(2)}`}
+            color={m.realizedPnl >= 0 ? 'text-accent' : 'text-destructive'}
+          />
+          <MiniStat
+            label="Unrealized P&L"
+            value={m.pendingCount > 0 ? `${m.unrealizedPnl >= 0 ? '+' : ''}$${m.unrealizedPnl.toFixed(2)}` : '—'}
+            color={m.unrealizedPnl >= 0 ? 'text-primary' : 'text-chart-4'}
+          />
+          <MiniStat
+            label={`Open Positions (${m.pendingCount})`}
+            value={`$${(m.pendingCount > 0 ? trades.filter(t => t.outcome === 'pending').reduce((s, t) => s + (t.size_usdc || 0), 0) : 0).toFixed(2)} at risk`}
+            color="text-muted-foreground"
+          />
+        </div>
+
+        {/* Win rate by mode */}
+        <div className="rounded-lg border border-border bg-secondary/40 px-4 py-3 space-y-1.5">
+          <p className="text-[11px] text-muted-foreground font-mono mb-2">Win Rate by Mode</p>
+          <MiniStat
+            label={`📄 Paper (${m.paperCount} trades)`}
+            value={m.paperWinRate !== null ? `${m.paperWinRate.toFixed(1)}%` : '—'}
+            color={m.paperWinRate !== null ? (m.paperWinRate >= 50 ? 'text-accent' : 'text-destructive') : 'text-muted-foreground'}
+          />
+          <MiniStat
+            label={`💰 Live (${m.liveCount} trades)`}
+            value={m.liveWinRate !== null ? `${m.liveWinRate.toFixed(1)}%` : '—'}
+            color={m.liveWinRate !== null ? (m.liveWinRate >= 50 ? 'text-accent' : 'text-destructive') : 'text-muted-foreground'}
+          />
+          <MiniStat
+            label="Overall"
+            value={`${m.winRate.toFixed(1)}%`}
+            color={m.winRate >= 50 ? 'text-accent' : 'text-destructive'}
+          />
+        </div>
       </div>
 
       {/* Charts */}
@@ -104,10 +148,10 @@ export default function PerformanceSection({ trades }) {
         {/* Equity curve */}
         <div className="rounded-xl border border-border bg-card p-5">
           <h3 className="text-sm font-semibold text-foreground mb-1">Equity Curve</h3>
-          <p className="text-xs text-muted-foreground mb-4">Cumulative P&L across all trades</p>
+          <p className="text-xs text-muted-foreground mb-4">Cumulative realized P&L across all trades</p>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={equityCurve}>
+              <AreaChart data={m.equityCurve}>
                 <defs>
                   <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(199 89% 48%)" stopOpacity={0.2} />
@@ -127,11 +171,14 @@ export default function PerformanceSection({ trades }) {
 
         {/* Drawdown */}
         <div className="rounded-xl border border-border bg-card p-5">
-          <h3 className="text-sm font-semibold text-foreground mb-1">Drawdown Over Time</h3>
-          <p className="text-xs text-muted-foreground mb-4">Peak-to-trough decline at each trade</p>
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="text-sm font-semibold text-foreground">Drawdown Over Time</h3>
+            <span className="text-[10px] font-mono text-destructive">Max: {m.maxDrawdown.toFixed(1)}% · Now: {m.trailingDrawdown.toFixed(1)}%</span>
+          </div>
+          <p className="text-xs text-muted-foreground mb-4">Peak-to-trough at each trade · trailing = current from peak</p>
           <div className="h-48">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={drawdownSeries}>
+              <AreaChart data={m.drawdownSeries}>
                 <defs>
                   <linearGradient id="ddGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="hsl(0 72% 55%)" stopOpacity={0.25} />
