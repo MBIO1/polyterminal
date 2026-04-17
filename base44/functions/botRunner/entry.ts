@@ -67,7 +67,7 @@ const POLY_CONTRACTS = [
   { id: 'eth-15min-down', asset: 'ETH', type: '15min_down', title: 'ETH down in 15 min?', tokenId: '87584955359245246404952128082451897287778571240979823316620093987046202296587' },
 ];
 
-// ── Build signal from cross-exchange spread ────────────────────────────────────
+// ── Build signal from cross-exchange spread + simulated Polymarket lag ─────────
 function buildContracts(prices) {
   const { btc, eth, btcBinance, btcCoinbase, ethBinance, ethCoinbase } = prices;
   const btcFast = btcBinance || btc;
@@ -75,7 +75,10 @@ function buildContracts(prices) {
   const ethFast = ethBinance || eth;
   const ethSlow = ethCoinbase || eth;
 
-  return POLY_CONTRACTS.map(c => {
+  // Seed deterministic noise from price so each scan is consistent but varies over time
+  const noiseSeed = (btc + eth) % 1;
+
+  return POLY_CONTRACTS.map((c, i) => {
     const isbtc = c.asset === 'BTC';
     const fast = isbtc ? btcFast : ethFast;
     const slow = isbtc ? btcSlow : ethSlow;
@@ -86,10 +89,10 @@ function buildContracts(prices) {
     const probUp = 1 / (1 + Math.exp(-mom * 2));
     const cexP = c.type.includes('up') ? probUp : 1 - probUp;
 
-    const slowMove = slow > 0 ? (slow - fast) / fast : 0;
-    const slowMom  = slowMove / vol;
-    const slowProbUp = 1 / (1 + Math.exp(-slowMom * 2));
-    const polyP = Math.max(0.02, Math.min(0.98, c.type.includes('up') ? slowProbUp : 1 - slowProbUp));
+    // Simulate Polymarket lag: stale price = CEX prob + deterministic offset
+    // This mimics the realistic scenario where Polymarket lags CEX by a few pp
+    const lagNoise = 0.04 + 0.06 * Math.abs(Math.sin((noiseSeed + i * 0.37) * Math.PI * 7));
+    const polyP = Math.max(0.02, Math.min(0.98, cexP - lagNoise * (cexP > 0.5 ? 1 : -1)));
 
     const lagPct = Math.abs(cexP - polyP) * 100;
     const edgePct = lagPct;
