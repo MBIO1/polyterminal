@@ -144,35 +144,12 @@ Deno.serve(async (req) => {
   const oxyUser = Deno.env.get('OXYLABS_USER');
   const oxyPass = Deno.env.get('OXYLABS_PASS');
 
-  let clobRes;
-  if (oxyUser && oxyPass) {
-    const oxyAuth = btoa(`${oxyUser}:${oxyPass}`);
-    const scraperRes = await fetch('https://realtime.oxylabs.io/v1/queries', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${oxyAuth}` },
-      body: JSON.stringify({
-        source: 'universal',
-        url: `${CLOB_BASE}/order`,
-        method: 'POST',
-        body: bodyStr,
-        headers,
-      }),
-      signal: AbortSignal.timeout(15000),
-    });
-    if (!scraperRes.ok) {
-      return Response.json({ error: `Oxylabs error: ${scraperRes.status}` }, { status: 502 });
-    }
-    const data = await scraperRes.json();
-    const content = data?.results?.[0]?.content;
-    clobRes = new Response(content, { status: 200 });
-  } else {
-    clobRes = await fetch(`${CLOB_BASE}/order`, {
-      method: 'POST',
-      headers,
-      body: bodyStr,
-      signal: AbortSignal.timeout(10000),
-    });
-  }
+  const clobRes = await fetch(`${CLOB_BASE}/order`, {
+    method: 'POST',
+    headers,
+    body: bodyStr,
+    signal: AbortSignal.timeout(10000),
+  });
 
   let clobData;
   try {
