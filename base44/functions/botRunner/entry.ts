@@ -130,6 +130,8 @@ function buildContracts(prices) {
     const dirStrength = Math.abs(cexP - 0.5) * 2; // 0-1, how far from 50/50
     const confidence  = Math.min(99, 50 + lagPct * 2.8 + dirStrength * 15);
 
+    const recommended_side = cexP > polyP ? 'yes' : 'no';
+
     return {
       ...c,
       polymarket_price: polyP,
@@ -137,6 +139,7 @@ function buildContracts(prices) {
       lag_pct: lagPct,
       edge_pct: edgePct,
       confidence_score: confidence,
+      recommended_side,
     };
   });
 }
@@ -229,9 +232,12 @@ Deno.serve(async (req) => {
       return Response.json({ skipped: true, reason: 'max open positions', openCount });
     }
 
-    // Fetch order-book depth for all contracts in parallel
-    const depths = await Promise.all(
+    // Fetch order-book depth — use Promise.allSettled so one timeout can't crash the whole scan
+    const depthResults = await Promise.allSettled(
       contracts.map(c => fetchOrderBookDepth(c.tokenId))
+    );
+    const depths = depthResults.map(r =>
+      r.status === 'fulfilled' ? r.value : { bids_depth: 0, asks_depth: 0, spread_pct: 100 }
     );
 
     const minLiquidity = config.min_liquidity || 50000;
