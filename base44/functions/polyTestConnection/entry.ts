@@ -31,17 +31,15 @@ Deno.serve(async (req) => {
       return fetch(targetUrl, { signal: AbortSignal.timeout(8000) });
     }
     
-    // Web Unblocker requires specific source & format
-    const res = await fetch('https://api.oxylabs.io/v1/queries', {
+    const res = await fetch('https://realtime.oxylabs.io/v1/queries', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'Authorization': `Basic ${oxyAuth}`,
       },
       body: JSON.stringify({
-        source: 'universal_ecommerce',
+        source: 'universal',
         url: targetUrl,
-        render: 'html',
       }),
       signal: AbortSignal.timeout(25000),
     });

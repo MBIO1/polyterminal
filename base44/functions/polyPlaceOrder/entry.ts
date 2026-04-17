@@ -147,7 +147,7 @@ Deno.serve(async (req) => {
   let clobRes;
   if (oxyUser && oxyPass) {
     const oxyAuth = btoa(`${oxyUser}:${oxyPass}`);
-    const scraperRes = await fetch('https://api.oxylabs.io/v1/queries', {
+    const scraperRes = await fetch('https://realtime.oxylabs.io/v1/queries', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${oxyAuth}` },
       body: JSON.stringify({

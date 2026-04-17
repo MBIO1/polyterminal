@@ -21,7 +21,7 @@ async function fetchViaOxylabs(url, opts = {}) {
   }
 
   const oxyAuth = btoa(`${oxyUser}:${oxyPass}`);
-  const res = await fetch('https://api.oxylabs.io/v1/queries', {
+  const res = await fetch('https://realtime.oxylabs.io/v1/queries', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
