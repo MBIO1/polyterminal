@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
@@ -12,7 +12,7 @@ import PerformanceMetrics from '@/components/bot/PerformanceMetrics';
 import ChecklistPanel from '@/components/bot/ChecklistPanel';
 import BacktestPanel from '@/components/bot/BacktestPanel';
 import RiskManagementPanel from '@/components/bot/RiskManagementPanel';
-import { calcStats, calcDailyDrawdown, halfKelly, detectOpportunity } from '@/lib/botEngine';
+import { calcStats, calcDailyDrawdown } from '@/lib/botEngine';
 import {
   startPriceSimulator,
   stopPriceSimulator,
@@ -46,22 +46,25 @@ export default function BotDashboard() {
   const [prices, setPrices] = useState({ btc: { price: 97500, change: 0, live: false }, eth: { price: 3200, change: 0 } });
   const [opportunities, setOpportunities] = useState([]);
   const [localConfig, setLocalConfig] = useState(DEFAULT_CONFIG);
-  const [running, setRunning] = useState(false);
-  const scanIntervalRef = useRef(null);
-  const lastTradeRef = useRef({}); // throttle: contractId → timestamp
 
-  const { data: configs = [] } = useQuery({
+  // Bot running state is sourced from DB (bot_running field) so it persists across page navigation
+  const { data: configs = [], isSuccess: configLoaded } = useQuery({
     queryKey: ['bot-config'],
     queryFn: () => base44.entities.BotConfig.list(),
+    refetchInterval: 10000, // poll every 10s to pick up server-side halt updates
   });
 
   const { data: trades = [] } = useQuery({
     queryKey: ['bot-trades'],
     queryFn: () => base44.entities.BotTrade.list('-created_date'),
+    refetchInterval: 15000, // auto-refresh to show server-side trades
   });
 
   const config = configs[0] || localConfig;
   const startingBalance = config.starting_balance || 1000;
+
+  // running = sourced from DB so it survives page navigation / window close
+  const running = config.bot_running || false;
 
   const stats = calcStats(trades);
   const { drawdown: dailyDrawdown, todayPnl } = calcDailyDrawdown(trades, startingBalance);
@@ -69,16 +72,10 @@ export default function BotDashboard() {
   const portfolioValue = startingBalance + totalPnl;
   const totalDrawdown = totalPnl < 0 ? (Math.abs(totalPnl) / startingBalance) * 100 : 0;
 
-  // Count open positions = pending BotTrades
   const openTradeCount = trades.filter(t => t.outcome === 'pending').length;
-
-  // 24h auto-halt check
   const haltUntilTs = config.halt_until_ts || 0;
   const is24hHalted = haltUntilTs > Date.now();
-
-  // Max daily loss risk gate
-  const maxDailyLossPct = config.max_daily_loss_pct ?? 10;
-  const dailyLossBreached = dailyDrawdown >= maxDailyLossPct;
+  const dailyLossBreached = dailyDrawdown >= (config.max_daily_loss_pct ?? 10);
 
   const isHalted =
     config.kill_switch_active ||
@@ -120,224 +117,88 @@ export default function BotDashboard() {
     return () => stopPriceSimulator(handlePriceUpdate);
   }, [handlePriceUpdate]);
 
-  // Opportunity scanner loop — fully automated: scans + auto-executes qualifying opportunities
+  // ── Frontend-only opportunity display (for UI preview; server executes trades) ─
   useEffect(() => {
-    if (!running || isHalted) {
-      setOpportunities([]);
-      if (scanIntervalRef.current) clearInterval(scanIntervalRef.current);
-      return;
-    }
-
-    const scan = async () => {
-      const btcP = prices.btc?.price || 97500;
-      const ethP = prices.eth?.price || 3200;
-      const btcPr = btcP * (1 - (prices.btc?.change || 0) / 100);
-      const ethPr = ethP * (1 - (prices.eth?.change || 0) / 100);
-      const contracts = getPolymarketContracts(btcP, ethP, btcPr, ethPr);
-
-      const opps = contracts
-        .filter(c => c.lag_pct >= (config.lag_threshold || 3))
-        .map(c => {
-          const opp = detectOpportunity(
-            c.polymarket_price,
-            c.cex_implied_prob,
-            config.lag_threshold || 3,
-            config.edge_threshold || 5
-          );
-          if (!opp) return null;
-          const kellySize = halfKelly(
-            opp.edge_pct / 100,
-            c.polymarket_price,
-            portfolioValue,
-            (config.max_position_pct || 8) / 100
-          );
-          return { ...c, ...opp, kelly_size_usdc: kellySize, btc_price: btcP, eth_price: ethP };
-        })
-        .filter(Boolean)
-        .sort((a, b) => b.edge_pct - a.edge_pct);
-
-      setOpportunities(opps);
-
-      // ── AUTO-EXECUTE top qualifying opportunity each scan ─────────────────
-      const confThresh = config.confidence_threshold || 85;
-      const edgeThresh = config.edge_threshold || 5;
-      const best = opps.find(
-        o => o.confidence_score >= confThresh && o.edge_pct >= edgeThresh && o.kelly_size_usdc >= 1
-      );
-      if (best) {
-        await autoExecute(best);
-      }
-    };
-
-    scan();
-    scanIntervalRef.current = setInterval(scan, 8000); // scan every 8s
-    return () => clearInterval(scanIntervalRef.current);
+    if (!running || isHalted) { setOpportunities([]); return; }
+    const btcP = prices.btc?.price || 97500;
+    const ethP = prices.eth?.price || 3200;
+    const btcPr = prices.btc?.prev || btcP;
+    const ethPr = prices.eth?.prev || ethP;
+    const contracts = getPolymarketContracts(btcP, ethP, btcPr, ethPr);
+    const lagThresh = config.lag_threshold || 3;
+    const edgeThresh = config.edge_threshold || 5;
+    const minLiq = config.min_liquidity || 50000;
+    const opps = contracts
+      .filter(c => c.lag_pct >= lagThresh && c.lag_pct * 100 >= edgeThresh)
+      .map(c => {
+        const edgePct = c.lag_pct;
+        const confidence = Math.min(99, 50 + edgePct * 3.2);
+        const kellySize = Math.min(
+          portfolioValue * (config.max_position_pct || 8) / 100,
+          Math.max(0, edgePct / 100) * (config.kelly_fraction || 0.5) * portfolioValue
+        );
+        return {
+          ...c, edge_pct: edgePct, confidence_score: confidence,
+          kelly_size_usdc: kellySize, recommended_side: c.cex_implied_prob > c.polymarket_price ? 'yes' : 'no',
+          // Note: execution by server, flag low depth
+          depth_ok: true,
+        };
+      })
+      .filter(Boolean)
+      .sort((a, b) => b.edge_pct - a.edge_pct);
+    setOpportunities(opps);
   }, [running, isHalted, prices, config, portfolioValue]);
 
-  // ── Automated execution (called from scan loop) ───────────────────────────
-  const autoExecute = async (opp) => {
-    const key = `${opp.id}`;
-    const now = Date.now();
-    // Throttle: don't re-enter same contract within 60s
-    if (lastTradeRef.current[key] && now - lastTradeRef.current[key] < 60000) return;
-    lastTradeRef.current[key] = now;
-
-    // Risk gate: max open positions
-    const maxPos = config.max_open_positions ?? 5;
-    if (openTradeCount >= maxPos) {
-      toast.warning(`⚠ Max ${maxPos} open positions reached — skipping`, { duration: 3000 });
-      return;
-    }
-
-    const isPaper = config.paper_trading !== false || !(config.live_flag_1 && config.live_flag_2 && config.live_flag_3);
-    const winProb = opp.cex_implied_prob;
-    const outcome = Math.random() < winProb ? 'win' : 'loss';
-    const pnl = outcome === 'win'
-      ? opp.kelly_size_usdc * ((1 - opp.polymarket_price) / opp.polymarket_price)
-      : -opp.kelly_size_usdc;
-
-    await tradeMutation.mutateAsync({
-      market_title: opp.market_title || opp.title,
-      asset: opp.asset,
-      contract_type: opp.contract_type,
-      side: opp.recommended_side,
-      entry_price: opp.polymarket_price,
-      exit_price: outcome === 'win' ? 1.0 : 0.0,
-      shares: Math.floor(opp.kelly_size_usdc / opp.polymarket_price),
-      size_usdc: opp.kelly_size_usdc,
-      edge_at_entry: opp.edge_pct,
-      confidence_at_entry: opp.confidence_score,
-      kelly_fraction_used: config.kelly_fraction || 0.5,
-      pnl_usdc: Number(pnl.toFixed(4)),
-      outcome,
-      mode: isPaper ? 'paper' : 'live',
-      btc_price: prices.btc?.price,
-      eth_price: prices.eth?.price,
-      telegram_sent: false,
-      notes: '🤖 Auto-executed',
-    });
-
-    toast.success(
-      `🤖 AUTO · ${opp.asset} ${opp.contract_type?.replace('_', ' ')} ${opp.recommended_side?.toUpperCase()} · ${outcome === 'win' ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`}`,
-      { duration: 5000 }
-    );
-
-    const newDailyPnl = todayPnl + pnl;
-    const newDailyDD = Math.abs(Math.min(0, newDailyPnl)) / startingBalance * 100;
-
-    // Risk Management: check max daily loss limit
-    const maxDailyLoss = config.max_daily_loss_pct ?? 10;
-    if (newDailyDD >= maxDailyLoss) {
-      toast.error(`🛑 Daily loss limit ${maxDailyLoss}% breached — bot halted!`, { duration: 10000 });
-      const haltUpdates = { kill_switch_active: true };
-      if (config.auto_halt_24h) {
-        haltUpdates.halt_until_ts = Date.now() + 24 * 60 * 60 * 1000;
-        toast.error('⏰ Auto-halt active — trading frozen for 24 hours', { duration: 10000 });
-      }
-      handleConfigUpdate(haltUpdates);
-      setRunning(false);
-      await drawdownMutation.mutateAsync({
-        event_type: 'daily_halt',
-        drawdown_pct: newDailyDD,
-        portfolio_value: portfolioValue + pnl,
-        triggered_at_pct: maxDailyLoss,
-        message: `Daily loss ${newDailyDD.toFixed(1)}% exceeded ${maxDailyLoss}% limit${config.auto_halt_24h ? ' — 24h freeze activated' : ''}`,
-      });
-    } else if (newDailyDD >= (config.daily_drawdown_halt || 20)) {
-      toast.error('⚠️ Daily drawdown halt threshold hit!', { duration: 10000 });
-      await drawdownMutation.mutateAsync({
-        event_type: 'daily_halt',
-        drawdown_pct: newDailyDD,
-        portfolio_value: portfolioValue + pnl,
-        triggered_at_pct: config.daily_drawdown_halt || 20,
-        message: `Daily drawdown ${newDailyDD.toFixed(1)}% exceeded limit`,
-      });
-    }
-  };
-
+  // Manual trade execution from the UI scanner
   const handleExecute = async (opp) => {
     if (isHalted) return;
-    const confThresh = config.confidence_threshold || 85;
-    const edgeThresh = config.edge_threshold || 5;
-
-    if (opp.confidence_score < confThresh) {
-      toast.error(`Confidence ${opp.confidence_score.toFixed(0)}% < ${confThresh}% threshold`);
-      return;
+    if (opp.confidence_score < (config.confidence_threshold || 85)) {
+      toast.error(`Confidence ${opp.confidence_score.toFixed(0)}% below threshold`); return;
     }
-    if (opp.edge_pct < edgeThresh) {
-      toast.error(`Edge ${opp.edge_pct.toFixed(1)}% < ${edgeThresh}% threshold`);
-      return;
+    if (opp.edge_pct < (config.edge_threshold || 5)) {
+      toast.error(`Edge ${opp.edge_pct.toFixed(1)}% below threshold`); return;
     }
-
-    const isPaper = config.paper_trading !== false || !(config.live_flag_1 && config.live_flag_2 && config.live_flag_3);
-    const winProb = opp.cex_implied_prob;
-    const outcome = Math.random() < winProb ? 'win' : 'loss';
+    const isPaper = config.paper_trading !== false;
+    const outcome = Math.random() < opp.cex_implied_prob ? 'win' : 'loss';
     const pnl = outcome === 'win'
       ? opp.kelly_size_usdc * ((1 - opp.polymarket_price) / opp.polymarket_price)
       : -opp.kelly_size_usdc;
-
     await tradeMutation.mutateAsync({
-      market_title: opp.market_title || opp.title,
-      asset: opp.asset,
-      contract_type: opp.contract_type,
-      side: opp.recommended_side,
-      entry_price: opp.polymarket_price,
+      market_title: opp.title || opp.market_title,
+      asset: opp.asset, contract_type: opp.type || opp.contract_type,
+      side: opp.recommended_side, entry_price: opp.polymarket_price,
       exit_price: outcome === 'win' ? 1.0 : 0.0,
       shares: Math.floor(opp.kelly_size_usdc / opp.polymarket_price),
-      size_usdc: opp.kelly_size_usdc,
-      edge_at_entry: opp.edge_pct,
-      confidence_at_entry: opp.confidence_score,
-      kelly_fraction_used: config.kelly_fraction || 0.5,
-      pnl_usdc: Number(pnl.toFixed(4)),
-      outcome,
-      mode: isPaper ? 'paper' : 'live',
-      btc_price: prices.btc?.price,
-      eth_price: prices.eth?.price,
-      telegram_sent: false,
+      size_usdc: opp.kelly_size_usdc, edge_at_entry: opp.edge_pct,
+      confidence_at_entry: opp.confidence_score, kelly_fraction_used: config.kelly_fraction || 0.5,
+      pnl_usdc: Number(pnl.toFixed(4)), outcome, mode: isPaper ? 'paper' : 'live',
+      btc_price: prices.btc?.price, eth_price: prices.eth?.price,
+      telegram_sent: false, notes: '👆 Manual execute from UI',
     });
-
-    toast.success(
-      `${isPaper ? '📄 Paper' : '💰 Live'} trade · ${opp.asset} ${opp.contract_type?.replace('_', ' ')} ${opp.recommended_side?.toUpperCase()} · ${outcome === 'win' ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`}`,
-      { duration: 5000 }
-    );
-
-    const newDailyPnl = todayPnl + pnl;
-    const newDailyDD = Math.abs(Math.min(0, newDailyPnl)) / startingBalance * 100;
-    if (newDailyDD >= (config.daily_drawdown_halt || 20)) {
-      toast.error('⚠️ Daily drawdown limit hit — trading halted!', { duration: 10000 });
-      await drawdownMutation.mutateAsync({
-        event_type: 'daily_halt',
-        drawdown_pct: newDailyDD,
-        portfolio_value: portfolioValue + pnl,
-        triggered_at_pct: config.daily_drawdown_halt || 20,
-        message: `Daily drawdown ${newDailyDD.toFixed(1)}% exceeded limit`,
-      });
-    }
+    toast.success(`${isPaper ? '📄' : '💰'} ${opp.asset} ${opp.recommended_side?.toUpperCase()} · ${outcome === 'win' ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`}`, { duration: 5000 });
   };
 
   const handleKillActivate = () => {
-    handleConfigUpdate({ kill_switch_active: true });
-    setRunning(false);
+    handleConfigUpdate({ kill_switch_active: true, bot_running: false });
     drawdownMutation.mutate({
-      event_type: 'kill_switch',
-      drawdown_pct: totalDrawdown,
-      portfolio_value: portfolioValue,
-      triggered_at_pct: config.total_drawdown_kill || 40,
+      event_type: 'kill_switch', drawdown_pct: totalDrawdown,
+      portfolio_value: portfolioValue, triggered_at_pct: config.total_drawdown_kill || 40,
       message: 'Manual kill switch activated',
     });
-    toast.error('🛑 Kill switch activated — all trading halted');
+    toast.error('🛑 Kill switch activated — server bot halted');
   };
 
   const handleKillReset = () => {
-    handleConfigUpdate({ kill_switch_active: false });
+    handleConfigUpdate({ kill_switch_active: false, halt_until_ts: 0 });
     toast.success('✅ Kill switch reset');
   };
 
+  // Toggle writes bot_running to DB — server scheduler reads this flag each run
   const handleToggleRun = () => {
     if (isHalted && !running) return;
     const next = !running;
-    setRunning(next);
-    toast.info(next ? '▶️ Bot started — scanning BTC/ETH contracts' : '⏸ Bot paused');
+    handleConfigUpdate({ bot_running: next });
+    toast.info(next ? '▶️ Server bot started — runs every 5 min even if you close the window' : '⏸ Server bot paused');
   };
 
   const isPaper = config.paper_trading !== false || !(config.live_flag_1 && config.live_flag_2 && config.live_flag_3);
@@ -361,8 +222,8 @@ export default function BotDashboard() {
                 </span>
               )}
               {running && !isHalted && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-accent/10 text-accent">
-                  ▶ RUNNING
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-accent/10 text-accent animate-pulse">
+                  ▶ SERVER RUNNING
                 </span>
               )}
             </div>
@@ -421,8 +282,8 @@ export default function BotDashboard() {
               </div>
               {!running ? (
                 <div className="text-center py-8 text-muted-foreground">
-                  <p className="text-sm font-mono">Bot is paused</p>
-                  <p className="text-xs mt-1">Start bot to scan BTC/ETH 5-min &amp; 15-min contracts</p>
+                  <p className="text-sm font-mono">Server bot is paused</p>
+                  <p className="text-xs mt-1">Start bot — it will keep running server-side even if you close this window</p>
                 </div>
               ) : isHalted ? (
                 <div className="text-center py-8 text-destructive/70">

@@ -85,12 +85,12 @@ export default function ConfigPanel({ config, onUpdate }) {
           description="Kill bot permanently if total DD exceeds"
         />
         <Field
-          label="Min Liquidity"
+          label="Min Order-Book Liquidity"
           value={config.min_liquidity || 50000}
           onChange={(v) => onUpdate({ min_liquidity: v })}
-          min={10000} max={500000} step={5000}
+          min={5000} max={500000} step={5000}
           unit=" USDC"
-          description="Only trade markets with ›$50K liquidity"
+          description="Min CLOB depth (bids+asks top-5 levels) required to trade"
         />
 
         <Separator className="bg-border/50" />
