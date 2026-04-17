@@ -13,6 +13,7 @@ import Trades from '@/pages/Trades';
 import Dashboard from '@/pages/Dashboard';
 import BotManager from '@/pages/BotManager';
 import Analytics from '@/pages/Analytics';
+import PolymarketResearch from '@/pages/PolymarketResearch';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -43,6 +44,7 @@ const AuthenticatedApp = () => {
         <Route path="/trades" element={<Trades />} />
         <Route path="/bot-manager" element={<BotManager />} />
         <Route path="/analytics" element={<Analytics />} />
+        <Route path="/research" element={<PolymarketResearch />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

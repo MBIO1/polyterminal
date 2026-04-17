@@ -8,7 +8,8 @@ import {
   Zap,
   LayoutDashboard,
   SlidersHorizontal,
-  BarChart2
+  BarChart2,
+  FlaskConical,
 } from 'lucide-react';
 
 const navItems = [
@@ -19,6 +20,7 @@ const navItems = [
   { path: '/bot-manager', icon: SlidersHorizontal, label: 'Bot Manager' },
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/analytics', icon: BarChart2, label: 'Analytics' },
+  { path: '/research', icon: FlaskConical, label: 'Research Report', badge: 'NEW' },
 ];
 
 export default function Sidebar() {
@@ -55,6 +57,9 @@ export default function Sidebar() {
             >
               <item.icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
               {item.label}
+              {item.badge && !isActive && (
+                <span className="ml-auto text-[9px] font-mono px-1 py-0.5 rounded bg-chart-4/20 text-chart-4 font-bold">{item.badge}</span>
+              )}
               {isActive && (
                 <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse-glow" />
               )}
