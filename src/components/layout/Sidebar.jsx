@@ -7,7 +7,8 @@ import {
   History, 
   Zap,
   LayoutDashboard,
-  SlidersHorizontal
+  SlidersHorizontal,
+  BarChart2
 } from 'lucide-react';
 
 const navItems = [
@@ -17,6 +18,7 @@ const navItems = [
   { path: '/portfolio', icon: Briefcase, label: 'Portfolio' },
   { path: '/bot-manager', icon: SlidersHorizontal, label: 'Bot Manager' },
   { path: '/trades', icon: History, label: 'Trade History' },
+  { path: '/analytics', icon: BarChart2, label: 'Analytics' },
 ];
 
 export default function Sidebar() {

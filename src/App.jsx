@@ -12,6 +12,7 @@ import Portfolio from '@/pages/Portfolio';
 import Trades from '@/pages/Trades';
 import Dashboard from '@/pages/Dashboard';
 import BotManager from '@/pages/BotManager';
+import Analytics from '@/pages/Analytics';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -41,6 +42,7 @@ const AuthenticatedApp = () => {
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/trades" element={<Trades />} />
         <Route path="/bot-manager" element={<BotManager />} />
+        <Route path="/analytics" element={<Analytics />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
