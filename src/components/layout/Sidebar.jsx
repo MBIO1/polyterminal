@@ -10,6 +10,7 @@ import {
   SlidersHorizontal,
   BarChart2,
   FlaskConical,
+  Cpu,
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { path: '/trades', icon: History, label: 'Trade History' },
   { path: '/analytics', icon: BarChart2, label: 'Analytics' },
   { path: '/research', icon: FlaskConical, label: 'Research Report', badge: 'NEW' },
+  { path: '/trading-engine', icon: Cpu, label: 'Trading Engine', badge: 'LIVE' },
 ];
 
 export default function Sidebar() {
