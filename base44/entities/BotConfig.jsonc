@@ -4,8 +4,7 @@
   "properties": {
     "paper_trading": {
       "type": "boolean",
-      "default": true,
-      "description": "Paper trading mode \u2014 three explicit flags required to enable live"
+      "default": true
     },
     "live_flag_1": {
       "type": "boolean",
@@ -21,66 +20,67 @@
     },
     "edge_threshold": {
       "type": "number",
-      "default": 5,
-      "description": "Minimum edge % required to execute"
+      "default": 5
     },
     "lag_threshold": {
       "type": "number",
-      "default": 3,
-      "description": "Polymarket vs CEX lag threshold in percentage points"
+      "default": 3
     },
     "max_position_pct": {
       "type": "number",
-      "default": 8,
-      "description": "Max position size as % of portfolio"
+      "default": 8
     },
     "confidence_threshold": {
       "type": "number",
-      "default": 85,
-      "description": "Minimum confidence score % to execute"
+      "default": 85
     },
     "kelly_fraction": {
       "type": "number",
-      "default": 0.5,
-      "description": "Kelly fraction (0.5 = half-Kelly)"
+      "default": 0.5
     },
     "daily_drawdown_halt": {
       "type": "number",
-      "default": 20,
-      "description": "Daily drawdown % that triggers kill switch"
+      "default": 20
     },
     "total_drawdown_kill": {
       "type": "number",
-      "default": 40,
-      "description": "Total drawdown % that kills bot"
+      "default": 40
     },
     "min_liquidity": {
       "type": "number",
-      "default": 50000,
-      "description": "Minimum market liquidity in USDC"
-    },
-    "telegram_bot_token": {
-      "type": "string"
-    },
-    "telegram_chat_id": {
-      "type": "string"
-    },
-    "polymarket_api_key": {
-      "type": "string"
+      "default": 50000
     },
     "starting_balance": {
       "type": "number",
-      "default": 1000,
-      "description": "Starting paper/live balance in USDC"
+      "default": 1000
     },
     "kill_switch_active": {
       "type": "boolean",
-      "default": false,
-      "description": "Emergency kill switch"
+      "default": false
     },
     "bot_running": {
       "type": "boolean",
       "default": false
+    },
+    "max_daily_loss_pct": {
+      "type": "number",
+      "default": 10,
+      "description": "Max daily loss % before auto-halt"
+    },
+    "max_open_positions": {
+      "type": "number",
+      "default": 5,
+      "description": "Max concurrent open BotTrade positions"
+    },
+    "auto_halt_24h": {
+      "type": "boolean",
+      "default": true,
+      "description": "Freeze trading 24h when daily loss limit hit"
+    },
+    "halt_until_ts": {
+      "type": "number",
+      "default": 0,
+      "description": "Unix ms timestamp until which trading is frozen"
     }
   },
   "required": []

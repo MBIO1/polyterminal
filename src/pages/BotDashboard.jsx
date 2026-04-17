@@ -11,6 +11,7 @@ import ConfigPanel from '@/components/bot/ConfigPanel';
 import PerformanceMetrics from '@/components/bot/PerformanceMetrics';
 import ChecklistPanel from '@/components/bot/ChecklistPanel';
 import BacktestPanel from '@/components/bot/BacktestPanel';
+import RiskManagementPanel from '@/components/bot/RiskManagementPanel';
 import { calcStats, calcDailyDrawdown, halfKelly, detectOpportunity } from '@/lib/botEngine';
 import {
   startPriceSimulator,
@@ -34,6 +35,10 @@ const DEFAULT_CONFIG = {
   starting_balance: 1000,
   kill_switch_active: false,
   bot_running: false,
+  max_daily_loss_pct: 10,
+  max_open_positions: 5,
+  auto_halt_24h: true,
+  halt_until_ts: 0,
 };
 
 export default function BotDashboard() {
@@ -64,8 +69,21 @@ export default function BotDashboard() {
   const portfolioValue = startingBalance + totalPnl;
   const totalDrawdown = totalPnl < 0 ? (Math.abs(totalPnl) / startingBalance) * 100 : 0;
 
+  // Count open positions = pending BotTrades
+  const openTradeCount = trades.filter(t => t.outcome === 'pending').length;
+
+  // 24h auto-halt check
+  const haltUntilTs = config.halt_until_ts || 0;
+  const is24hHalted = haltUntilTs > Date.now();
+
+  // Max daily loss risk gate
+  const maxDailyLossPct = config.max_daily_loss_pct ?? 10;
+  const dailyLossBreached = dailyDrawdown >= maxDailyLossPct;
+
   const isHalted =
     config.kill_switch_active ||
+    is24hHalted ||
+    dailyLossBreached ||
     dailyDrawdown >= (config.daily_drawdown_halt || 20) ||
     totalDrawdown >= (config.total_drawdown_kill || 40);
 
@@ -164,6 +182,13 @@ export default function BotDashboard() {
     if (lastTradeRef.current[key] && now - lastTradeRef.current[key] < 60000) return;
     lastTradeRef.current[key] = now;
 
+    // Risk gate: max open positions
+    const maxPos = config.max_open_positions ?? 5;
+    if (openTradeCount >= maxPos) {
+      toast.warning(`⚠ Max ${maxPos} open positions reached — skipping`, { duration: 3000 });
+      return;
+    }
+
     const isPaper = config.paper_trading !== false || !(config.live_flag_1 && config.live_flag_2 && config.live_flag_3);
     const winProb = opp.cex_implied_prob;
     const outcome = Math.random() < winProb ? 'win' : 'loss';
@@ -199,8 +224,27 @@ export default function BotDashboard() {
 
     const newDailyPnl = todayPnl + pnl;
     const newDailyDD = Math.abs(Math.min(0, newDailyPnl)) / startingBalance * 100;
-    if (newDailyDD >= (config.daily_drawdown_halt || 20)) {
-      toast.error('⚠️ Daily drawdown limit hit — trading halted!', { duration: 10000 });
+
+    // Risk Management: check max daily loss limit
+    const maxDailyLoss = config.max_daily_loss_pct ?? 10;
+    if (newDailyDD >= maxDailyLoss) {
+      toast.error(`🛑 Daily loss limit ${maxDailyLoss}% breached — bot halted!`, { duration: 10000 });
+      const haltUpdates = { kill_switch_active: true };
+      if (config.auto_halt_24h) {
+        haltUpdates.halt_until_ts = Date.now() + 24 * 60 * 60 * 1000;
+        toast.error('⏰ Auto-halt active — trading frozen for 24 hours', { duration: 10000 });
+      }
+      handleConfigUpdate(haltUpdates);
+      setRunning(false);
+      await drawdownMutation.mutateAsync({
+        event_type: 'daily_halt',
+        drawdown_pct: newDailyDD,
+        portfolio_value: portfolioValue + pnl,
+        triggered_at_pct: maxDailyLoss,
+        message: `Daily loss ${newDailyDD.toFixed(1)}% exceeded ${maxDailyLoss}% limit${config.auto_halt_24h ? ' — 24h freeze activated' : ''}`,
+      });
+    } else if (newDailyDD >= (config.daily_drawdown_halt || 20)) {
+      toast.error('⚠️ Daily drawdown halt threshold hit!', { duration: 10000 });
       await drawdownMutation.mutateAsync({
         event_type: 'daily_halt',
         drawdown_pct: newDailyDD,
@@ -346,6 +390,12 @@ export default function BotDashboard() {
           {/* LEFT */}
           <div className="lg:col-span-3 space-y-4">
             <BotControls config={config} onUpdate={handleConfigUpdate} running={running} onToggleRun={handleToggleRun} halted={isHalted} />
+            <RiskManagementPanel
+              config={config}
+              onUpdate={handleConfigUpdate}
+              dailyDrawdown={dailyDrawdown}
+              openPositionCount={openTradeCount}
+            />
             <KillSwitch
               active={config.kill_switch_active}
               dailyDrawdown={dailyDrawdown}
@@ -439,49 +489,66 @@ export default function BotDashboard() {
 function ContractMonitor({ prices, config }) {
   const btcP = prices.btc?.price || 97500;
   const ethP = prices.eth?.price || 3200;
-  const btcPr = btcP * (1 - (prices.btc?.change || 0) / 100);
-  const ethPr = ethP * (1 - (prices.eth?.change || 0) / 100);
+  const btcPr = prices.btc?.prev || btcP;
+  const ethPr = prices.eth?.prev || ethP;
   const contracts = getPolymarketContracts(btcP, ethP, btcPr, ethPr);
   const lagThresh = config?.lag_threshold || 3;
 
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-[11px] font-mono">
-        <thead>
-          <tr className="border-b border-border text-muted-foreground">
-            <th className="pb-2 text-left font-medium">Contract</th>
-            <th className="pb-2 text-right font-medium">Poly</th>
-            <th className="pb-2 text-right font-medium">CEX Impl.</th>
-            <th className="pb-2 text-right font-medium">Lag</th>
-            <th className="pb-2 text-right font-medium">Signal</th>
-          </tr>
-        </thead>
-        <tbody>
-          {contracts.map(c => {
-            const isArb = c.lag_pct >= lagThresh;
-            return (
-              <tr key={c.id} className={`border-b border-border/20 last:border-0 transition-colors ${isArb ? 'bg-accent/5' : ''}`}>
-                <td className="py-1.5 text-left">
-                  <span className={`px-1 py-0.5 rounded text-[9px] font-bold mr-1 ${c.asset === 'BTC' ? 'bg-chart-4/10 text-chart-4' : 'bg-primary/10 text-primary'}`}>{c.asset}</span>
-                  {c.type.replace('_', ' ')}
-                </td>
-                <td className="py-1.5 text-right">{Math.round(c.polymarket_price * 100)}¢</td>
-                <td className="py-1.5 text-right">{Math.round(c.cex_implied_prob * 100)}¢</td>
-                <td className={`py-1.5 text-right font-bold ${isArb ? 'text-accent' : 'text-muted-foreground'}`}>
-                  {c.lag_pct.toFixed(1)}pp
-                </td>
-                <td className="py-1.5 text-right">
-                  {isArb ? (
-                    <span className="text-accent font-bold">BUY {c.cex_implied_prob > c.polymarket_price ? 'YES' : 'NO'}</span>
-                  ) : (
-                    <span className="text-muted-foreground/40">—</span>
-                  )}
-                </td>
-              </tr>
-            );
-          })}
-        </tbody>
-      </table>
+    <div className="space-y-2">
+      {/* Exchange prices header */}
+      <div className="grid grid-cols-3 gap-2 text-[10px] font-mono mb-3">
+        {[
+          { label: 'Binance', btc: prices.btc?.binance, eth: prices.eth?.binance, color: 'text-chart-4' },
+          { label: 'Coinbase', btc: prices.btc?.coinbase, eth: prices.eth?.coinbase, color: 'text-primary' },
+          { label: 'CoinGecko', btc: prices.btc?.coingecko, eth: prices.eth?.coingecko, color: 'text-accent' },
+        ].map(ex => (
+          <div key={ex.label} className="rounded-lg bg-secondary/40 border border-border px-2 py-1.5">
+            <p className={`font-bold ${ex.color} mb-0.5`}>{ex.label}</p>
+            <p className="text-muted-foreground">BTC <span className="text-foreground">{ex.btc ? `$${ex.btc.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}</span></p>
+            <p className="text-muted-foreground">ETH <span className="text-foreground">{ex.eth ? `$${ex.eth.toLocaleString('en-US', { maximumFractionDigits: 0 })}` : '—'}</span></p>
+          </div>
+        ))}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-[11px] font-mono">
+          <thead>
+            <tr className="border-b border-border text-muted-foreground">
+              <th className="pb-2 text-left font-medium">Contract</th>
+              <th className="pb-2 text-right font-medium">Coinbase</th>
+              <th className="pb-2 text-right font-medium">Binance</th>
+              <th className="pb-2 text-right font-medium">Spread</th>
+              <th className="pb-2 text-right font-medium">Signal</th>
+            </tr>
+          </thead>
+          <tbody>
+            {contracts.map(c => {
+              const isArb = c.lag_pct >= lagThresh;
+              return (
+                <tr key={c.id} className={`border-b border-border/20 last:border-0 transition-colors ${isArb ? 'bg-accent/5' : ''}`}>
+                  <td className="py-1.5 text-left">
+                    <span className={`px-1 py-0.5 rounded text-[9px] font-bold mr-1 ${c.asset === 'BTC' ? 'bg-chart-4/10 text-chart-4' : 'bg-primary/10 text-primary'}`}>{c.asset}</span>
+                    {c.type.replace(/_/g, ' ')}
+                  </td>
+                  <td className="py-1.5 text-right">{Math.round(c.polymarket_price * 100)}¢</td>
+                  <td className="py-1.5 text-right">{Math.round(c.cex_implied_prob * 100)}¢</td>
+                  <td className={`py-1.5 text-right font-bold ${isArb ? 'text-accent' : 'text-muted-foreground'}`}>
+                    {c.lag_pct.toFixed(1)}pp
+                  </td>
+                  <td className="py-1.5 text-right">
+                    {isArb ? (
+                      <span className="text-accent font-bold">BUY {c.cex_implied_prob > c.polymarket_price ? 'YES' : 'NO'}</span>
+                    ) : (
+                      <span className="text-muted-foreground/40">—</span>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
