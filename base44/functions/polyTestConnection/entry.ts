@@ -20,26 +20,62 @@ Deno.serve(async (req) => {
 
   const allSet = !!(apiKey && apiSecret && passphrase && walletAddress && privateKey);
 
-  // Test public CLOB reachability
+  // Route via Oxylabs Web Unblocker (reverse-proxy API — works in sandboxed Deno)
+  // Instead of CONNECT tunneling, we POST the target URL to Oxylabs' scraper API
+  // which fetches it from a residential German IP and returns the response body.
+  const oxyUser = Deno.env.get('OXYLABS_USER');
+  const oxyPass = Deno.env.get('OXYLABS_PASS');
+  const proxyUsed = !!(oxyUser && oxyPass);
+  const oxyAuth = proxyUsed ? btoa(`${oxyUser}:${oxyPass}`) : null;
+
+  async function proxyGet(targetUrl) {
+    if (!proxyUsed) {
+      return fetch(targetUrl, { signal: AbortSignal.timeout(8000) });
+    }
+    // Oxylabs Scraper API — fetches the URL from a DE residential IP
+    const res = await fetch('https://realtime.oxylabs.io/v1/queries', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Basic ${oxyAuth}`,
+      },
+      body: JSON.stringify({
+        source: 'universal',
+        url: targetUrl,
+        geo_location: 'Germany',
+      }),
+      signal: AbortSignal.timeout(20000),
+    });
+    if (!res.ok) throw new Error(`Oxylabs API error: ${res.status}`);
+    const data = await res.json();
+    const content = data?.results?.[0]?.content;
+    if (!content) throw new Error('No content from Oxylabs');
+    // Return a mock Response-like object
+    return { ok: true, json: async () => JSON.parse(content), text: async () => content };
+  }
+
+  // Test public CLOB reachability via proxy
   let clobReachable = false;
   let serverTime = null;
+  let clobError = null;
   try {
-    const timeRes = await fetch(`${CLOB_BASE}/time`, { signal: AbortSignal.timeout(5000) });
+    const timeRes = await proxyGet(`${CLOB_BASE}/time`);
     if (timeRes.ok) {
       serverTime = await timeRes.json();
       clobReachable = true;
     }
-  } catch (_) {
-    clobReachable = false;
+  } catch (e) {
+    clobError = e.message;
   }
 
-  // Test public price endpoint (no token needed - just check the endpoint responds)
+  // Test fee-rate endpoint
   let priceApiOk = false;
+  let feeError = null;
   try {
-    const feeRes = await fetch(`${CLOB_BASE}/fee-rate`, { signal: AbortSignal.timeout(5000) });
+    const feeRes = await proxyGet(`${CLOB_BASE}/fee-rate`);
     priceApiOk = feeRes.ok;
-  } catch (_) {
-    priceApiOk = false;
+  } catch (e) {
+    feeError = e.message;
   }
 
   return Response.json({
@@ -49,6 +85,9 @@ Deno.serve(async (req) => {
     allCredsSet: allSet,
     address: walletAddress,
     serverTime,
-    note: 'Polymarket authenticated endpoints (orders/trades) require non-US IP. Use a VPN or offshore server for live trading.',
+    proxyUsed,
+    clobError,
+    feeError,
+    note: proxyUsed ? 'Routing via Oxylabs Web Unblocker (Germany residential IP)' : 'No proxy configured',
   });
 });

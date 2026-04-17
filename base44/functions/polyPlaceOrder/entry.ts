@@ -140,11 +140,26 @@ Deno.serve(async (req) => {
   // ── 4. POST to CLOB ────────────────────────────────────────────────────────
   const headers = await buildHmacHeaders('POST', '/order', bodyStr, apiKey, apiSecret, passphrase);
 
-  const clobRes = await fetch(`${CLOB_BASE}/order`, {
+  // Route through Oxylabs residential proxy to bypass geo-block
+  // Oxylabs super proxy: authenticated HTTP proxy with geo-targeting
+  const oxyUser = Deno.env.get('OXYLABS_USER');
+  const oxyPass = Deno.env.get('OXYLABS_PASS');
+
+  // Build the proxied URL: POST the CLOB request via Oxylabs' residential endpoint
+  // Oxylabs supports country targeting via username suffix, e.g. user-cc-de
+  const oxyUsername = `${oxyUser}-cc-de`; // route through Germany
+  const proxyUrl = `http://${encodeURIComponent(oxyUsername)}:${encodeURIComponent(oxyPass)}@realtime.oxylabs.io:60000`;
+
+  // Use Deno's proxy support via the undici-compatible approach
+  const { ProxyAgent, fetch: proxyFetch } = await import('npm:undici@6.19.2');
+  const proxyAgent = new ProxyAgent(proxyUrl);
+
+  const clobRes = await proxyFetch(`${CLOB_BASE}/order`, {
     method: 'POST',
     headers,
     body: bodyStr,
     signal: AbortSignal.timeout(10000),
+    dispatcher: proxyAgent,
   });
 
   let clobData;

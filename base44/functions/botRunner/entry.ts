@@ -11,10 +11,27 @@
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
+// ── Oxylabs proxy helper ───────────────────────────────────────────────────────
+async function fetchViaOxylabs(url, opts = {}) {
+  const oxyUser = Deno.env.get('OXYLABS_USER');
+  const oxyPass = Deno.env.get('OXYLABS_PASS');
+  
+  if (!oxyUser || !oxyPass) {
+    return fetch(url, opts); // fallback to direct
+  }
+
+  const { ProxyAgent, fetch: proxyFetch } = await import('npm:undici@6.19.2');
+  const oxyUsername = `${oxyUser}-cc-de`;
+  const proxyUrl = `https://${encodeURIComponent(oxyUsername)}:${encodeURIComponent(oxyPass)}@realtime.oxylabs.io:60000`;
+  const proxyAgent = new ProxyAgent(proxyUrl);
+
+  return proxyFetch(url, { ...opts, dispatcher: proxyAgent });
+}
+
 // ── Polymarket CLOB order book depth (public API, no auth required) ───────────
 async function fetchOrderBookDepth(tokenId) {
   try {
-    const res = await fetch(
+    const res = await fetchViaOxylabs(
       `https://clob.polymarket.com/book?token_id=${tokenId}`,
       { signal: AbortSignal.timeout(4000) }
     );
@@ -32,6 +49,8 @@ async function fetchOrderBookDepth(tokenId) {
 }
 
 // ── Live crypto prices (Binance primary, Coinbase fallback) ───────────────────
+// CEX feeds are not geo-blocked, so we use direct fetch for speed.
+// Polymarket CLOB calls would use fetchViaOxylabs if we add them here.
 async function fetchLivePrices() {
   const results = await Promise.allSettled([
     fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
