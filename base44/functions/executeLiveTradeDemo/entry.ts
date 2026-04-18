@@ -24,59 +24,83 @@ Deno.serve(async (req) => {
 
     const trades = [];
 
-    // Place BTC trade
-    const btcTradeRes = await fetch('https://clob.polymarket.com/orders', {
+    const oxyUser = Deno.env.get('OXYLABS_USER');
+    const oxyPass = Deno.env.get('OXYLABS_PASS');
+    const oxyAuth = btoa(`${oxyUser}:${oxyPass}`);
+
+    // Place BTC trade via Oxylabs proxy
+    const btcTradeRes = await fetch('https://data.oxylabs.io/v1/queries', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'POLY-ADDRESS': Deno.env.get('POLY_WALLET_ADDRESS') || '',
-        'POLY-SIGNATURE': 'demo-sig',
-        'POLY-TIMESTAMP': Date.now().toString(),
-        'POLY-NONCE': Math.random().toString(),
+        'Authorization': `Basic ${oxyAuth}`,
       },
       body: JSON.stringify({
-        tokenId: btcContractId,
-        side: 'BUY',
-        orderType: 'MARKET',
-        amount: 1, // $1 USDC
-        limitPrice: 0.5,
+        source: 'universal',
+        url: 'https://clob.polymarket.com/orders',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'POLY-ADDRESS': Deno.env.get('POLY_WALLET_ADDRESS') || '',
+          'POLY-SIGNATURE': 'demo-sig',
+          'POLY-TIMESTAMP': Date.now().toString(),
+          'POLY-NONCE': Math.random().toString(),
+        },
+        payload: JSON.stringify({
+          tokenId: btcContractId,
+          side: 'BUY',
+          orderType: 'MARKET',
+          amount: 1,
+          limitPrice: 0.5,
+        }),
       }),
     });
 
-    const btcData = await btcTradeRes.json().catch(() => null);
+    const btcRaw = await btcTradeRes.json().catch(() => null);
+    const btcData = btcRaw?.results?.[0]?.content ? JSON.parse(btcRaw.results[0].content) : btcRaw;
     trades.push({
       asset: 'BTC',
       side: 'BUY',
       amount: 1,
-      status: btcTradeRes.ok ? 'executed' : 'failed',
+      status: btcTradeRes.ok && !btcData?.error ? 'executed' : 'failed',
       response: btcData,
     });
 
-    // Place ETH trade
-    const ethTradeRes = await fetch('https://clob.polymarket.com/orders', {
+    // Place ETH trade via Oxylabs proxy
+    const ethTradeRes = await fetch('https://data.oxylabs.io/v1/queries', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'POLY-ADDRESS': Deno.env.get('POLY_WALLET_ADDRESS') || '',
-        'POLY-SIGNATURE': 'demo-sig',
-        'POLY-TIMESTAMP': Date.now().toString(),
-        'POLY-NONCE': Math.random().toString(),
+        'Authorization': `Basic ${oxyAuth}`,
       },
       body: JSON.stringify({
-        tokenId: ethContractId,
-        side: 'BUY',
-        orderType: 'MARKET',
-        amount: 1, // $1 USDC
-        limitPrice: 0.5,
+        source: 'universal',
+        url: 'https://clob.polymarket.com/orders',
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'POLY-ADDRESS': Deno.env.get('POLY_WALLET_ADDRESS') || '',
+          'POLY-SIGNATURE': 'demo-sig',
+          'POLY-TIMESTAMP': Date.now().toString(),
+          'POLY-NONCE': Math.random().toString(),
+        },
+        payload: JSON.stringify({
+          tokenId: ethContractId,
+          side: 'BUY',
+          orderType: 'MARKET',
+          amount: 1,
+          limitPrice: 0.5,
+        }),
       }),
     });
 
-    const ethData = await ethTradeRes.json().catch(() => null);
+    const ethRaw = await ethTradeRes.json().catch(() => null);
+    const ethData = ethRaw?.results?.[0]?.content ? JSON.parse(ethRaw.results[0].content) : ethRaw;
     trades.push({
       asset: 'ETH',
       side: 'BUY',
       amount: 1,
-      status: ethTradeRes.ok ? 'executed' : 'failed',
+      status: ethTradeRes.ok && !ethData?.error ? 'executed' : 'failed',
       response: ethData,
     });
 
