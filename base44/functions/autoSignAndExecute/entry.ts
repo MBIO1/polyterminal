@@ -1,49 +1,74 @@
 /**
  * Auto-Signer for Live Trading
  *
- * Runs server-side. Takes order struct, signs with EIP-712 using POLY_PRIVATE_KEY,
+ * Runs server-side. Takes order struct, signs with EIP-712 using POLY_PRIVATE_KEY via ethers.js,
  * and broadcasts to Polymarket CLOB. Private key never touches the browser.
+ *
+ * SECURITY:
+ * - All orders require admin role
+ * - Size capped at $50 per order
+ * - Nonce tracked per user to prevent replay
+ * - Credentials pre-checked before signing
  */
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
+import { ethers } from 'npm:ethers@6.13.0';
 
-// Minimal EIP-712 signing using Node's crypto (Deno-compatible)
-async function signOrderEIP712(struct, privateKey) {
-  const DOMAIN_SEPARATOR = '0x9c5e6c3b4d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e3f2a1b0c9d8e7f';
-  const TYPE_HASH = '0x123456789abcdef'; // CTF Exchange Order typehash
-  
-  // Simple HMAC-based mock signature (real implementation would use ethers.js EIP-712)
-  const message = JSON.stringify(struct);
-  const encoder = new TextEncoder();
-  const data = encoder.encode(message);
-  const keyData = encoder.encode(privateKey);
-  
-  // Web Crypto API HMAC
-  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const signature = await crypto.subtle.sign('HMAC', key, data);
-  const sigHex = Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, '0')).join('');
-  
-  return '0x' + sigHex.slice(0, 130); // Return 65-byte signature
-}
+const EIP712_DOMAIN = {
+  name: 'ClobAuthDomain',
+  version: '1',
+  chainId: 137,
+};
 
-// Build order struct for Polymarket CLOB
-function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
+const ORDER_TYPES = {
+  Order: [
+    { name: 'salt',            type: 'uint256' },
+    { name: 'maker',           type: 'address' },
+    { name: 'signer',          type: 'address' },
+    { name: 'taker',           type: 'address' },
+    { name: 'tokenId',         type: 'uint256' },
+    { name: 'makerAmount',     type: 'uint256' },
+    { name: 'takerAmount',     type: 'uint256' },
+    { name: 'expiration',      type: 'uint256' },
+    { name: 'nonce',           type: 'uint256' },
+    { name: 'feeRateBps',      type: 'uint256' },
+    { name: 'side',            type: 'uint8'   },
+    { name: 'signatureType',   type: 'uint8'   },
+  ],
+};
+
+// Track nonces per user to prevent replay
+const userNonces = {};
+
+// Build order struct for Polymarket CLOB with validation
+function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, userEmail) {
+  // Validation
+  if (!tokenId || typeof tokenId !== 'string') throw new Error('Invalid tokenId');
+  if (side !== 0 && side !== 1) throw new Error('Invalid side (0=BUY, 1=SELL)');
+  if (price <= 0 || price >= 1) throw new Error('Price must be between 0 and 1');
+  if (sizeUsdc <= 0 || sizeUsdc > 50) throw new Error('Size must be 0 < size <= $50');
+  
   const now = Math.floor(Date.now() / 1000);
   const expirationSeconds = now + 300; // 5 min expiry
-  const nonce = Math.floor(Math.random() * 2147483647);
   
-  // Polymarket CLOB order format
+  // Nonce: increment per user to prevent replay
+  if (!userNonces[userEmail]) userNonces[userEmail] = 0;
+  const nonce = ++userNonces[userEmail];
+  
+  // Polymarket CLOB order format (Polygon network)
   return {
+    salt: Math.floor(Math.random() * (2n ** 256n - 1n)), // Large salt
     maker: makerAddress,
-    tokenId,
-    side, // 0 = BUY, 1 = SELL
-    price: Math.round(price * 1e6), // Polymarket uses 6-decimal pricing
-    makerAmount: Math.round(sizeUsdc * 1e6), // USDC (6 decimals)
-    takerAmount: Math.round((sizeUsdc / price) * 1e6), // Shares
-    expirationSeconds,
-    nonce,
-    feeRateBps: 720, // 7.2% taker fee
-    salt: Math.floor(Math.random() * 2147483647),
+    signer: makerAddress, // For now, same as maker
+    taker: '0x0000000000000000000000000000000000000000', // Any taker
+    tokenId: BigInt(tokenId),
+    makerAmount: BigInt(Math.round(sizeUsdc * 1e6)), // USDC (6 decimals)
+    takerAmount: BigInt(Math.round((sizeUsdc / price) * 1e6)), // Shares
+    expiration: BigInt(expirationSeconds),
+    nonce: BigInt(nonce),
+    feeRateBps: 720n, // 7.2% taker fee
+    side: side, // 0 = BUY, 1 = SELL
+    signatureType: 0, // EOA signature
   };
 }
 
@@ -116,14 +141,15 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
     
-    if (!user) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // ────── SECURITY: Admin-only ──────────────────────────────────────
+    if (!user || user.role !== 'admin') {
+      return Response.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
     
     const body = await req.json();
     const { tokenId, side, price, sizeUsdc } = body;
     
-    // Get credentials from env
+    // ────── PRE-FLIGHT: Check all credentials exist ──────────────────
     const makerAddress = Deno.env.get('POLY_WALLET_ADDRESS');
     const privateKey = Deno.env.get('POLY_PRIVATE_KEY');
     const apiKey = Deno.env.get('POLY_API_KEY');
@@ -131,21 +157,39 @@ Deno.serve(async (req) => {
     const passphrase = Deno.env.get('POLY_API_PASSPHRASE');
     
     if (!makerAddress || !privateKey || !apiKey || !apiSecret || !passphrase) {
-      throw new Error('Missing Polymarket credentials in environment');
+      return Response.json({ 
+        error: 'Missing credentials: POLY_WALLET_ADDRESS, POLY_PRIVATE_KEY, POLY_API_KEY, POLY_API_SECRET, POLY_API_PASSPHRASE',
+        status: 'credential_error'
+      }, { status: 500 });
     }
     
-    // Build order struct
-    const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress);
+    // ────── VALIDATION: Order params ────────────────────────────────
+    try {
+      if (!tokenId || typeof tokenId !== 'string') throw new Error('tokenId required');
+      if (side !== 0 && side !== 1) throw new Error('side must be 0 (BUY) or 1 (SELL)');
+      if (!price || price <= 0 || price >= 1) throw new Error('price must be 0 < price < 1');
+      if (!sizeUsdc || sizeUsdc <= 0) throw new Error('sizeUsdc required and > 0');
+    } catch (valErr) {
+      return Response.json({ error: `Validation: ${valErr.message}`, status: 'validation_error' }, { status: 400 });
+    }
     
-    // Sign order EIP-712
-    const signature = await signOrderEIP712(orderStruct, privateKey);
+    // Build order struct (with validation + nonce)
+    const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, user.email);
     
-    // Broadcast to CLOB
+    // ────── SIGN: Use ethers.js (proper EIP-712) ────────────────────
+    const wallet = new ethers.Wallet(privateKey);
+    const signature = await wallet.signTypedData(EIP712_DOMAIN, ORDER_TYPES, orderStruct);
+    
+    if (!signature || !signature.startsWith('0x')) {
+      throw new Error('Signature generation failed');
+    }
+    
+    // ────── BROADCAST: Send to CLOB ────────────────────────────────
     const clobRes = await broadcastToCLOB(orderStruct, signature, apiKey, apiSecret, passphrase);
     
-    // Log to database
+    // ────── LOG: Record to database ────────────────────────────────
     await base44.asServiceRole.entities.BotTrade.create({
-      market_title: `Auto-executed ${tokenId.slice(0, 10)}…`,
+      market_title: `Live order ${tokenId.slice(0, 10)}…`,
       asset: tokenId.includes('21742633') ? 'BTC' : 'ETH',
       contract_type: '5min_up',
       side: side === 0 ? 'yes' : 'no',
@@ -158,7 +202,7 @@ Deno.serve(async (req) => {
       pnl_usdc: 0,
       outcome: 'pending',
       mode: 'live',
-      notes: `🚀 Auto-signed order · CLOB ID: ${clobRes.order_id || 'pending'} · Signature: ${signature.slice(0, 20)}…`,
+      notes: `✅ Live auto-signed · User: ${user.email} · Nonce: ${orderStruct.nonce} · Sig: ${signature.slice(0, 20)}…`,
     });
     
     return Response.json({
@@ -166,11 +210,14 @@ Deno.serve(async (req) => {
       orderId: clobRes.order_id,
       signature: signature.slice(0, 20) + '…',
       size: sizeUsdc,
+      nonce: orderStruct.nonce.toString(),
+      timestamp: new Date().toISOString(),
     });
   } catch (error) {
     return Response.json({ 
       success: false, 
       error: error.message,
+      status: 'execution_error',
       timestamp: new Date().toISOString(),
     }, { status: 500 });
   }
