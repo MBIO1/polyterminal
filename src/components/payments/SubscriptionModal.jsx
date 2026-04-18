@@ -98,12 +98,10 @@ export default function SubscriptionModal({ open, onClose }) {
         </div>
 
         {/* Info */}
-        <div className="rounded-lg bg-muted/30 border border-border p-4">
-          <p className="text-xs text-muted-foreground space-y-2">
-            <div>💳 Secure Stripe payments · Your card info is never stored on our servers</div>
-            <div>🔄 Automatic monthly deposits to your trading account</div>
-            <div>⚙️ Cancel anytime from your account settings</div>
-          </p>
+        <div className="rounded-lg bg-muted/30 border border-border p-4 space-y-2">
+          <div className="text-xs text-muted-foreground">💳 Secure Stripe payments · Your card info is never stored on our servers</div>
+          <div className="text-xs text-muted-foreground">🔄 Automatic monthly deposits to your trading account</div>
+          <div className="text-xs text-muted-foreground">⚙️ Cancel anytime from your account settings</div>
         </div>
       </div>
     </div>
