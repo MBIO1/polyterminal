@@ -257,8 +257,6 @@ export default function Backtester() {
               </>
             )}
           </div>
-            </div>
-          </div>
         </div>
       )}
 
