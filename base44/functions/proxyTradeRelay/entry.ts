@@ -18,14 +18,14 @@ Deno.serve(async (req) => {
 
     const { orderPayload, signature, apiKey, apiSecret, passphrase, timestamp, hmacSig } = await req.json();
 
-    const oxylabsUser = Deno.env.get('OXYLABS_USER');
-    const oxylabsPass = Deno.env.get('OXYLABS_PASS');
+    const brightDataUser = Deno.env.get('BRIGHT_DATA_USER');
+    const brightDataPass = Deno.env.get('BRIGHT_DATA_PASS');
 
-    if (!oxylabsUser || !oxylabsPass) {
-      throw new Error('Oxylabs credentials not configured');
+    if (!brightDataUser || !brightDataPass) {
+      throw new Error('Bright Data credentials not configured');
     }
 
-    // Build request through Oxylabs residential proxy
+    // Build request through Bright Data residential proxy
     const bodyStr = JSON.stringify(orderPayload);
     const headers = {
       'Content-Type': 'application/json',
@@ -35,8 +35,8 @@ Deno.serve(async (req) => {
       'POLY-NONCE': timestamp,
     };
 
-    // Use Oxylabs residential proxy endpoint
-    const proxyAuth = btoa(`${oxylabsUser}:${oxylabsPass}`);
+    // Use Bright Data residential proxy with basic auth
+    const proxyAuth = btoa(`${brightDataUser}:${brightDataPass}`);
     headers['Proxy-Authorization'] = `Basic ${proxyAuth}`;
 
     const res = await fetch('https://clob.polymarket.com/order', {
@@ -65,7 +65,7 @@ Deno.serve(async (req) => {
       shares: 0,
       outcome: 'pending',
       mode: 'live',
-      notes: `✅ Routed via Oxylabs proxy · ${user.email}`,
+      notes: `✅ Routed via Bright Data proxy · ${user.email}`,
     });
 
     return Response.json({

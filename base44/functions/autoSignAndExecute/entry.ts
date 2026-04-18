@@ -124,12 +124,12 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     'POLY-NONCE': timestamp,
   };
   
-  // Add Oxylabs proxy auth if enabled
+  // Add Bright Data proxy auth if enabled
   if (useProxy) {
-    const oxylabsUser = Deno.env.get('OXYLABS_USER');
-    const oxylabsPass = Deno.env.get('OXYLABS_PASS');
-    if (oxylabsUser && oxylabsPass) {
-      const proxyAuth = btoa(`${oxylabsUser}:${oxylabsPass}`);
+    const brightDataUser = Deno.env.get('BRIGHT_DATA_USER');
+    const brightDataPass = Deno.env.get('BRIGHT_DATA_PASS');
+    if (brightDataUser && brightDataPass) {
+      const proxyAuth = btoa(`${brightDataUser}:${brightDataPass}`);
       headers['Proxy-Authorization'] = `Basic ${proxyAuth}`;
     }
   }
@@ -141,15 +141,8 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     throw new Error(`Missing headers: ${missing.join(', ')}`);
   }
   
-  // Determine endpoint based on proxy mode
+  // Use Bright Data residential proxy endpoint
   let endpoint = 'https://clob.polymarket.com/order';
-  if (useProxy) {
-    const oxylabsUser = Deno.env.get('OXYLABS_USER');
-    // Use Oxylabs SOCKS5 proxy endpoint for residential rotation
-    endpoint = `https://clob.polymarket.com/order`;
-    // Note: Oxylabs SOCKS5 requires transport-level proxy which Deno fetch may not support
-    // Alternative: use Oxylabs' residential proxy gateway
-  }
   
   const res = await fetch(endpoint, {
     method: 'POST',
