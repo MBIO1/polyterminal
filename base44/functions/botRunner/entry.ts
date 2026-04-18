@@ -187,13 +187,16 @@ function adaptiveKellyFraction(recentTrades, baseKelly) {
 }
 
 function halfKelly(edge, price, portfolio, maxPosPct, kellyFraction) {
+  // maxPosPct is passed as a fraction already (e.g. 0.08 = 8%)
   if (price <= 0 || price >= 1) return 0;
-  const b = (1 - price) / price;
-  const p = price + edge / 100;
+  const b = (1 - price) / price;          // odds
+  const p = Math.min(0.95, price + Math.min(edge, 20) / 100); // win prob, capped
   const q = 1 - p;
-  const k = (b * p - q) / b;
-  const sized = Math.max(0, k) * kellyFraction;
-  return Math.min(sized * portfolio, portfolio * maxPosPct);
+  const k = Math.max(0, (b * p - q) / b); // raw kelly fraction of portfolio
+  const kellySize = k * kellyFraction * portfolio;
+  const maxSize = portfolio * maxPosPct;   // hard cap, e.g. 8% of portfolio
+  const minSize = 2;                       // never trade less than $2
+  return Math.min(kellySize, maxSize, 50); // absolute $50 cap per trade for safety
 }
 
 // ── Throttle map: contract id → last trade timestamp ─────────────────────────
@@ -250,26 +253,31 @@ Deno.serve(async (req) => {
     const contracts = buildContracts(prices);
 
     // Fetch recent trade history for adaptive sizing
-    const recentTrades = await base44.asServiceRole.entities.BotTrade.list('-created_date', 30);
+    const recentTrades = await base44.asServiceRole.entities.BotTrade.list('-created_date', 200);
     const todayStart   = new Date(); todayStart.setHours(0,0,0,0);
     const todayTrades  = recentTrades.filter(t => new Date(t.created_date) >= todayStart);
     const todayPnl     = todayTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-    const totalPnl     = recentTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
+    const allPnl       = recentTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
     const startBal     = config.starting_balance || 1000;
-    const portfolio    = startBal + totalPnl;
-    const dailyDD      = todayPnl < 0 ? (Math.abs(todayPnl) / startBal) * 100 : 0;
+    // Portfolio = starting balance + all settled P&L (only count settled trades for portfolio calc)
+    const settledPnl   = recentTrades.filter(t => t.outcome !== 'pending').reduce((s, t) => s + (t.pnl_usdc || 0), 0);
+    const portfolio    = Math.max(startBal * 0.1, startBal + settledPnl); // floor at 10% of start
+    // Daily drawdown: % of TODAY's losses vs START balance (not portfolio), avoids false triggers
+    const dailyLoss    = todayTrades.filter(t => (t.pnl_usdc || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
+    const dailyDD      = (dailyLoss / startBal) * 100;
     const openCount    = recentTrades.filter(t => t.outcome === 'pending').length;
 
     // Daily loss gate — timed halt only, kill_switch stays OFF so autoRestart can resume
     const maxDailyLoss = config.max_daily_loss_pct ?? 10;
     if (dailyDD >= maxDailyLoss) {
-      const haltDuration = config.auto_halt_24h ? 86400000 : 30 * 60 * 1000; // 24h or 30min
+      // Default: 2-hour cooldown. Only 24h if auto_halt_24h AND loss is catastrophic (>25%)
+      const haltDuration = (config.auto_halt_24h && dailyDD > 25) ? 86400000 : 2 * 60 * 60 * 1000;
       await base44.asServiceRole.entities.BotConfig.update(config.id, {
         bot_running: false,
-        kill_switch_active: false, // keep OFF so autoRestartBot automation can resume
+        kill_switch_active: false,
         halt_until_ts: Date.now() + haltDuration,
       });
-      return Response.json({ skipped: true, reason: 'daily loss limit breached — auto-halt set', dailyDD, haltDuration });
+      return Response.json({ skipped: true, reason: 'daily loss limit breached — 2h auto-halt set', dailyDD, haltDuration });
     }
 
     // Max open positions gate
