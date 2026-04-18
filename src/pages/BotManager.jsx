@@ -15,6 +15,8 @@ export default function BotManager() {
   const queryClient = useQueryClient();
   const [prices, setPrices] = useState({ btc: { price: 97500, prev: 97500 }, eth: { price: 3200, prev: 3200 } });
   const [actionLog, setActionLog] = useState([]);
+  const [trades, setTrades] = useState([]);
+  const [allTrades, setAllTrades] = useState([]);
 
   // Live price feed
   const handlePriceUpdate = useCallback((update) => {
@@ -26,10 +28,10 @@ export default function BotManager() {
     return () => stopPriceSimulator(handlePriceUpdate);
   }, [handlePriceUpdate]);
 
-  const { data: trades = [], isLoading } = useQuery({
+  const { isLoading } = useQuery({
     queryKey: ['bot-manager-trades'],
     queryFn: () => base44.entities.BotTrade.filter({ outcome: 'pending' }),
-    refetchInterval: 8000,
+    onSuccess: (data) => setTrades(data),
   });
 
   const { data: configs = [] } = useQuery({
@@ -38,11 +40,30 @@ export default function BotManager() {
     refetchInterval: 10000,
   });
 
-  const { data: allTrades = [] } = useQuery({
+  useQuery({
     queryKey: ['bot-manager-all'],
     queryFn: () => base44.entities.BotTrade.list('-created_date', 100),
-    refetchInterval: 15000,
+    onSuccess: (data) => setAllTrades(data),
   });
+
+  // Real-time subscription
+  useEffect(() => {
+    const unsubscribe = base44.entities.BotTrade.subscribe((event) => {
+      if (event.type === 'create') {
+        setTrades(prev => [event.data, ...prev]);
+        setAllTrades(prev => [event.data, ...prev].slice(0, 100));
+      } else if (event.type === 'update') {
+        setTrades(prev => {
+          if (event.data.outcome === 'pending') {
+            return prev.map(t => t.id === event.id ? event.data : t);
+          }
+          return prev.filter(t => t.id !== event.id);
+        });
+        setAllTrades(prev => prev.map(t => t.id === event.id ? event.data : t));
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   const config = configs[0] || {};
   const resolved = allTrades.filter(t => t.outcome === 'win' || t.outcome === 'loss');

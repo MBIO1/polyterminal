@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState, useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Wallet, TrendingUp, TrendingDown, Activity, CheckCircle, Clock } from 'lucide-react';
@@ -25,10 +25,23 @@ export default function Portfolio() {
     queryFn: () => base44.entities.BotConfig.list(),
   });
 
-  const { data: trades = [], isLoading } = useQuery({
+  const [trades, setTrades] = React.useState([]);
+  const { isLoading } = useQuery({
     queryKey: ['bot-trades-portfolio'],
     queryFn: () => base44.entities.BotTrade.list('-created_date', 500),
+    onSuccess: (data) => setTrades(data),
   });
+
+  React.useEffect(() => {
+    const unsubscribe = base44.entities.BotTrade.subscribe((event) => {
+      if (event.type === 'create') {
+        setTrades(prev => [event.data, ...prev]);
+      } else if (event.type === 'update') {
+        setTrades(prev => prev.map(t => t.id === event.id ? event.data : t));
+      }
+    });
+    return unsubscribe;
+  }, []);
 
   const config = configs[0] || {};
   const startingBalance = config.starting_balance || 1000;
