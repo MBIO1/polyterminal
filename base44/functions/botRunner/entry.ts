@@ -385,10 +385,10 @@ Deno.serve(async (req) => {
       r.status === 'fulfilled' ? r.value : { bids_depth: 0, asks_depth: 0, spread_pct: 100, imbalance: 0 }
     );
 
-    const edgeThresh = config.edge_threshold || 2; // lower: 2% edge minimum (was 5%)
-    const lagThresh  = config.lag_threshold || 1.5; // lower: 1.5% lag minimum (was 3%)
-    const confThresh  = config.confidence_threshold || 70; // lower: 70% confidence (was 85%)
-    const maxPosPct   = (config.max_position_pct || 3) / 100; // smaller: 3% max position (was 8%)
+    const edgeThresh = config.edge_threshold || 0.3; // minimum 0.3% real spread edge
+    const lagThresh  = config.lag_threshold || 1.5;
+    const confThresh  = config.confidence_threshold || 50; // lenient confidence
+    const maxPosPct   = (config.max_position_pct || 3) / 100;
 
     // Adaptive kelly
     const baseKelly    = adaptiveKellyFraction(recentTrades, config.kelly_fraction || 0.5);
