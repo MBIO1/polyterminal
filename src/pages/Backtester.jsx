@@ -135,23 +135,23 @@ export default function Backtester() {
           />
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Controls */}
-            <div className="rounded-xl border border-border bg-card p-5 space-y-5">
-              <h3 className="text-sm font-semibold text-foreground">Risk Parameters</h3>
-            <div className="space-y-4">
+           {/* Controls */}
+           <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+             <h3 className="text-sm font-semibold text-foreground">Risk Parameters</h3>
+             <div className="space-y-4">
               <SliderRow label="Edge Threshold" value={params.edge_threshold} min={1} max={20} step={0.5} onChange={set('edge_threshold')} suffix="%" />
               <SliderRow label="Lag Threshold" value={params.lag_threshold} min={1} max={15} step={0.5} onChange={set('lag_threshold')} suffix="pp" />
               <SliderRow label="Confidence" value={params.confidence_threshold} min={50} max={99} step={1} onChange={set('confidence_threshold')} suffix="%" />
               <SliderRow label="Kelly Fraction" value={params.kelly_fraction} min={0.1} max={1} step={0.05} onChange={set('kelly_fraction')} />
               <SliderRow label="Max Position" value={params.max_position_pct} min={1} max={20} step={0.5} onChange={set('max_position_pct')} suffix="%" />
-            </div>
+              </div>
 
-            <div className="rounded-lg bg-secondary/40 px-3 py-2 text-xs font-mono text-muted-foreground">
+              <div className="rounded-lg bg-secondary/40 px-3 py-2 text-xs font-mono text-muted-foreground">
               <span className="text-foreground font-bold">{eligibleCount}</span> trades qualify
               <span className="block mt-0.5">of {trades.filter(t => t.outcome !== 'pending').length} settled</span>
-            </div>
+              </div>
 
-            <div className="flex flex-col gap-2">
+              <div className="flex flex-col gap-2">
               <button
                 onClick={handleRun}
                 disabled={running || trades.length === 0}
@@ -177,11 +177,11 @@ export default function Backtester() {
                 <CheckCircle2 className="w-4 h-4" />
                 Deploy to Live Bot
               </button>
-            )}
-          </div>
+              )}
+            </div>
 
-          {/* Results */}
-          <div className="lg:col-span-2 space-y-4">
+            {/* Results */}
+            <div className="lg:col-span-2 space-y-4">
             {!result ? (
               <div className="rounded-xl border border-border bg-card p-12 text-center text-muted-foreground">
                 <Play className="w-8 h-8 mx-auto mb-3 opacity-30" />
@@ -256,6 +256,7 @@ export default function Backtester() {
                 </div>
               </>
             )}
+            </div>
           </div>
         </div>
       )}
