@@ -10,7 +10,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   Shield, Zap, KeyRound, CheckCircle, XCircle,
   AlertTriangle, Wifi, ChevronRight, Loader2,
-  FlaskConical, BookOpen, ArrowUpDown, Info, Lock,
+  FlaskConical, BookOpen, ArrowUpDown, Info, Lock, Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -161,6 +161,8 @@ export default function TradingEngine() {
     }
   };
 
+  const [placingOrder, setPlacingOrder] = React.useState(false);
+
   const handleRunDiagnostics = async () => {
     setDiagLoading(true);
     console.log('🔍 Starting diagnostics...');
@@ -175,6 +177,33 @@ export default function TradingEngine() {
       toast.error(`Diagnostics failed: ${err.message}`);
     } finally {
       setDiagLoading(false);
+    }
+  };
+
+  const handlePlaceOrder = async () => {
+    if (!signedPayload?.signed) {
+      toast.error('Order must be signed first');
+      return;
+    }
+    setPlacingOrder(true);
+    try {
+      const res = await base44.functions.invoke('autoSignAndExecute', {
+        tokenId: orderForm.tokenId,
+        side: orderForm.side === 'BUY' ? 0 : 1,
+        price: Number(orderForm.price),
+        sizeUsdc: Number(orderForm.sizeUsdc),
+      });
+      if (res.data?.success) {
+        toast.success(`✅ Order placed! ID: ${res.data.orderId?.slice(0, 10)}…`);
+        setSignedPayload(null);
+        setOrderForm({ tokenId: '', side: 'BUY', price: 0.5, sizeUsdc: 1, expirySecs: 300 });
+      } else {
+        throw new Error(res.data?.error || 'Order failed');
+      }
+    } catch (err) {
+      toast.error(`Order failed: ${err.message}`);
+    } finally {
+      setPlacingOrder(false);
     }
   };
 
@@ -404,14 +433,26 @@ export default function TradingEngine() {
               </div>
 
               {signedPayload.signed && (
-                <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 mt-4">
-                  <div className="flex items-start gap-2">
-                    <Info className="w-3.5 h-3.5 text-primary mt-0.5 flex-shrink-0" />
-                    <p className="text-xs text-muted-foreground">
-                      Order is signed and ready. To broadcast, call <code className="text-primary font-mono text-[10px]">placeLimitOrder()</code> from{' '}
-                      <code className="text-primary font-mono text-[10px]">lib/polymarket/clobClient.js</code> — this will submit to the live CLOB and spend real USDC.
-                    </p>
+                <div className="space-y-3">
+                  <div className="rounded-lg bg-primary/5 border border-primary/20 p-3">
+                    <div className="flex items-start gap-2">
+                      <Info className="w-3.5 h-3.5 text-primary mt-0.5 flex-shrink-0" />
+                      <p className="text-xs text-muted-foreground">
+                        Order is signed and ready to broadcast to Polymarket CLOB. This will execute a real trade and deduct USDC from your account.
+                      </p>
+                    </div>
                   </div>
+                  <Button 
+                    onClick={handlePlaceOrder}
+                    disabled={placingOrder}
+                    className="w-full bg-accent hover:bg-accent/90"
+                  >
+                    {placingOrder ? (
+                      <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Placing order...</>
+                    ) : (
+                      <><Send className="w-3.5 h-3.5 mr-1.5" />Place ${orderForm.sizeUsdc} Order</>
+                    )}
+                  </Button>
                 </div>
               )}
             </Card>
