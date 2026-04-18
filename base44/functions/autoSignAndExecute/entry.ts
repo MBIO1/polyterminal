@@ -72,7 +72,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, userEmai
   };
 }
 
-// Broadcast to Polymarket CLOB with correct HMAC-SHA256 auth
+// Broadcast to Polymarket CLOB (wallet-authenticated)
 async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) {
   const orderPayload = {
     salt: order.salt.toString(),
@@ -90,37 +90,13 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     signature,
   };
   
-  // Body must be exact JSON string — no formatting changes
-  const bodyStr = JSON.stringify(orderPayload);
-  
-  // CRITICAL: timestamp must be in MILLISECONDS (13 digits), not seconds
-  const timestamp = Date.now();
-  const method = 'POST';
-  const path = '/order';
-  
-  // Message format: timestamp + method + path + body (EXACT format required)
-  const message = timestamp.toString() + method + path + bodyStr;
-  
-  // HMAC-SHA256 signature (base64 encoded)
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(apiSecret);
-  const data = encoder.encode(message);
-  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const hmacSig = await crypto.subtle.sign('HMAC', key, data);
-  const hmacHex = btoa(String.fromCharCode.apply(null, new Uint8Array(hmacSig)));
-  
   const oxyUser = Deno.env.get('OXYLABS_USER');
   const oxyPass = Deno.env.get('OXYLABS_PASS');
   const oxyAuth = oxyUser && oxyPass ? btoa(`${oxyUser}:${oxyPass}`) : null;
   
-  // All required headers for Polymarket CLOB
+  // Polymarket CLOB uses wallet-based auth: just send order + signature
   const headers = {
     'Content-Type': 'application/json',
-    'POLY-ADDRESS': order.maker,
-    'POLY-SIGNATURE': hmacHex,
-    'POLY-TIMESTAMP': timestamp.toString(),
-    'POLY-API-KEY': apiKey,
-    'POLY-SIGNATURE-PASSPHRASE': passphrase,
   };
   
   if (oxyAuth) headers['Authorization'] = `Basic ${oxyAuth}`;
@@ -128,6 +104,8 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
   const endpoint = oxyAuth
     ? 'https://realtime.oxylabs.io/v1/queries'
     : 'https://clob.polymarket.com/order';
+  
+  const bodyStr = JSON.stringify(orderPayload);
   
   let res;
   if (oxyAuth) {
@@ -152,7 +130,10 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     });
   }
   
-  if (!res.ok) throw new Error(`CLOB error: ${res.status} ${await res.text()}`);
+  if (!res.ok) {
+    const errorText = await res.text();
+    throw new Error(`CLOB error: ${res.status} - ${errorText}`);
+  }
   return res.json();
 }
 
