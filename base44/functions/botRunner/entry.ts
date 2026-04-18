@@ -42,20 +42,18 @@ async function fetchViaOxylabs(url) {
 // ── Real CEX spread: fetch Binance + Coinbase live prices ────────────────────
 async function fetchLivePrices() {
   const results = await Promise.allSettled([
-    fetch('https://api.binance.com/api/v3/ticker/price?symbols=["BTCUSDT","ETHUSDT"]', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
+    fetch('https://api.binance.com/api/v3/ticker/price?symbol=BTCUSDT', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
+    fetch('https://api.binance.com/api/v3/ticker/price?symbol=ETHUSDT', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
     fetch('https://api.coinbase.com/v2/prices/BTC-USD/spot', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
     fetch('https://api.coinbase.com/v2/prices/ETH-USD/spot', { signal: AbortSignal.timeout(4000) }).then(r => r.json()),
   ]);
   
   let btcBinance = null, ethBinance = null, btcCoinbase = null, ethCoinbase = null;
   
-  if (results[0].status === 'fulfilled') {
-    const data = results[0].value;
-    btcBinance = parseFloat(data.find(d => d.symbol === 'BTCUSDT')?.price || 0) || null;
-    ethBinance = parseFloat(data.find(d => d.symbol === 'ETHUSDT')?.price || 0) || null;
-  }
-  if (results[1].status === 'fulfilled') btcCoinbase = parseFloat(results[1].value?.data?.amount || 0) || null;
-  if (results[2].status === 'fulfilled') ethCoinbase = parseFloat(results[2].value?.data?.amount || 0) || null;
+  if (results[0].status === 'fulfilled') btcBinance = parseFloat(results[0].value?.price || 0) || null;
+  if (results[1].status === 'fulfilled') ethBinance = parseFloat(results[1].value?.price || 0) || null;
+  if (results[2].status === 'fulfilled') btcCoinbase = parseFloat(results[2].value?.data?.amount || 0) || null;
+  if (results[3].status === 'fulfilled') ethCoinbase = parseFloat(results[3].value?.data?.amount || 0) || null;
   
   // Use actual Binance/Coinbase spread; fallback to mid-price if one is missing
   const btc = btcBinance && btcCoinbase ? (btcBinance + btcCoinbase) / 2 : (btcBinance || btcCoinbase || 97500);
