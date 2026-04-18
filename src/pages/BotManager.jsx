@@ -1,55 +1,47 @@
 /**
- * BotManager — monitors active BotTrade positions (outcome=pending).
- * Shows live PnL estimate, entry info, time elapsed, and allows manual cancel.
- * The actual stop-loss / take-profit enforcement is handled server-side by
- * the settlePendingTrades automation.
+ * BotManager — Real-time PnL for active BotTrades with trailing stop / take-profit UI.
+ * Live prices sourced from priceSimulator (Binance + Coinbase + CoinGecko).
+ * Bot auto-restarts after cooldown via autoRestartBot automation.
  */
-import React, { useState } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
-import { Bot, Activity, Clock, X, TrendingUp, TrendingDown, Shield } from 'lucide-react';
-
-function elapsed(dateStr) {
-  const ms = Date.now() - new Date(dateStr).getTime();
-  const s = Math.floor(ms / 1000);
-  if (s < 60) return `${s}s`;
-  if (s < 3600) return `${Math.floor(s / 60)}m ${s % 60}s`;
-  return `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m`;
-}
-
-function formatPrice(p) {
-  return `${Math.round((p || 0) * 100)}¢`;
-}
-
-function estPnl(trade) {
-  // Estimate current mark-to-market: assume midpoint drifts slightly toward 50¢ if no new info
-  const entry = trade.entry_price || 0.5;
-  const mark = entry; // no live mark available; show entry-based zero as placeholder
-  const gross = trade.side === 'yes'
-    ? (mark - entry) * (trade.shares || 0)
-    : (entry - mark) * (trade.shares || 0);
-  return gross;
-}
+import { Bot, Activity, TrendingUp, TrendingDown, Shield, RefreshCw } from 'lucide-react';
+import { startPriceSimulator, stopPriceSimulator } from '@/lib/priceSimulator';
+import ActivePositionCard from '@/components/bot-manager/ActivePositionCard';
 
 export default function BotManager() {
   const queryClient = useQueryClient();
-  const [cancelLog, setCancelLog] = useState([]);
+  const [prices, setPrices] = useState({ btc: { price: 97500, prev: 97500 }, eth: { price: 3200, prev: 3200 } });
+  const [actionLog, setActionLog] = useState([]);
+
+  // Live price feed
+  const handlePriceUpdate = useCallback((update) => {
+    setPrices({ btc: update.btc, eth: update.eth });
+  }, []);
+
+  useEffect(() => {
+    startPriceSimulator(handlePriceUpdate);
+    return () => stopPriceSimulator(handlePriceUpdate);
+  }, [handlePriceUpdate]);
 
   const { data: trades = [], isLoading } = useQuery({
     queryKey: ['bot-manager-trades'],
     queryFn: () => base44.entities.BotTrade.filter({ outcome: 'pending' }),
-    refetchInterval: 15000,
+    refetchInterval: 8000,
   });
 
   const { data: configs = [] } = useQuery({
     queryKey: ['bot-config'],
     queryFn: () => base44.entities.BotConfig.list(),
+    refetchInterval: 10000,
   });
 
   const { data: allTrades = [] } = useQuery({
     queryKey: ['bot-manager-all'],
     queryFn: () => base44.entities.BotTrade.list('-created_date', 100),
+    refetchInterval: 15000,
   });
 
   const config = configs[0] || {};
@@ -58,25 +50,75 @@ export default function BotManager() {
   const winRate = resolved.length > 0 ? (wins / resolved.length * 100).toFixed(1) : '—';
   const totalPnl = allTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
 
+  const haltUntil = config.halt_until_ts || 0;
+  const isHalted = config.kill_switch_active || (haltUntil > Date.now());
+  const haltMinLeft = haltUntil > Date.now() ? Math.ceil((haltUntil - Date.now()) / 60000) : 0;
+
   const cancelMutation = useMutation({
     mutationFn: (trade) => base44.entities.BotTrade.update(trade.id, {
       outcome: 'cancelled',
       notes: `${trade.notes || ''} | ❌ Manually cancelled`,
     }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bot-manager-trades'] }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['bot-manager-trades'] });
+      queryClient.invalidateQueries({ queryKey: ['bot-manager-all'] });
+    },
+  });
+
+  const saveConfig = useMutation({
+    mutationFn: (updates) => {
+      if (configs.length > 0) return base44.entities.BotConfig.update(configs[0].id, updates);
+      return base44.entities.BotConfig.create(updates);
+    },
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['bot-config'] }),
   });
 
   const handleCancel = (trade) => {
     cancelMutation.mutate(trade);
-    setCancelLog(prev => [{
+    setActionLog(prev => [{
       id: Date.now(),
+      type: 'cancel',
+      label: '❌ Cancelled',
       title: trade.market_title,
       asset: trade.asset,
       side: trade.side,
       size: trade.size_usdc,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-    }, ...prev].slice(0, 20));
+    }, ...prev].slice(0, 30));
     toast.success(`❌ Cancelled ${trade.asset} ${trade.side?.toUpperCase()} $${trade.size_usdc?.toFixed(2)}`);
+  };
+
+  const handleSetStop = (trade, stopPct) => {
+    setActionLog(prev => [{
+      id: Date.now(),
+      type: 'stop',
+      label: `🛑 SL Armed -${stopPct}%`,
+      title: trade.market_title,
+      asset: trade.asset,
+      side: trade.side,
+      size: trade.size_usdc,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    }, ...prev].slice(0, 30));
+    toast.info(`🛑 Stop loss armed at -${stopPct}% for ${trade.asset} position`);
+  };
+
+  const handleSetTakeProfit = (trade, tpPct) => {
+    setActionLog(prev => [{
+      id: Date.now(),
+      type: 'tp',
+      label: `✅ TP Armed +${tpPct}%`,
+      title: trade.market_title,
+      asset: trade.asset,
+      side: trade.side,
+      size: trade.size_usdc,
+      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+    }, ...prev].slice(0, 30));
+    toast.info(`✅ Take profit armed at +${tpPct}% for ${trade.asset} position`);
+  };
+
+  const handleManualRestart = async () => {
+    await saveConfig.mutateAsync({ bot_running: true, halt_until_ts: 0, kill_switch_active: false });
+    toast.success('▶️ Bot manually restarted');
   };
 
   return (
@@ -89,10 +131,17 @@ export default function BotManager() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-foreground">Bot Manager</h1>
-            <p className="text-sm text-muted-foreground">Monitor &amp; manage active bot positions</p>
+            <p className="text-sm text-muted-foreground">Real-time positions · Stop loss &amp; take profit</p>
           </div>
         </div>
-        <div className="flex items-center gap-3 text-xs font-mono">
+        <div className="flex items-center gap-3 text-xs font-mono flex-wrap">
+          {/* Live price indicator */}
+          <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card">
+            <div className="w-1.5 h-1.5 rounded-full bg-accent animate-pulse" />
+            <span className="text-muted-foreground">BTC ${prices.btc?.price?.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+            <span className="text-border">·</span>
+            <span className="text-muted-foreground">ETH ${prices.eth?.price?.toLocaleString('en-US', { maximumFractionDigits: 0 })}</span>
+          </div>
           <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full border border-border bg-card">
             <Activity className="w-3.5 h-3.5 text-primary" />
             <span className="text-muted-foreground">{trades.length} active</span>
@@ -108,15 +157,43 @@ export default function BotManager() {
         </div>
       </div>
 
+      {/* Halt / auto-restart banner */}
+      {isHalted && (
+        <div className="rounded-xl border border-chart-4/30 bg-chart-4/5 px-4 py-3 flex items-center justify-between gap-4">
+          <div className="text-xs font-mono text-chart-4">
+            {config.kill_switch_active
+              ? '🛑 Kill switch active — bot is manually stopped'
+              : `⏱ Bot halted — auto-restart in ~${haltMinLeft} min (autoRestartBot automation will resume it)`}
+          </div>
+          <button
+            onClick={handleManualRestart}
+            disabled={saveConfig.isPending}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-chart-4/40 text-chart-4 text-xs font-medium hover:bg-chart-4/10 transition-all shrink-0"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            Restart Now
+          </button>
+        </div>
+      )}
+
       {/* Info */}
       <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs font-mono text-muted-foreground leading-relaxed">
-        <span className="text-primary font-bold">Active positions</span> are BotTrades awaiting settlement. The scheduled <span className="text-foreground">settlePendingTrades</span> automation runs every 2 min and resolves any position older than 5 min. You can manually cancel a position below — it won't count toward P&L.
+        <span className="text-primary font-bold">Live PnL</span> is estimated from real-time Binance/Coinbase prices. Mark price = current CEX-implied probability vs entry. 
+        Trailing stop &amp; take profit are <span className="text-foreground">client-side monitors</span> — arm them, then manually cancel when triggered (or let <span className="text-foreground">settlePendingTrades</span> settle at expiry).
+        Bot auto-restarts after cooldown via the <span className="text-foreground">autoRestartBot</span> automation.
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Active positions */}
         <div className="lg:col-span-2 space-y-3">
-          <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Active Positions ({trades.length})</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Active Positions ({trades.length})</h2>
+            {!isLoading && (
+              <span className={`text-[9px] font-mono px-2 py-0.5 rounded-full ${config.bot_running && !isHalted ? 'bg-accent/10 text-accent' : 'bg-muted/50 text-muted-foreground'}`}>
+                {config.bot_running && !isHalted ? '▶ BOT RUNNING' : '⏸ BOT PAUSED'}
+              </span>
+            )}
+          </div>
 
           {isLoading ? (
             Array(3).fill(0).map((_, i) => (
@@ -127,83 +204,25 @@ export default function BotManager() {
               <Bot className="w-8 h-8 mx-auto mb-3 text-muted-foreground/30" />
               <p className="text-sm text-muted-foreground">No active positions</p>
               <p className="text-xs text-muted-foreground mt-1">
-                {config.bot_running ? 'Bot is running — new positions will appear here' : 'Start the bot from the Arb Bot dashboard'}
+                {config.bot_running && !isHalted ? 'Bot is running — new positions will appear here' : 'Start the bot from the Arb Bot dashboard'}
               </p>
             </div>
           ) : (
-            trades.map(trade => {
-              const age = Date.now() - new Date(trade.created_date).getTime();
-              const ageMin = age / 60000;
-              const urgent = ageMin >= 4; // settlement approaching
-
-              return (
-                <div key={trade.id} className={`rounded-xl border bg-card p-4 transition-all ${urgent ? 'border-chart-4/40' : 'border-border'}`}>
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1 flex-wrap">
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${trade.asset === 'BTC' ? 'bg-chart-4/10 text-chart-4' : 'bg-primary/10 text-primary'}`}>
-                          {trade.asset}
-                        </span>
-                        <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold ${trade.side === 'yes' ? 'bg-accent/10 text-accent' : 'bg-destructive/10 text-destructive'}`}>
-                          {trade.side?.toUpperCase()}
-                        </span>
-                        <span className="text-[9px] font-mono text-muted-foreground bg-secondary/40 px-1.5 py-0.5 rounded">
-                          {trade.contract_type?.replace(/_/g, ' ')}
-                        </span>
-                        <span className={`text-[9px] font-mono px-1.5 py-0.5 rounded ${trade.mode === 'live' ? 'bg-destructive/10 text-destructive' : 'bg-chart-4/10 text-chart-4'}`}>
-                          {trade.mode === 'live' ? '💰 LIVE' : '📄 PAPER'}
-                        </span>
-                        {urgent && (
-                          <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-chart-4/20 text-chart-4 animate-pulse">
-                            ⏱ Settling soon
-                          </span>
-                        )}
-                      </div>
-                      <p className="text-xs text-foreground font-medium truncate">{trade.market_title}</p>
-                    </div>
-                    <button
-                      onClick={() => handleCancel(trade)}
-                      disabled={cancelMutation.isPending}
-                      className="p-1.5 rounded-lg border border-border hover:bg-destructive/10 hover:border-destructive/30 hover:text-destructive text-muted-foreground transition-all shrink-0"
-                      title="Cancel position"
-                    >
-                      <X className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-3 md:grid-cols-5 gap-3 mt-3 text-[10px] font-mono">
-                    <div>
-                      <p className="text-muted-foreground">Entry</p>
-                      <p className="text-foreground font-bold">{formatPrice(trade.entry_price)}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Size</p>
-                      <p className="text-foreground font-bold">${(trade.size_usdc || 0).toFixed(2)}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Shares</p>
-                      <p className="text-foreground font-bold">{trade.shares || 0}</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground">Edge</p>
-                      <p className="text-accent font-bold">{(trade.edge_at_entry || 0).toFixed(1)}%</p>
-                    </div>
-                    <div>
-                      <p className="text-muted-foreground flex items-center gap-1"><Clock className="w-2.5 h-2.5" /> Age</p>
-                      <p className={`font-bold ${urgent ? 'text-chart-4' : 'text-foreground'}`}>{elapsed(trade.created_date)}</p>
-                    </div>
-                  </div>
-
-                  {trade.notes && (
-                    <p className="mt-2 text-[9px] font-mono text-muted-foreground/60 truncate">{trade.notes}</p>
-                  )}
-                </div>
-              );
-            })
+            trades.map(trade => (
+              <ActivePositionCard
+                key={trade.id}
+                trade={trade}
+                prices={prices}
+                onCancel={handleCancel}
+                onSetStop={handleSetStop}
+                onSetTakeProfit={handleSetTakeProfit}
+                cancelling={cancelMutation.isPending}
+              />
+            ))
           )}
         </div>
 
-        {/* Right column: stats + cancel log */}
+        {/* Right column: stats + action log */}
         <div className="space-y-4">
           {/* Session stats */}
           <div className="rounded-xl border border-border bg-card p-4 space-y-3">
@@ -213,7 +232,8 @@ export default function BotManager() {
               { label: 'Win Rate (all time)', value: `${winRate}%`, color: parseFloat(winRate) >= 50 ? 'text-accent' : 'text-destructive' },
               { label: 'Total P&L', value: `${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}`, color: totalPnl >= 0 ? 'text-accent' : 'text-destructive' },
               { label: 'Total Trades', value: allTrades.length, color: 'text-foreground' },
-              { label: 'Bot Status', value: config.bot_running ? '▶ Running' : '⏸ Paused', color: config.bot_running ? 'text-accent' : 'text-muted-foreground' },
+              { label: 'Bot Status', value: config.bot_running && !isHalted ? '▶ Running' : isHalted ? `⏱ Halted ${haltMinLeft}m` : '⏸ Paused', color: config.bot_running && !isHalted ? 'text-accent' : 'text-chart-4' },
+              { label: 'Auto-Restart', value: isHalted && !config.kill_switch_active ? 'Armed' : config.kill_switch_active ? 'Disabled' : 'Ready', color: isHalted && !config.kill_switch_active ? 'text-primary' : 'text-muted-foreground' },
               { label: 'Mode', value: config.paper_trading !== false ? 'Paper' : 'Live', color: config.paper_trading !== false ? 'text-chart-4' : 'text-destructive' },
             ].map(item => (
               <div key={item.label} className="flex justify-between items-center py-1 border-b border-border/20 last:border-0">
@@ -223,22 +243,26 @@ export default function BotManager() {
             ))}
           </div>
 
-          {/* Cancel log */}
+          {/* Action log */}
           <div className="rounded-xl border border-border bg-card p-4 space-y-2">
-            <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Cancel Log</h2>
-            {cancelLog.length === 0 ? (
-              <p className="text-xs text-muted-foreground text-center py-6 font-mono">No cancellations yet</p>
+            <h2 className="text-xs font-medium text-muted-foreground uppercase tracking-wider mb-2">Action Log</h2>
+            {actionLog.length === 0 ? (
+              <p className="text-xs text-muted-foreground text-center py-6 font-mono">No actions yet</p>
             ) : (
-              cancelLog.map(log => (
-                <div key={log.id} className="rounded-lg border border-border/50 bg-secondary/20 px-3 py-2 space-y-1">
+              actionLog.map(log => (
+                <div key={log.id} className={`rounded-lg border px-3 py-2 space-y-1 ${
+                  log.type === 'cancel' ? 'border-border/50 bg-secondary/20' :
+                  log.type === 'stop'   ? 'border-destructive/20 bg-destructive/5' :
+                                          'border-accent/20 bg-accent/5'
+                }`}>
                   <div className="flex items-center justify-between gap-2">
-                    <span className={`text-[9px] font-mono font-bold px-1.5 py-0.5 rounded ${log.side === 'yes' ? 'bg-accent/10 text-accent' : 'bg-destructive/10 text-destructive'}`}>
-                      {log.asset} {log.side?.toUpperCase()}
-                    </span>
-                    <span className="text-[10px] font-mono text-muted-foreground">{log.time}</span>
+                    <span className={`text-[9px] font-mono font-bold ${
+                      log.type === 'stop' ? 'text-destructive' : log.type === 'tp' ? 'text-accent' : 'text-muted-foreground'
+                    }`}>{log.label}</span>
+                    <span className="text-[9px] font-mono text-muted-foreground">{log.time}</span>
                   </div>
-                  <p className="text-xs text-foreground font-medium truncate">{log.title}</p>
-                  <p className="text-[9px] font-mono text-muted-foreground">Size: ${log.size?.toFixed(2)}</p>
+                  <p className="text-[10px] text-foreground font-medium truncate">{log.title}</p>
+                  <p className="text-[9px] font-mono text-muted-foreground">{log.asset} {log.side?.toUpperCase()} · ${log.size?.toFixed(2)}</p>
                 </div>
               ))
             )}

@@ -222,13 +222,24 @@ Deno.serve(async (req) => {
     const configs = await base44.asServiceRole.entities.BotConfig.list();
     const config  = configs[0];
 
+    // ── Auto-resume after halt_until_ts expires ──────────────────────────────
+    const haltUntil = config.halt_until_ts || 0;
+    const now = Date.now();
+    if (!config.kill_switch_active && haltUntil > 0 && haltUntil <= now && !config.bot_running) {
+      // Cooldown expired and bot is still stopped — auto-restart
+      await base44.asServiceRole.entities.BotConfig.update(config.id, {
+        bot_running: true,
+        halt_until_ts: 0,
+      });
+      return Response.json({ auto_restarted: true, reason: 'halt_until_ts expired, bot restarted' });
+    }
+
     if (!config?.bot_running) {
       return Response.json({ skipped: true, reason: 'bot not running' });
     }
 
     // Check halts
-    const haltUntil = config.halt_until_ts || 0;
-    if (config.kill_switch_active || haltUntil > Date.now()) {
+    if (config.kill_switch_active || haltUntil > now) {
       return Response.json({ skipped: true, reason: 'halted' });
     }
 
