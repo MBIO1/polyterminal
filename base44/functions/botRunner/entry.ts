@@ -350,13 +350,17 @@ Deno.serve(async (req) => {
     // Daily loss gate
     const maxDailyLoss = config.max_daily_loss_pct ?? 10;
     if (dailyDD >= maxDailyLoss) {
-      const haltDuration = (config.auto_halt_24h && dailyDD > 25) ? 86400000 : 2 * 60 * 60 * 1000;
-      await base44.asServiceRole.entities.BotConfig.update(config.id, {
-        bot_running: false,
-        kill_switch_active: false,
-        halt_until_ts: Date.now() + haltDuration,
-      });
-      return Response.json({ skipped: true, reason: 'daily loss limit — 2h halt', dailyDD, haltDuration });
+      // Only set halt if not already halted (prevent re-triggering on stale data)
+      if (!config.halt_until_ts || config.halt_until_ts <= Date.now()) {
+        const haltDuration = (config.auto_halt_24h && dailyDD > 25) ? 86400000 : 2 * 60 * 60 * 1000;
+        await base44.asServiceRole.entities.BotConfig.update(config.id, {
+          bot_running: false,
+          kill_switch_active: false,
+          halt_until_ts: Date.now() + haltDuration,
+        });
+        return Response.json({ skipped: true, reason: 'daily loss limit — 2h halt', dailyDD, haltDuration });
+      }
+      return Response.json({ skipped: true, reason: 'daily loss limit — already halted', dailyDD });
     }
 
     // Max positions gate
