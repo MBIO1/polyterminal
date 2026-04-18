@@ -40,7 +40,7 @@ const ORDER_TYPES = {
 // Track nonces per user to prevent replay
 const userNonces = {};
 
-// Build order struct for Polymarket CLOB with validation
+// Build order struct for Polymarket CLOB with validation (all strings for JSON safety)
 function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, userEmail) {
   // Validation
   if (!tokenId || typeof tokenId !== 'string') throw new Error('Invalid tokenId');
@@ -55,20 +55,20 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, userEmai
   if (!userNonces[userEmail]) userNonces[userEmail] = 0;
   const nonce = ++userNonces[userEmail];
   
-  // Polymarket CLOB order format (Polygon network)
+  // Polymarket CLOB order format (all as strings)
   return {
-    salt: Math.floor(Math.random() * (2n ** 256n - 1n)), // Large salt
+    salt: Math.floor(Math.random() * Number.MAX_SAFE_INTEGER).toString(),
     maker: makerAddress,
-    signer: makerAddress, // For now, same as maker
-    taker: '0x0000000000000000000000000000000000000000', // Any taker
-    tokenId: BigInt(tokenId),
-    makerAmount: BigInt(Math.round(sizeUsdc * 1e6)), // USDC (6 decimals)
-    takerAmount: BigInt(Math.round((sizeUsdc / price) * 1e6)), // Shares
-    expiration: BigInt(expirationSeconds),
-    nonce: BigInt(nonce),
-    feeRateBps: 720n, // 7.2% taker fee
-    side: side, // 0 = BUY, 1 = SELL
-    signatureType: 0, // EOA signature
+    signer: makerAddress,
+    taker: '0x0000000000000000000000000000000000000000',
+    tokenId: tokenId,
+    makerAmount: Math.round(sizeUsdc * 1e6).toString(),
+    takerAmount: Math.round((sizeUsdc / price) * 1e6).toString(),
+    expiration: expirationSeconds.toString(),
+    nonce: nonce.toString(),
+    feeRateBps: 720,
+    side: side,
+    signatureType: 0,
   };
 }
 
@@ -90,7 +90,18 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
   const oxyAuth = oxyUser && oxyPass ? btoa(`${oxyUser}:${oxyPass}`) : null;
   
   const orderPayload = {
-    ...order,
+    salt: order.salt.toString(),
+    maker: order.maker,
+    signer: order.signer,
+    taker: order.taker,
+    tokenId: order.tokenId.toString(),
+    makerAmount: order.makerAmount.toString(),
+    takerAmount: order.takerAmount.toString(),
+    expiration: order.expiration.toString(),
+    nonce: order.nonce.toString(),
+    feeRateBps: 720,
+    side: order.side,
+    signatureType: order.signatureType,
     signature,
   };
   
@@ -210,7 +221,7 @@ Deno.serve(async (req) => {
       orderId: clobRes.order_id,
       signature: signature.slice(0, 20) + '…',
       size: sizeUsdc,
-      nonce: orderStruct.nonce.toString(),
+      nonce: orderStruct.nonce,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
