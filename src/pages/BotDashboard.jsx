@@ -215,6 +215,15 @@ export default function BotDashboard() {
     toast.info(next ? '▶️ Server bot started — runs every 5 min even if you close the window' : '⏸ Server bot paused');
   };
 
+  const handleTogglePaperLive = () => {
+    const newMode = !config.paper_trading;
+    handleConfigUpdate({ paper_trading: newMode });
+    toast.info(newMode 
+      ? '📄 Switched to PAPER TRADING — no real USDC spent' 
+      : '💰 Switched to LIVE TRADING — orders execute for real, verify API credentials are set!'
+    );
+  };
+
   const isPaper = config.paper_trading !== false || !(config.live_flag_1 && config.live_flag_2 && config.live_flag_3);
 
   return (
@@ -245,12 +254,30 @@ export default function BotDashboard() {
               BTC/ETH 5-min &amp; 15-min contracts · Half-Kelly sizing · Edge &gt; {config.edge_threshold || 5}% · Conf &gt; {config.confidence_threshold || 85}% · Max pos {config.max_position_pct || 8}%
             </p>
           </div>
-          <div className="flex items-center gap-4 text-sm font-mono">
-            <div>
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleTogglePaperLive}
+                className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+                  config.paper_trading ? 'bg-chart-4/20' : 'bg-destructive/20'
+                }`}
+              >
+                <span
+                  className={`inline-block h-6 w-6 transform rounded-full bg-foreground transition-transform ${
+                    config.paper_trading ? 'translate-x-0.5' : 'translate-x-5'
+                  }`}
+                />
+              </button>
+              <span className="text-xs font-mono text-muted-foreground">
+                {config.paper_trading ? 'Paper' : 'Live'}
+              </span>
+            </div>
+
+            <div className="text-sm font-mono">
               <span className="text-muted-foreground text-xs">Portfolio</span>
               <p className="text-foreground font-bold">${portfolioValue.toFixed(2)}</p>
             </div>
-            <div>
+            <div className="text-sm font-mono">
               <span className="text-muted-foreground text-xs">Total P&L</span>
               <p className={`font-bold ${totalPnl >= 0 ? 'text-accent' : 'text-destructive'}`}>
                 {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}

@@ -507,10 +507,31 @@ Deno.serve(async (req) => {
       // 70% weight on CEX probability, 30% on signal model
       const modelWinP  = 0.51 + signalBonus + edgeBonus;
       const winProb    = Math.max(0.40, Math.min(0.70, (rawWinP * 0.70) + (modelWinP * 0.30)));
-      const outcome    = Math.random() < winProb ? 'win' : 'loss';
-      const pnl        = outcome === 'win'
-        ? adaptiveSize * ((1 - opp.polymarket_price) / opp.polymarket_price)
-        : -adaptiveSize;
+      
+      // LIVE MODE: Call auto-signer to generate + submit real order
+      let outcome, pnl;
+      if (!isPaper) {
+        try {
+          const signResult = await base44.asServiceRole.functions.invoke('autoSignAndExecute', {
+            tokenId: opp.tokenId,
+            side: opp.recommended_side === 'yes' ? 0 : 1, // 0 = BUY YES, 1 = BUY NO
+            price: opp.polymarket_price,
+            sizeUsdc: adaptiveSize,
+          });
+          // Log live execution
+          outcome = signResult.success ? 'pending' : 'rejected';
+          pnl = signResult.success ? adaptiveSize * 0.01 : -adaptiveSize; // placeholder P&L tracking
+        } catch (err) {
+          outcome = 'rejected';
+          pnl = -adaptiveSize;
+        }
+      } else {
+        // Paper trading: simulate outcome
+        outcome = Math.random() < winProb ? 'win' : 'loss';
+        pnl = outcome === 'win'
+          ? adaptiveSize * ((1 - opp.polymarket_price) / opp.polymarket_price)
+          : -adaptiveSize;
+      }
 
       const recentWins   = recentTrades.slice(0, 10).filter(t => t.outcome === 'win').length;
       const recentLosses = Math.min(10, recentTrades.slice(0, 10).length) - recentWins;
