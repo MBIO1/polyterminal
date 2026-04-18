@@ -163,11 +163,15 @@ export default function TradingEngine() {
 
   const handleRunDiagnostics = async () => {
     setDiagLoading(true);
+    console.log('🔍 Starting diagnostics...');
     try {
+      console.log('📡 Calling diagnoseCLOBAuth function...');
       const res = await base44.functions.invoke('diagnoseCLOBAuth', {});
+      console.log('✅ Got response:', res.data);
       setDiagResults(res.data);
       toast.success('Diagnostics complete');
     } catch (err) {
+      console.error('❌ Diagnostics error:', err);
       toast.error(`Diagnostics failed: ${err.message}`);
     } finally {
       setDiagLoading(false);
