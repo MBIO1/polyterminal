@@ -159,6 +159,10 @@ const POLY_CONTRACTS = [
  */
 function buildContracts(prices, funding, micro) {
   const { btc, eth, btcBinance, btcCoinbase, ethBinance, ethCoinbase } = prices;
+  
+  // Use injected Coinbase if available (mock mode), fallback to Binance
+  const realBtcCoinbase = btcCoinbase || btcBinance;
+  const realEthCoinbase = ethCoinbase || ethBinance;
 
   return POLY_CONTRACTS.map((c, i) => {
     const isbtc = c.asset === 'BTC';
@@ -166,14 +170,16 @@ function buildContracts(prices, funding, micro) {
     const coinbasePrice = isbtc ? btcCoinbase : ethCoinbase;
     const vol = isbtc ? 0.012 : 0.018;
 
-    // Missing data fallback
-    if (!binancePrice || !coinbasePrice) {
+    // Use injected prices if mock mode, fallback to Binance for Coinbase
+    const finalCoinbasePrice = coinbasePrice || binancePrice;
+    
+    if (!binancePrice || !finalCoinbasePrice) {
       return { ...c, polymarket_price: 0.5, cex_implied_prob: 0.5, lag_pct: 0, edge_pct: 0, confidence_score: 0, recommended_side: 'yes', signalCount: 0, signals: {} };
     }
 
     // ── PRIMARY: Real Binance ↔ Coinbase spread ─────────────────────────────────
     // Binance typically leads (faster); Coinbase lags. Spread = (faster - slower) / slower
-    const realSpreadPct = ((binancePrice - coinbasePrice) / coinbasePrice) * 100;
+    const realSpreadPct = ((binancePrice - finalCoinbasePrice) / finalCoinbasePrice) * 100;
     // Direction: if Binance > Coinbase, BTC momentum is UP
     const spreadDir = realSpreadPct > 0 ? 1 : -1;
 
@@ -281,6 +287,20 @@ Deno.serve(async (req) => {
     return Response.json({ running: configs[0]?.bot_running || false, config: configs[0] || {}, recentTrades: trades });
   }
 
+  // ── TOGGLE MOCK MODE ────────────────────────────────────────────────────────
+  if (action === 'mock_toggle') {
+    const configs = await base44.asServiceRole.entities.BotConfig.list();
+    const config = configs[0];
+    const newMockMode = !config.mock_mode_enabled;
+    await base44.asServiceRole.entities.BotConfig.update(config.id, {
+      mock_mode_enabled: newMockMode,
+    });
+    return Response.json({
+      mock_mode_enabled: newMockMode,
+      message: newMockMode ? '✅ Mock spreads enabled' : '❌ Mock spreads disabled',
+    });
+  }
+
   // ── SCAN + AUTO-EXECUTE ─────────────────────────────────────────────────────
   if (action === 'scan') {
     const configs = await base44.asServiceRole.entities.BotConfig.list();
@@ -303,11 +323,28 @@ Deno.serve(async (req) => {
     if (config.kill_switch_active || haltUntil > now) return Response.json({ skipped: true, reason: 'halted' });
 
     // ── Fetch all signals in parallel ────────────────────────────────────────
-    const [prices, funding, micro] = await Promise.all([
+    let [prices, funding, micro] = await Promise.all([
       fetchLivePrices(),
       fetchFundingRates(),
       fetchMarketMicrostructure(),
     ]);
+
+    // ── Inject mock spreads if test mode enabled ─────────────────────────────
+    if (config.mock_mode_enabled) {
+      // Use the mid-price (btc/eth) as the base if Binance is missing
+      const btcBase = prices.btcBinance || prices.btc || 76000;
+      const ethBase = prices.ethBinance || prices.eth || 2400;
+      
+      const btcSpread = 1 + (0.005 + Math.random() * 0.015); // 0.5-2% spread
+      const ethSpread = 1 + (0.005 + Math.random() * 0.015);
+      prices = {
+        ...prices,
+        btcBinance: btcBase, // ensure Binance is set
+        ethBinance: ethBase,
+        btcCoinbase: btcBase / btcSpread, // Coinbase lags by spread
+        ethCoinbase: ethBase / ethSpread,
+      };
+    }
 
     const contracts = buildContracts(prices, funding, micro);
 
@@ -514,6 +551,7 @@ Deno.serve(async (req) => {
       dailyDD,
       adaptedKelly: adjustedKelly,
       blockedPatterns: blockedPatterns.length,
+      mockModeEnabled: config.mock_mode_enabled,
     });
   }
 

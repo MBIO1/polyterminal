@@ -86,6 +86,11 @@
       "type": "number",
       "default": 0,
       "description": "Unix ms timestamp \u2014 daily loss window resets from this point"
+    },
+    "mock_mode_enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Enable mock spread injection (0.5-2%) for testing without real market conditions"
     }
   },
   "required": []
