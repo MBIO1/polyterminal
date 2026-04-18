@@ -90,13 +90,19 @@ export default function TradingEngine() {
   const [signingStatus, setSigningStatus] = useState(null);
   const [diagResults, setDiagResults] = useState(null);
   const [diagLoading, setDiagLoading] = useState(false);
+  const [paperMode, setPaperMode] = useState(true);
+  const [togglingMode, setTogglingMode] = useState(false);
 
-  // Load credential status from server on mount
+  // Load credential status and trading mode from server on mount
   useEffect(() => {
-    base44.functions.invoke('polyCredentials', { action: 'check' })
-      .then(res => setServerCreds(res.data))
-      .catch(() => setServerCreds({ allSet: false }))
-      .finally(() => setLoadingCreds(false));
+    Promise.all([
+      base44.functions.invoke('polyCredentials', { action: 'check' })
+        .then(res => setServerCreds(res.data))
+        .catch(() => setServerCreds({ allSet: false })),
+      base44.functions.invoke('botRunner', { action: 'status' })
+        .then(res => setPaperMode(res.data?.config?.paper_trading !== false))
+        .catch(() => {}),
+    ]).finally(() => setLoadingCreds(false));
   }, []);
 
   // Auto-compute order preview whenever form changes
@@ -223,6 +229,19 @@ export default function TradingEngine() {
     }
   };
 
+  const handleToggleTradeMode = async () => {
+    setTogglingMode(true);
+    try {
+      const res = await base44.functions.invoke('togglePaperTrading', {});
+      setPaperMode(res.data.paper_trading);
+      toast.success(res.data.message);
+    } catch (err) {
+      toast.error(`Failed to toggle mode: ${err.message}`);
+    } finally {
+      setTogglingMode(false);
+    }
+  };
+
   const handlePlaceOrder = async () => {
     if (!signedPayload?.signed) {
       toast.error('Order must be signed first');
@@ -263,6 +282,45 @@ export default function TradingEngine() {
         <p className="text-xs text-muted-foreground mt-1 font-mono">
           Polymarket CLOB integration · EIP-712 order signing · Local key management
         </p>
+      </div>
+
+      {/* Trading Mode Banner */}
+      <div className={`rounded-xl border p-4 flex items-start justify-between gap-3 ${
+        paperMode
+          ? 'border-chart-4/30 bg-chart-4/5'
+          : 'border-destructive/30 bg-destructive/5'
+      }`}>
+        <div className="flex items-start gap-3 flex-1">
+          {paperMode ? (
+            <>
+              <AlertTriangle className="w-4 h-4 text-chart-4 mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p><strong className="text-chart-4">PAPER TRADING MODE</strong> — Simulated trades, no real orders executed.</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <AlertTriangle className="w-4 h-4 text-destructive mt-0.5 flex-shrink-0" />
+              <div className="text-xs text-muted-foreground space-y-1">
+                <p><strong className="text-destructive">🔴 LIVE TRADING ENABLED</strong> — Real orders will be executed with actual funds!</p>
+              </div>
+            </>
+          )}
+        </div>
+        <Button 
+          onClick={handleToggleTradeMode} 
+          size="sm" 
+          disabled={togglingMode}
+          className={paperMode ? 'bg-accent hover:bg-accent/90' : 'bg-destructive hover:bg-destructive/90'}
+        >
+          {togglingMode ? (
+            <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Switching...</>
+          ) : (
+            <>
+              {paperMode ? 'Enable Live' : 'Switch to Paper'}
+            </>
+          )}
+        </Button>
       </div>
 
       {/* Security banner */}
