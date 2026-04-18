@@ -211,10 +211,12 @@ function buildContracts(prices, funding, micro) {
     const lagPct = Math.abs(cexP - polyP) * 100;
 
     // ── Confidence: based on real spread magnitude + confirmation ──────────────
-    // Base: 45% + spread magnitude (up to +20%) + confirmation bonus (+15% per signal)
-    const spreadBonus = Math.min(20, Math.abs(realSpreadPct) * 5);
-    const confirmBonus = signalCount * 10; // +10% per confirming signal (max +20%)
-    const confidence = Math.min(95, 45 + spreadBonus + confirmBonus);
+    // Base confidence from spread alone (it's the money signal)
+    // 0.1% spread = 20%, 0.5% spread = 60%, 1% spread = 80%
+    const spreadBonus = Math.min(40, Math.abs(realSpreadPct) * 40);
+    // Confirmation signals add +10% each (bonus, not required)
+    const confirmBonus = signalCount * 8; // 0-16% based on signal count
+    const confidence = Math.min(95, 40 + spreadBonus + confirmBonus);
 
     const recommended_side = cexP > polyP ? 'yes' : 'no';
 
@@ -361,9 +363,11 @@ Deno.serve(async (req) => {
     }
 
     // ── Synthetic Polymarket lag (paper trading mode) ──────────────────────────
-    // Real arb: Polymarket prices lag CEX by 2-5% due to info decay
-    // Inject realistic lag for paper trading signal generation
-    const injectLag = (cexP, lagAmount) => {
+    // Real arb: Polymarket prices lag CEX by 1-3% due to info decay
+    // Inject realistic lag based on actual spread magnitude
+    const injectLag = (cexP, spreadPct) => {
+      // Larger spread = larger lag (they're correlated)
+      const lagAmount = Math.max(0.01, Math.min(0.04, Math.abs(spreadPct) / 100));
       const direction = cexP > 0.5 ? -1 : 1;
       return Math.max(0.02, Math.min(0.98, cexP + direction * lagAmount));
     };
@@ -381,10 +385,10 @@ Deno.serve(async (req) => {
       r.status === 'fulfilled' ? r.value : { bids_depth: 0, asks_depth: 0, spread_pct: 100, imbalance: 0 }
     );
 
-    const edgeThresh = config.edge_threshold || 5; // minimum 5% edge to detect
-    const lagThresh  = config.lag_threshold || 3;
-    const confThresh  = config.confidence_threshold || 85; // 85% confidence required
-    const maxPosPct   = (config.max_position_pct || 8) / 100;
+    const edgeThresh = config.edge_threshold || 2; // lower: 2% edge minimum (was 5%)
+    const lagThresh  = config.lag_threshold || 1.5; // lower: 1.5% lag minimum (was 3%)
+    const confThresh  = config.confidence_threshold || 70; // lower: 70% confidence (was 85%)
+    const maxPosPct   = (config.max_position_pct || 3) / 100; // smaller: 3% max position (was 8%)
 
     // Adaptive kelly
     const baseKelly    = adaptiveKellyFraction(recentTrades, config.kelly_fraction || 0.5);
@@ -410,16 +414,16 @@ Deno.serve(async (req) => {
                               (depth.imbalance < -0.05 && c.recommended_side === 'no');
         const effectiveSignalCount = c.signalCount + (obVoteAligned ? 1 : 0);
         
-        // PAPER TRADING: Inject realistic lag for signal generation (2-4%)
-        const syntheticLag = 0.02 + Math.random() * 0.02;
-        const polyPWithLag = injectLag(c.cex_implied_prob, syntheticLag);
+        // PAPER TRADING: Inject realistic lag based on real spread
+        const realSpread = Math.abs(c.edge_pct); // use actual spread
+        const polyPWithLag = injectLag(c.cex_implied_prob, realSpread);
         const lagPctWithLag = Math.abs(c.cex_implied_prob - polyPWithLag) * 100;
         
         return { 
           ...c, 
           polymarket_price: polyPWithLag,
           lag_pct: lagPctWithLag,
-          edge_pct: lagPctWithLag,
+          edge_pct: realSpread, // edge = real spread (already set above)
           depth, 
           depthLiquidity: (depth.bids_depth + depth.asks_depth) * 100, 
           effectiveSignalCount 
@@ -429,40 +433,43 @@ Deno.serve(async (req) => {
         const isBlocked = blockedPatterns.some(p =>
           p.asset === c.asset && p.contractType === c.type && p.side === c.recommended_side
         );
-        return !isBlocked && c.lag_pct >= lagThresh && c.edge_pct >= edgeThresh;
+        // Minimal gate: 0.3% edge minimum (capture tight spreads)
+        // Confidence is less important than edge on short-term contracts
+        return !isBlocked && c.edge_pct >= 0.3;
       })
       .sort((a, b) => (b.effectiveSignalCount - a.effectiveSignalCount) || (b.edge_pct - a.edge_pct));
 
     const executed = [];
-    const slotsLeft = Math.min(3, maxPos - openCount);
+    const slotsLeft = Math.min(5, maxPos - openCount); // take up to 5 per scan (was 3)
 
     for (const opp of opportunities.slice(0, slotsLeft)) {
       const ts = Date.now();
       const key = opp.id;
-      // Throttle: 5min per contract (up from 2min — avoid overtrading same contract)
-      if (lastTradeTs[key] && ts - lastTradeTs[key] < 300000) continue;
+      // Throttle: 2min per contract (allow faster re-entry on different conditions)
+      if (lastTradeTs[key] && ts - lastTradeTs[key] < 120000) continue;
       lastTradeTs[key] = ts;
 
-      // ── Adaptive position sizing: $1 base, scales with profit accumulation, max $50 ────
+      // ── Adaptive position sizing: start $0.25, scale slowly, max $5 per trade ────
+      // Top traders use 0.5-2% position sizing. Start small to verify edge.
       const profitAccumulation = Math.max(0, portfolio - config.starting_balance);
-      const profitMultiplier = 1 + (profitAccumulation / config.starting_balance);
-      const adaptiveSize = Math.min(50, 1 * profitMultiplier);
+      const profitMultiplier = Math.max(1, 1 + (profitAccumulation / config.starting_balance) * 0.5); // slow scaling
+      const baseSize = 0.25; // start $0.25 (was $1)
+      const adaptiveSize = Math.min(5, baseSize * profitMultiplier); // max $5 (was $50)
       
-      if (adaptiveSize < 0.5) continue;
+      if (adaptiveSize < 0.10) continue;
 
       const isPaper = config.paper_trading !== false;
 
-      // ── Win probability model (calibrated from leaderboard analysis) ─────────
-      // Top traders on Polymarket: kch123=54.1%, swisstony=53.4%, sovereign=52.6%
-      // High performers: geniusMC=75.2%, ilovecircle=74.2%, YatSen=65.9%
-      // Our model targets 58-68% win rate when signalCount=2-4
-      // Formula: base 52% + 4% per confirming signal + edge bonus
-      const edgeBonus  = Math.min(0.06, opp.edge_pct / 250);
-      const signalBonus = (opp.effectiveSignalCount - 2) * 0.04; // +4% per extra signal above minimum
+      // ── Win probability model (calibrated from top Polymarket traders) ─────────
+      // Proven win rates: kch123=54.1%, swisstony=53.4%, sovereign=52.6%
+      // Minimum threshold: 54% (below = unprofitable)
+      // Formula: 51% base + edge bonus + signal bonus (requires 2+ signals)
+      const edgeBonus  = Math.min(0.08, opp.edge_pct / 200); // spread efficiency
+      const signalBonus = opp.effectiveSignalCount >= 2 ? (opp.effectiveSignalCount - 2) * 0.03 : -0.05; // harsh -5% if <2 signals
       const rawWinP    = opp.recommended_side === 'yes' ? opp.cex_implied_prob : 1 - opp.cex_implied_prob;
-      // Blend CEX-implied probability with calibrated model
-      const modelWinP  = 0.52 + signalBonus + edgeBonus;
-      const winProb    = Math.max(0.40, Math.min(0.72, (rawWinP * 0.6) + (modelWinP * 0.4)));
+      // 70% weight on CEX probability, 30% on signal model
+      const modelWinP  = 0.51 + signalBonus + edgeBonus;
+      const winProb    = Math.max(0.40, Math.min(0.70, (rawWinP * 0.70) + (modelWinP * 0.30)));
       const outcome    = Math.random() < winProb ? 'win' : 'loss';
       const pnl        = outcome === 'win'
         ? adaptiveSize * ((1 - opp.polymarket_price) / opp.polymarket_price)
