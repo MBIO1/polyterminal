@@ -72,7 +72,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, userEmai
   };
 }
 
-// Broadcast to Polymarket CLOB (wallet-authenticated)
+// Broadcast to Polymarket CLOB (REST auth required)
 async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) {
   const orderPayload = {
     salt: order.salt.toString(),
@@ -92,26 +92,46 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
   
   const oxyUser = Deno.env.get('OXYLABS_USER');
   const oxyPass = Deno.env.get('OXYLABS_PASS');
-  const oxyAuth = oxyUser && oxyPass ? btoa(`${oxyUser}:${oxyPass}`) : null;
   
-  // Polymarket CLOB uses wallet-based auth: just send order + signature
+  // REST auth for Polymarket CLOB (HMAC-SHA256)
+  const timestamp = Date.now().toString();
+  const method = 'POST';
+  const path = '/order';
+  const bodyStr = JSON.stringify(orderPayload);
+  
+  // Build signature: timestamp + method + path + body
+  const signatureBody = timestamp + method + path + bodyStr;
+  const encoder = new TextEncoder();
+  const keyBuffer = encoder.encode(apiSecret);
+  const dataBuffer = encoder.encode(signatureBody);
+  const hashBuffer = await crypto.subtle.sign('HMAC', 
+    await crypto.subtle.importKey('raw', keyBuffer, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
+    dataBuffer
+  );
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  const hmacSig = btoa(String.fromCharCode(...hashArray));
+  
   const headers = {
     'Content-Type': 'application/json',
+    'POLY-SIGNATURE': hmacSig,
+    'POLY-API-KEY': apiKey,
+    'POLY-API-PASSPHRASE': passphrase,
+    'POLY-NONCE': timestamp,
   };
   
-  if (oxyAuth) headers['Authorization'] = `Basic ${oxyAuth}`;
+  if (oxyUser && oxyPass) {
+    headers['Proxy-Authorization'] = `Basic ${btoa(`${oxyUser}:${oxyPass}`)}`;
+  }
   
-  const endpoint = oxyAuth
+  const endpoint = oxyUser && oxyPass
     ? 'https://realtime.oxylabs.io/v1/queries'
     : 'https://clob.polymarket.com/order';
   
-  const bodyStr = JSON.stringify(orderPayload);
-  
   let res;
-  if (oxyAuth) {
+  if (oxyUser && oxyPass) {
     res = await fetch(endpoint, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${oxyAuth}` },
+      headers: { 'Content-Type': 'application/json', 'Proxy-Authorization': `Basic ${btoa(`${oxyUser}:${oxyPass}`)}` },
       body: JSON.stringify({
         source: 'universal',
         url: 'https://clob.polymarket.com/order',
@@ -215,6 +235,15 @@ Deno.serve(async (req) => {
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
+    const msg = error.message || '';
+    if (msg.includes('401')) {
+      return Response.json({ 
+        success: false, 
+        error: 'CLOB 401: API credentials invalid or account not approved for API trading. Check Polymarket dashboard.',
+        status: 'auth_error',
+        timestamp: new Date().toISOString(),
+      }, { status: 401 });
+    }
     return Response.json({ 
       success: false, 
       error: error.message,
