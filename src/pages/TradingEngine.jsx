@@ -185,37 +185,8 @@ export default function TradingEngine() {
   };
 
   const [placingOrder, setPlacingOrder] = React.useState(false);
-  const [showProxyOption, setShowProxyOption] = React.useState(false);
 
-  const handlePlaceOrderViaProxy = async () => {
-    if (!signedPayload?.signed) {
-      toast.error('Order must be signed first');
-      return;
-    }
-    setPlacingOrder(true);
-    try {
-      const res = await base44.functions.invoke('proxyTradeRelay', {
-        orderPayload: signedPayload.struct,
-        signature: signedPayload.signed,
-        apiKey: serverCreds.apiKey,
-        apiSecret: serverCreds.apiSecret,
-        apiPassphrase: serverCreds.passphrase,
-        timestamp: Date.now().toString(),
-        hmacSig: 'pre-computed',
-      });
-      if (res.data?.success) {
-        toast.success(`✅ Order relayed via proxy! ID: ${res.data.orderId?.slice(0, 10)}…`);
-        setSignedPayload(null);
-        setOrderForm({ tokenId: '', side: 'BUY', price: 0.5, sizeUsdc: 1, expirySecs: 300 });
-      } else {
-        throw new Error(res.data?.error || 'Proxy relay failed');
-      }
-    } catch (err) {
-      toast.error(`Proxy relay failed: ${err.message}`);
-    } finally {
-      setPlacingOrder(false);
-    }
-  };
+
 
   const handleRunDiagnostics = async () => {
     setDiagLoading(true);
@@ -581,42 +552,17 @@ export default function TradingEngine() {
                       </p>
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Button 
-                      onClick={handlePlaceOrder}
-                      disabled={placingOrder}
-                      className="w-full bg-accent hover:bg-accent/90"
-                    >
-                      {placingOrder ? (
-                        <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Placing order...</>
-                      ) : (
-                        <><Send className="w-3.5 h-3.5 mr-1.5" />Place ${orderForm.sizeUsdc} Order (Direct)</>
-                      )}
-                    </Button>
-                    <Button 
-                      onClick={() => setShowProxyOption(!showProxyOption)}
-                      variant="outline"
-                      size="sm"
-                      className="w-full"
-                    >
-                      <Zap className="w-3.5 h-3.5 mr-1.5" />
-                      {showProxyOption ? 'Hide' : 'Via Oxylabs Proxy'}
-                    </Button>
-                    {showProxyOption && (
-                      <Button 
-                        onClick={handlePlaceOrderViaProxy}
-                        disabled={placingOrder}
-                        variant="secondary"
-                        className="w-full"
-                      >
-                        {placingOrder ? (
-                          <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Relaying...</>
-                        ) : (
-                          <><Wifi className="w-3.5 h-3.5 mr-1.5" />Route via Residential IP</>
-                        )}
-                      </Button>
+                  <Button 
+                    onClick={handlePlaceOrder}
+                    disabled={placingOrder}
+                    className="w-full bg-accent hover:bg-accent/90"
+                  >
+                    {placingOrder ? (
+                      <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Placing order...</>
+                    ) : (
+                      <><Send className="w-3.5 h-3.5 mr-1.5" />Place ${orderForm.sizeUsdc} Order</>
                     )}
-                  </div>
+                  </Button>
                 </div>
               )}
             </Card>
