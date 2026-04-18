@@ -72,7 +72,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, userEmai
   };
 }
 
-// Broadcast to Polymarket CLOB via Oxylabs proxy
+// Broadcast to Polymarket CLOB with correct HMAC-SHA256 auth
 async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) {
   const orderPayload = {
     salt: order.salt.toString(),
@@ -90,11 +90,16 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     signature,
   };
   
+  // Body must be exact JSON string — no formatting changes
   const bodyStr = JSON.stringify(orderPayload);
-  const timestamp = Math.floor(Date.now() / 1000).toString();
   
-  // Polymarket auth: timestamp + method + path + body
-  const message = timestamp + 'POST' + '/order' + bodyStr;
+  // CRITICAL: timestamp must be in MILLISECONDS (13 digits), not seconds
+  const timestamp = Date.now();
+  const method = 'POST';
+  const path = '/order';
+  
+  // Message format: timestamp + method + path + body (EXACT format required)
+  const message = timestamp.toString() + method + path + bodyStr;
   
   // HMAC-SHA256 signature (base64 encoded)
   const encoder = new TextEncoder();
@@ -108,11 +113,12 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
   const oxyPass = Deno.env.get('OXYLABS_PASS');
   const oxyAuth = oxyUser && oxyPass ? btoa(`${oxyUser}:${oxyPass}`) : null;
   
+  // All required headers for Polymarket CLOB
   const headers = {
     'Content-Type': 'application/json',
     'POLY-ADDRESS': order.maker,
     'POLY-SIGNATURE': hmacHex,
-    'POLY-TIMESTAMP': timestamp,
+    'POLY-TIMESTAMP': timestamp.toString(),
     'POLY-API-KEY': apiKey,
     'POLY-SIGNATURE-PASSPHRASE': passphrase,
   };
