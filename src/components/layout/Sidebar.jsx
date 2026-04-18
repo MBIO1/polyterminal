@@ -11,6 +11,8 @@ import {
   BarChart2,
   FlaskConical,
   Cpu,
+  LineChart,
+  TestTube2,
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +25,8 @@ const navItems = [
   { path: '/analytics', icon: BarChart2, label: 'Analytics' },
   { path: '/research', icon: FlaskConical, label: 'Research Report', badge: 'NEW' },
   { path: '/trading-engine', icon: Cpu, label: 'Trading Engine', badge: 'LIVE' },
+  { path: '/performance', icon: LineChart, label: 'Performance' },
+  { path: '/backtest', icon: TestTube2, label: 'Backtester' },
 ];
 
 export default function Sidebar() {

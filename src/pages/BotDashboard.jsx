@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
@@ -192,6 +192,20 @@ export default function BotDashboard() {
     handleConfigUpdate({ kill_switch_active: false, halt_until_ts: 0 });
     toast.success('✅ Kill switch reset');
   };
+
+  // Auto-start bot once config is loaded, if not already running and not halted
+  const autoStarted = React.useRef(false);
+  useEffect(() => {
+    if (!configLoaded || autoStarted.current) return;
+    const cfg = configs[0];
+    if (!cfg) return;
+    const halted = cfg.kill_switch_active || (cfg.halt_until_ts || 0) > Date.now();
+    if (!cfg.bot_running && !halted) {
+      autoStarted.current = true;
+      saveConfig.mutate({ bot_running: true });
+      toast.info('▶️ Bot auto-started — runs server-side every 5 min');
+    }
+  }, [configLoaded, configs]);
 
   // Toggle writes bot_running to DB — server scheduler reads this flag each run
   const handleToggleRun = () => {
