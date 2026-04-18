@@ -342,6 +342,24 @@ Deno.serve(async (req) => {
     const maxPos = config.max_open_positions ?? 5;
     if (openCount >= maxPos) return Response.json({ skipped: true, reason: 'max open positions', openCount });
 
+    // Consecutive loss halt: if 5+ losses in a row, pause 30 min
+    const last10 = recentTrades.slice(0, 10);
+    let consecutiveLosses = 0;
+    for (const t of last10) {
+      if (t.outcome === 'loss') {
+        consecutiveLosses++;
+        if (consecutiveLosses >= 5) {
+          await base44.asServiceRole.entities.BotConfig.update(config.id, {
+            bot_running: false,
+            halt_until_ts: Date.now() + 30 * 60 * 1000, // 30 min halt
+          });
+          return Response.json({ skipped: true, reason: '5 consecutive losses — 30 min halt', consecutiveLosses });
+        }
+      } else if (t.outcome === 'win') {
+        consecutiveLosses = 0;
+      }
+    }
+
     // ── Synthetic Polymarket lag (paper trading mode) ──────────────────────────
     // Real arb: Polymarket prices lag CEX by 2-5% due to info decay
     // Inject realistic lag for paper trading signal generation
@@ -363,11 +381,9 @@ Deno.serve(async (req) => {
       r.status === 'fulfilled' ? r.value : { bids_depth: 0, asks_depth: 0, spread_pct: 100, imbalance: 0 }
     );
 
-    const edgeThresh = config.edge_threshold || 0.1;
-    const lagThresh  = config.lag_threshold || 1;
-    // LOWERED from 85 → 68: research shows top traders win at 54-75% rate.
-    // Setting threshold at 85 was filtering out too many valid opportunities.
-    const confThresh  = config.confidence_threshold || 68;
+    const edgeThresh = config.edge_threshold || 5; // minimum 5% edge to detect
+    const lagThresh  = config.lag_threshold || 3;
+    const confThresh  = config.confidence_threshold || 85; // 85% confidence required
     const maxPosPct   = (config.max_position_pct || 8) / 100;
 
     // Adaptive kelly

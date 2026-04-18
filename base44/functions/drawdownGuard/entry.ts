@@ -67,41 +67,45 @@ Deno.serve(async (req) => {
     const dailyDrawdownPct = (totalLoss / (config.starting_balance || 1000)) * 100;
 
     // ── Check drawdown thresholds ────────────────────────────────────────────
-    const maxDailyLoss = config.max_daily_loss_pct ?? 10;
-    const dailyHaltThreshold = config.daily_drawdown_halt ?? 20;
+    const maxDailyLoss = config.max_daily_loss_pct ?? 20; // -20% daily halt
+    const killSwitchThreshold = 40; // -40% permanent halt (cumulative)
+
+    // ── Check cumulative portfolio drawdown (high water mark) ─────────────────
+    const totalLosses = recentTrades.filter(t => (t.pnl_usdc || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
+    const cumulativeDrawdownPct = (totalLosses / (config.starting_balance || 1000)) * 100;
 
     let action = 'none';
     let reason = '';
 
-    if (dailyDrawdownPct >= dailyHaltThreshold) {
-      // Kill switch: harsh conditions (20%+ daily loss)
+    if (cumulativeDrawdownPct >= killSwitchThreshold) {
+      // Kill switch: -40% cumulative loss (permanent halt, requires manual restart)
       await base44.asServiceRole.entities.BotConfig.update(config.id, {
         bot_running: false,
         kill_switch_active: true,
-        halt_until_ts: now + 86400000, // 24h halt
+        halt_until_ts: now + 86400000 * 365, // effectively permanent
         halt_reset_ts: now,
       });
       action = 'kill_switch';
-      reason = `Daily drawdown ${dailyDrawdownPct.toFixed(1)}% ≥ kill threshold ${dailyHaltThreshold}% (24h halt)`;
+      reason = `Cumulative drawdown ${cumulativeDrawdownPct.toFixed(1)}% ≥ kill threshold ${killSwitchThreshold}% (permanent halt)`;
     } else if (dailyDrawdownPct >= maxDailyLoss) {
-      // Soft halt: 2h cooldown
+      // Daily halt: -20% daily loss (24h halt)
       await base44.asServiceRole.entities.BotConfig.update(config.id, {
         bot_running: false,
         kill_switch_active: false,
-        halt_until_ts: now + 7200000, // 2h halt
+        halt_until_ts: now + 86400000, // 24h halt
         halt_reset_ts: now,
       });
-      action = 'soft_halt';
-      reason = `Daily drawdown ${dailyDrawdownPct.toFixed(1)}% ≥ limit ${maxDailyLoss}% (2h halt)`;
+      action = 'daily_halt';
+      reason = `Daily drawdown ${dailyDrawdownPct.toFixed(1)}% ≥ limit ${maxDailyLoss}% (24h halt)`;
     }
 
     // ── Log drawdown event ───────────────────────────────────────────────────
     if (action !== 'none') {
       await base44.asServiceRole.entities.DrawdownLog.create({
         event_type: action === 'kill_switch' ? 'kill_switch' : 'daily_halt',
-        drawdown_pct: dailyDrawdownPct,
+        drawdown_pct: action === 'kill_switch' ? cumulativeDrawdownPct : dailyDrawdownPct,
         portfolio_value: config.starting_balance || 1000,
-        triggered_at_pct: action === 'kill_switch' ? dailyHaltThreshold : maxDailyLoss,
+        triggered_at_pct: action === 'kill_switch' ? killSwitchThreshold : maxDailyLoss,
         message: reason,
         resolved: false,
       });
@@ -113,8 +117,9 @@ Deno.serve(async (req) => {
       dailyPnL: dailyPnL.toFixed(2),
       dailyLoss: totalLoss.toFixed(2),
       dailyDrawdownPct: dailyDrawdownPct.toFixed(2),
+      cumulativeDrawdownPct: cumulativeDrawdownPct.toFixed(2),
       maxDailyLoss,
-      dailyHaltThreshold,
+      killSwitchThreshold,
       tradeCount: todayTrades.length,
       botRunning: config.bot_running,
       haltUntil: config.halt_until_ts,
