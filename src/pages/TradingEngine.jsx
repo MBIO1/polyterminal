@@ -71,7 +71,7 @@ export default function TradingEngine() {
     tokenId: TEST_TOKEN,
     side: 'BUY',
     price: 0.52,
-    sizeUsdc: 10,
+    sizeUsdc: 1,
     expirySecs: 300,
   });
   const [signedPayload, setSignedPayload] = useState(null);
