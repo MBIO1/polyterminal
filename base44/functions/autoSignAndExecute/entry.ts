@@ -74,21 +74,6 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress, userEmai
 
 // Broadcast to Polymarket CLOB via Oxylabs proxy
 async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) {
-  const timestamp = Date.now().toString();
-  const message = timestamp + 'POST' + '/order';
-  
-  // HMAC-SHA256 signature for REST auth
-  const encoder = new TextEncoder();
-  const keyData = encoder.encode(apiSecret);
-  const data = encoder.encode(message);
-  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const hmacSig = await crypto.subtle.sign('HMAC', key, data);
-  const hmacHex = Array.from(new Uint8Array(hmacSig)).map(b => b.toString(16).padStart(2, '0')).join('');
-  
-  const oxyUser = Deno.env.get('OXYLABS_USER');
-  const oxyPass = Deno.env.get('OXYLABS_PASS');
-  const oxyAuth = oxyUser && oxyPass ? btoa(`${oxyUser}:${oxyPass}`) : null;
-  
   const orderPayload = {
     salt: order.salt.toString(),
     maker: order.maker,
@@ -105,13 +90,31 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     signature,
   };
   
+  const bodyStr = JSON.stringify(orderPayload);
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  
+  // Polymarket auth: timestamp + method + path + body
+  const message = timestamp + 'POST' + '/order' + bodyStr;
+  
+  // HMAC-SHA256 signature (base64 encoded)
+  const encoder = new TextEncoder();
+  const keyData = encoder.encode(apiSecret);
+  const data = encoder.encode(message);
+  const key = await crypto.subtle.importKey('raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const hmacSig = await crypto.subtle.sign('HMAC', key, data);
+  const hmacHex = btoa(String.fromCharCode.apply(null, new Uint8Array(hmacSig)));
+  
+  const oxyUser = Deno.env.get('OXYLABS_USER');
+  const oxyPass = Deno.env.get('OXYLABS_PASS');
+  const oxyAuth = oxyUser && oxyPass ? btoa(`${oxyUser}:${oxyPass}`) : null;
+  
   const headers = {
     'Content-Type': 'application/json',
     'POLY-ADDRESS': order.maker,
     'POLY-SIGNATURE': hmacHex,
     'POLY-TIMESTAMP': timestamp,
     'POLY-API-KEY': apiKey,
-    'POLY-API-PASSPHRASE': passphrase,
+    'POLY-SIGNATURE-PASSPHRASE': passphrase,
   };
   
   if (oxyAuth) headers['Authorization'] = `Basic ${oxyAuth}`;
@@ -130,7 +133,7 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
         url: 'https://clob.polymarket.com/order',
         method: 'POST',
         headers,
-        body: JSON.stringify(orderPayload),
+        body: bodyStr,
       }),
       signal: AbortSignal.timeout(15000),
     });
@@ -138,7 +141,7 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     res = await fetch(endpoint, {
       method: 'POST',
       headers,
-      body: JSON.stringify(orderPayload),
+      body: bodyStr,
       signal: AbortSignal.timeout(15000),
     });
   }
