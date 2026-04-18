@@ -342,6 +342,14 @@ Deno.serve(async (req) => {
     const maxPos = config.max_open_positions ?? 5;
     if (openCount >= maxPos) return Response.json({ skipped: true, reason: 'max open positions', openCount });
 
+    // ── Synthetic Polymarket lag (paper trading mode) ──────────────────────────
+    // Real arb: Polymarket prices lag CEX by 2-5% due to info decay
+    // Inject realistic lag for paper trading signal generation
+    const injectLag = (cexP, lagAmount) => {
+      const direction = cexP > 0.5 ? -1 : 1;
+      return Math.max(0.02, Math.min(0.98, cexP + direction * lagAmount));
+    };
+
     // ── Fetch order book depths for top contracts ─────────────────────────────
     const depthResults = await Promise.allSettled(
       contracts.map(c =>
@@ -385,7 +393,20 @@ Deno.serve(async (req) => {
         const obVoteAligned = (depth.imbalance > 0.05 && c.recommended_side === 'yes') ||
                               (depth.imbalance < -0.05 && c.recommended_side === 'no');
         const effectiveSignalCount = c.signalCount + (obVoteAligned ? 1 : 0);
-        return { ...c, depth, depthLiquidity: (depth.bids_depth + depth.asks_depth) * 100, effectiveSignalCount };
+        
+        // PAPER TRADING: Inject realistic lag for signal generation (2-4%)
+        const syntheticLag = 0.02 + Math.random() * 0.02;
+        const polyPWithLag = injectLag(c.cex_implied_prob, syntheticLag);
+        const lagPctWithLag = Math.abs(c.cex_implied_prob - polyPWithLag) * 100;
+        
+        return { 
+          ...c, 
+          polymarket_price: polyPWithLag,
+          lag_pct: lagPctWithLag,
+          depth, 
+          depthLiquidity: (depth.bids_depth + depth.asks_depth) * 100, 
+          effectiveSignalCount 
+        };
       })
       .filter(c => {
         const isBlocked = blockedPatterns.some(p =>
