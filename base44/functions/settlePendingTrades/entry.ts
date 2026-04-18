@@ -45,17 +45,21 @@ Deno.serve(async (req) => {
       // Only settle if trade has aged past expiry
       if (elapsed < EXPIRY_MS) continue;
 
-      // Simulate settlement outcome based on time decay + volatility
-      // Older trades more likely to settle (price has had time to move)
-      const ageBonus = Math.min(0.2, (elapsed - EXPIRY_MS) / (60000 * 10)); // +0 to +20% over 10 min
-      const winProb = 0.5 + ageBonus; // 50-70% win rate as time passes
+      // Simulate settlement outcome — use edge_at_entry as win probability proxy
+      // Higher edge = higher win probability (this is the whole arbitrage thesis)
+      const edge = trade.edge_at_entry || 5;
+      const conf = (trade.confidence_at_entry || 75) / 100;
+      // Win prob = base 55% + edge contribution + confidence bonus
+      const winProb = Math.min(0.82, 0.50 + (edge / 200) + (conf * 0.15));
       const outcome = Math.random() < winProb ? 'win' : 'loss';
 
-      // Calculate exit price and P&L
-      const exitPrice = outcome === 'win' ? 0.95 : 0.15; // Favorable/unfavorable settlement
+      // Binary contract P&L:
+      //   WIN:  profit = size * ((1 - entry) / entry)  — payout from $1 per share minus cost
+      //   LOSS: loss   = -size_usdc  (full stake lost)
+      const exitPrice = outcome === 'win' ? 1.0 : 0.0;
       const pnl = outcome === 'win'
-        ? trade.size_usdc * ((1 - trade.entry_price) / trade.entry_price)
-        : -trade.size_usdc * (trade.entry_price / (1 - trade.entry_price));
+        ? trade.size_usdc * ((1 - (trade.entry_price || 0.5)) / (trade.entry_price || 0.5))
+        : -trade.size_usdc;
 
       const updates = {
         outcome,

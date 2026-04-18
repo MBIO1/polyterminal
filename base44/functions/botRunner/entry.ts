@@ -223,15 +223,17 @@ Deno.serve(async (req) => {
     const config  = configs[0];
 
     // ── Auto-resume after halt_until_ts expires ──────────────────────────────
+    // This is the PRIMARY restart mechanism for all timed halts.
+    // kill_switch_active is MANUAL-only and blocks auto-resume.
     const haltUntil = config.halt_until_ts || 0;
     const now = Date.now();
     if (!config.kill_switch_active && haltUntil > 0 && haltUntil <= now && !config.bot_running) {
-      // Cooldown expired and bot is still stopped — auto-restart
       await base44.asServiceRole.entities.BotConfig.update(config.id, {
         bot_running: true,
         halt_until_ts: 0,
+        kill_switch_active: false,
       });
-      return Response.json({ auto_restarted: true, reason: 'halt_until_ts expired, bot restarted' });
+      return Response.json({ auto_restarted: true, reason: 'halt_until_ts expired — bot resumed', haltUntil, now });
     }
 
     if (!config?.bot_running) {
@@ -258,13 +260,16 @@ Deno.serve(async (req) => {
     const dailyDD      = todayPnl < 0 ? (Math.abs(todayPnl) / startBal) * 100 : 0;
     const openCount    = recentTrades.filter(t => t.outcome === 'pending').length;
 
-    // Daily loss gate
+    // Daily loss gate — timed halt only, kill_switch stays OFF so autoRestart can resume
     const maxDailyLoss = config.max_daily_loss_pct ?? 10;
     if (dailyDD >= maxDailyLoss) {
-      const updates = { bot_running: false, kill_switch_active: true };
-      if (config.auto_halt_24h) updates.halt_until_ts = Date.now() + 86400000;
-      await base44.asServiceRole.entities.BotConfig.update(config.id, updates);
-      return Response.json({ skipped: true, reason: 'daily loss limit breached', dailyDD });
+      const haltDuration = config.auto_halt_24h ? 86400000 : 30 * 60 * 1000; // 24h or 30min
+      await base44.asServiceRole.entities.BotConfig.update(config.id, {
+        bot_running: false,
+        kill_switch_active: false, // keep OFF so autoRestartBot automation can resume
+        halt_until_ts: Date.now() + haltDuration,
+      });
+      return Response.json({ skipped: true, reason: 'daily loss limit breached — auto-halt set', dailyDD, haltDuration });
     }
 
     // Max open positions gate
