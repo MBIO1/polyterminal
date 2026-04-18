@@ -124,12 +124,12 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     'POLY-NONCE': timestamp,
   };
   
-  // Add Bright Data proxy auth if enabled
+  // Add Bright Data super proxy auth if enabled
   if (useProxy) {
-    const brightDataUser = Deno.env.get('BRIGHT_DATA_USER');
-    const brightDataPass = Deno.env.get('BRIGHT_DATA_PASS');
-    if (brightDataUser && brightDataPass) {
-      const proxyAuth = btoa(`${brightDataUser}:${brightDataPass}`);
+    const proxyUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER');
+    const proxyPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS');
+    if (proxyUser && proxyPass) {
+      const proxyAuth = btoa(`${proxyUser}:${proxyPass}`);
       headers['Proxy-Authorization'] = `Basic ${proxyAuth}`;
     }
   }
