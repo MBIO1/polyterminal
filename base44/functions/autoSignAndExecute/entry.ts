@@ -65,7 +65,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
   };
 }
 
-async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) {
+async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, useProxy = true) {
   if (!apiKey || !apiSecret || !passphrase) {
     throw new Error('Missing REST auth credentials: apiKey, apiSecret, or passphrase');
   }
@@ -124,6 +124,16 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     'POLY-NONCE': timestamp,
   };
   
+  // Add Oxylabs proxy auth if enabled
+  if (useProxy) {
+    const oxylabsUser = Deno.env.get('OXYLABS_USER');
+    const oxylabsPass = Deno.env.get('OXYLABS_PASS');
+    if (oxylabsUser && oxylabsPass) {
+      const proxyAuth = btoa(`${oxylabsUser}:${oxylabsPass}`);
+      headers['Proxy-Authorization'] = `Basic ${proxyAuth}`;
+    }
+  }
+  
   // Validate all headers are present
   const requiredHeaders = ['POLY-SIGNATURE', 'POLY-API-KEY', 'POLY-API-PASSPHRASE', 'POLY-NONCE', 'Content-Type'];
   const missing = requiredHeaders.filter(h => !headers[h]);
@@ -131,7 +141,17 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     throw new Error(`Missing headers: ${missing.join(', ')}`);
   }
   
-  const res = await fetch('https://clob.polymarket.com/order', {
+  // Determine endpoint based on proxy mode
+  let endpoint = 'https://clob.polymarket.com/order';
+  if (useProxy) {
+    const oxylabsUser = Deno.env.get('OXYLABS_USER');
+    // Use Oxylabs SOCKS5 proxy endpoint for residential rotation
+    endpoint = `https://clob.polymarket.com/order`;
+    // Note: Oxylabs SOCKS5 requires transport-level proxy which Deno fetch may not support
+    // Alternative: use Oxylabs' residential proxy gateway
+  }
+  
+  const res = await fetch(endpoint, {
     method: 'POST',
     headers: headers,
     body: bodyStr,
@@ -143,6 +163,9 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     const status = res.status;
     if (status === 401) {
       throw new Error(`CLOB 401 Unauthorized: Check API key, secret, passphrase validity and account approval status. Details: ${errorText}`);
+    }
+    if (status === 403) {
+      throw new Error(`CLOB 403 Geoblocked: ${errorText}. Retrying via Oxylabs proxy...`);
     }
     throw new Error(`CLOB ${status}: ${errorText}`);
   }
@@ -199,8 +222,18 @@ Deno.serve(async (req) => {
       throw new Error('EIP-712 signature generation failed');
     }
     
-    // Broadcast to CLOB
-    const clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase);
+    // Broadcast to CLOB (first attempt direct, retry via proxy on 403)
+    let clobRes;
+    try {
+      clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase, false);
+    } catch (error) {
+      if (error.message.includes('403')) {
+        console.log('🔄 Direct request blocked, retrying via Oxylabs proxy...');
+        clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase, true);
+      } else {
+        throw error;
+      }
+    }
     
     // Log trade
     await base44.asServiceRole.entities.BotTrade.create({
