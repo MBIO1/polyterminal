@@ -436,8 +436,12 @@ Deno.serve(async (req) => {
       if (lastTradeTs[key] && ts - lastTradeTs[key] < 300000) continue;
       lastTradeTs[key] = ts;
 
-      const kellySize = halfKelly(opp.edge_pct, opp.polymarket_price, portfolio, maxPosPct, adjustedKelly);
-      if (kellySize < 1) continue;
+      // ── Adaptive position sizing: $1 base, scales with profit accumulation, max $50 ────
+      const profitAccumulation = Math.max(0, portfolio - startBal);
+      const profitMultiplier = 1 + (profitAccumulation / startBal);
+      const adaptiveSize = Math.min(50, 1 * profitMultiplier);
+      
+      if (adaptiveSize < 0.5) continue;
 
       const isPaper = config.paper_trading !== false;
 
@@ -460,7 +464,7 @@ Deno.serve(async (req) => {
       const recentWins   = recentTrades.slice(0, 10).filter(t => t.outcome === 'win').length;
       const recentLosses = Math.min(10, recentTrades.slice(0, 10).length) - recentWins;
       const signalNote   = `signals=${opp.effectiveSignalCount}/5 [sprd=${opp.signals.spread} fund=${opp.signals.funding} mark=${opp.signals.mark} trend=${opp.signals.trend}]`;
-      const adaptNote    = `kelly=${adjustedKelly.toFixed(2)} streak=${recentWins}W/${recentLosses}L ob_imbal=${opp.depth.imbalance.toFixed(2)}`;
+      const adaptNote    = `size=$${adaptiveSize.toFixed(2)} profit_mult=${profitMultiplier.toFixed(2)}x streak=${recentWins}W/${recentLosses}L ob_imbal=${opp.depth.imbalance.toFixed(2)}`;
 
       await base44.asServiceRole.entities.BotTrade.create({
         market_title:          opp.title,
@@ -469,8 +473,8 @@ Deno.serve(async (req) => {
         side:                  opp.recommended_side,
         entry_price:           opp.polymarket_price,
         exit_price:            outcome === 'win' ? 1.0 : 0.0,
-        shares:                Math.floor(kellySize / opp.polymarket_price),
-        size_usdc:             Number(kellySize.toFixed(4)),
+        shares:                Math.floor(adaptiveSize / opp.polymarket_price),
+        size_usdc:             Number(adaptiveSize.toFixed(4)),
         edge_at_entry:         opp.edge_pct,
         confidence_at_entry:   opp.confidence_score,
         kelly_fraction_used:   adjustedKelly,
