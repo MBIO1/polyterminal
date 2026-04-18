@@ -1,12 +1,14 @@
 import React, { useState, useMemo } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
+import { runBacktest } from '@/lib/backtestEngine';
 import {
   AreaChart, Area, BarChart, Bar,
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell
 } from 'recharts';
 import { toast } from 'sonner';
-import { Play, RotateCcw, CheckCircle2, TrendingUp, TrendingDown } from 'lucide-react';
+import { Play, RotateCcw, CheckCircle2, TrendingUp, TrendingDown, Zap } from 'lucide-react';
+import OptimizerTab from '@/components/backtester/OptimizerTab';
 
 const DEFAULT_PARAMS = {
   edge_threshold: 5,
@@ -17,94 +19,7 @@ const DEFAULT_PARAMS = {
   starting_balance: 1000,
 };
 
-function runBacktest(trades, params) {
-  const {
-    edge_threshold, lag_threshold, confidence_threshold,
-    kelly_fraction, max_position_pct, starting_balance,
-  } = params;
-
-  // Filter trades that would have passed the given thresholds
-  const eligible = trades
-    .filter(t =>
-      t.outcome !== 'pending' &&
-      t.outcome !== 'cancelled' &&
-      (t.edge_at_entry || 0) >= edge_threshold &&
-      (t.confidence_at_entry || 0) >= confidence_threshold
-    )
-    .sort((a, b) => new Date(a.created_date) - new Date(b.created_date));
-
-  let portfolio = starting_balance;
-  let maxPortfolio = starting_balance;
-  let maxDrawdown = 0;
-  const equity = [];
-  let wins = 0, losses = 0, totalPnl = 0;
-  const dailyMap = {};
-
-  for (const trade of eligible) {
-    // Re-size using backtest kelly/max_pos params
-    const edge = trade.edge_at_entry || 0;
-    const price = trade.entry_price || 0.5;
-    const b = price > 0 && price < 1 ? (1 - price) / price : 1;
-    const p = Math.min(0.99, price + edge / 100);
-    const q = 1 - p;
-    const k = Math.max(0, (b * p - q) / b);
-    const sized = k * kelly_fraction;
-    const sizeUsdc = Math.min(sized * portfolio, portfolio * max_position_pct / 100);
-
-    if (sizeUsdc < 0.5) continue;
-
-    const pnl = trade.outcome === 'win'
-      ? sizeUsdc * ((1 - price) / price)
-      : -sizeUsdc;
-
-    portfolio += pnl;
-    totalPnl += pnl;
-    if (trade.outcome === 'win') wins++; else losses++;
-
-    maxPortfolio = Math.max(maxPortfolio, portfolio);
-    const dd = maxPortfolio > 0 ? ((maxPortfolio - portfolio) / maxPortfolio) * 100 : 0;
-    maxDrawdown = Math.max(maxDrawdown, dd);
-
-    const day = trade.created_date?.slice(0, 10);
-    if (!dailyMap[day]) dailyMap[day] = 0;
-    dailyMap[day] += pnl;
-
-    equity.push({
-      label: trade.created_date?.slice(5, 10),
-      portfolio: Number(portfolio.toFixed(2)),
-      pnl: Number(pnl.toFixed(3)),
-    });
-  }
-
-  const total = wins + losses;
-  const winRate = total > 0 ? (wins / total * 100) : 0;
-  const avgWin = wins > 0 ? eligible.filter(t => t.outcome === 'win').reduce((s, t) => {
-    const price = t.entry_price || 0.5;
-    const sz = Math.min((t.kelly_fraction_used || kelly_fraction) * portfolio * max_position_pct / 100, portfolio * max_position_pct / 100);
-    return s + sz * ((1 - price) / price);
-  }, 0) / wins : 0;
-  const avgLoss = losses > 0 ? eligible.filter(t => t.outcome === 'loss').reduce((s, t) => {
-    return s + (t.size_usdc || 1);
-  }, 0) / losses : 0;
-  const profitFactor = avgLoss > 0 ? (avgWin * wins) / (avgLoss * losses) : wins > 0 ? Infinity : 0;
-
-  const dailyPnl = Object.entries(dailyMap).sort(([a], [b]) => a.localeCompare(b)).map(([date, pnl]) => ({
-    date: date.slice(5), pnl: Number(pnl.toFixed(2)),
-  }));
-
-  return {
-    trades: total,
-    wins,
-    losses,
-    winRate: Number(winRate.toFixed(1)),
-    totalPnl: Number(totalPnl.toFixed(2)),
-    finalPortfolio: Number(portfolio.toFixed(2)),
-    maxDrawdown: Number(maxDrawdown.toFixed(1)),
-    profitFactor: Number(profitFactor.toFixed(2)),
-    equity,
-    dailyPnl,
-  };
-}
+const TABS = ['Manual Backtest', 'Optimizer'];
 
 const SliderRow = ({ label, value, min, max, step, onChange, suffix = '' }) => (
   <div className="flex items-center gap-3">
@@ -127,6 +42,7 @@ const KPI = ({ label, value, color = 'text-foreground' }) => (
 
 export default function Backtester() {
   const queryClient = useQueryClient();
+  const [activeTab, setActiveTab] = useState(0);
   const [params, setParams] = useState(DEFAULT_PARAMS);
   const [result, setResult] = useState(null);
   const [running, setRunning] = useState(false);
@@ -165,7 +81,6 @@ export default function Backtester() {
       confidence_threshold: params.confidence_threshold,
       kelly_fraction: params.kelly_fraction,
       max_position_pct: params.max_position_pct,
-      starting_balance: params.starting_balance,
     });
     toast.success('✅ Backtest parameters deployed to live bot!');
   };
@@ -186,146 +101,160 @@ export default function Backtester() {
       <div>
         <h1 className="text-2xl font-bold text-foreground">Backtester</h1>
         <p className="text-xs text-muted-foreground mt-1 font-mono">
-          Replay {trades.filter(t => t.outcome !== 'pending').length} historical BotTrade records with custom risk parameters
+          {trades.filter(t => t.outcome !== 'pending').length} settled trades available for replay
         </p>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Controls */}
-        <div className="rounded-xl border border-border bg-card p-5 space-y-5">
-          <h3 className="text-sm font-semibold text-foreground">Risk Parameters</h3>
+      {/* Tabs */}
+      <div className="flex gap-1 p-1 rounded-lg bg-secondary/50 border border-border w-fit">
+        {TABS.map((tab, i) => (
+          <button
+            key={tab}
+            onClick={() => setActiveTab(i)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${
+              activeTab === i ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'
+            }`}
+          >
+            {i === 1 && <Zap className="w-3 h-3" />}
+            {tab}
+          </button>
+        ))}
+      </div>
 
-          <div className="space-y-4">
-            <SliderRow label="Edge Threshold" value={params.edge_threshold} min={1} max={20} step={0.5} onChange={set('edge_threshold')} suffix="%" />
-            <SliderRow label="Lag Threshold" value={params.lag_threshold} min={1} max={15} step={0.5} onChange={set('lag_threshold')} suffix="pp" />
-            <SliderRow label="Confidence" value={params.confidence_threshold} min={50} max={99} step={1} onChange={set('confidence_threshold')} suffix="%" />
-            <SliderRow label="Kelly Fraction" value={params.kelly_fraction} min={0.1} max={1} step={0.05} onChange={set('kelly_fraction')} />
-            <SliderRow label="Max Position" value={params.max_position_pct} min={1} max={20} step={0.5} onChange={set('max_position_pct')} suffix="%" />
-          </div>
-
-          <div className="rounded-lg bg-secondary/40 px-3 py-2 text-xs font-mono text-muted-foreground">
-            <span className="text-foreground font-bold">{eligibleCount}</span> trades would qualify with these filters
-            <span className="text-xs block mt-0.5">out of {trades.filter(t => t.outcome !== 'pending').length} settled</span>
-          </div>
-
-          <div className="flex flex-col gap-2">
-            <button
-              onClick={handleRun}
-              disabled={running || trades.length === 0}
-              className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-all"
-            >
-              {running ? (
-                <div className="w-4 h-4 border-2 border-primary-foreground/20 border-t-primary-foreground rounded-full animate-spin" />
-              ) : (
-                <Play className="w-4 h-4" />
-              )}
-              {running ? 'Running...' : 'Run Backtest'}
-            </button>
-
-            <button
-              onClick={() => { setParams(DEFAULT_PARAMS); setResult(null); }}
-              className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              Reset
-            </button>
-          </div>
-
-          {result && (
-            <button
-              onClick={handleDeploy}
-              className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 transition-all"
-            >
-              <CheckCircle2 className="w-4 h-4" />
-              Deploy to Live Bot
-            </button>
-          )}
-        </div>
-
-        {/* Results */}
-        <div className="lg:col-span-2 space-y-4">
-          {!result ? (
-            <div className="rounded-xl border border-border bg-card p-12 text-center text-muted-foreground">
-              <Play className="w-8 h-8 mx-auto mb-3 opacity-30" />
-              <p className="text-sm">Configure parameters and click <strong className="text-foreground">Run Backtest</strong></p>
-              <p className="text-xs mt-1">Replays your actual trade history with new risk rules</p>
+      {/* ── Manual Backtest Tab ─────────────────────────────────────────────── */}
+      {activeTab === 0 && (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Controls */}
+          <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+            <h3 className="text-sm font-semibold text-foreground">Risk Parameters</h3>
+            <div className="space-y-4">
+              <SliderRow label="Edge Threshold" value={params.edge_threshold} min={1} max={20} step={0.5} onChange={set('edge_threshold')} suffix="%" />
+              <SliderRow label="Lag Threshold" value={params.lag_threshold} min={1} max={15} step={0.5} onChange={set('lag_threshold')} suffix="pp" />
+              <SliderRow label="Confidence" value={params.confidence_threshold} min={50} max={99} step={1} onChange={set('confidence_threshold')} suffix="%" />
+              <SliderRow label="Kelly Fraction" value={params.kelly_fraction} min={0.1} max={1} step={0.05} onChange={set('kelly_fraction')} />
+              <SliderRow label="Max Position" value={params.max_position_pct} min={1} max={20} step={0.5} onChange={set('max_position_pct')} suffix="%" />
             </div>
-          ) : (
-            <>
-              {/* KPIs */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <KPI label="Trades Taken" value={result.trades} />
-                <KPI label="Win Rate" value={`${result.winRate}%`} color={result.winRate >= 50 ? 'text-accent' : 'text-destructive'} />
-                <KPI label="Total P&L" value={`${result.totalPnl >= 0 ? '+' : ''}$${result.totalPnl}`} color={result.totalPnl >= 0 ? 'text-accent' : 'text-destructive'} />
-                <KPI label="Final Portfolio" value={`$${result.finalPortfolio}`} color="text-primary" />
-                <KPI label="Wins" value={result.wins} color="text-accent" />
-                <KPI label="Losses" value={result.losses} color="text-destructive" />
-                <KPI label="Max Drawdown" value={`${result.maxDrawdown}%`} color={result.maxDrawdown > 20 ? 'text-destructive' : result.maxDrawdown > 10 ? 'text-chart-4' : 'text-foreground'} />
-                <KPI label="Profit Factor" value={isFinite(result.profitFactor) ? result.profitFactor : '∞'} color={result.profitFactor >= 1 ? 'text-accent' : 'text-destructive'} />
-              </div>
 
-              {/* Equity curve */}
-              <div className="rounded-xl border border-border bg-card p-5">
-                <h3 className="text-sm font-semibold text-foreground mb-1">Equity Curve</h3>
-                <p className="text-xs text-muted-foreground mb-4">Portfolio value progression with backtest parameters</p>
-                <div className="h-52">
-                  <ResponsiveContainer width="100%" height="100%">
-                    <AreaChart data={result.equity}>
-                      <defs>
-                        <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={result.totalPnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} stopOpacity={0.25} />
-                          <stop offset="95%" stopColor={result.totalPnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 14% 14%)" />
-                      <XAxis dataKey="label" tick={{ fontSize: 9, fill: 'hsl(215 14% 50%)' }} tickLine={false} interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 10, fill: 'hsl(215 14% 50%)' }} tickLine={false} tickFormatter={v => `$${v}`} />
-                      <Tooltip formatter={(v) => [`$${v}`, 'Portfolio']} contentStyle={{ background: 'hsl(220 18% 7%)', border: '1px solid hsl(220 14% 14%)', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }} />
-                      <ReferenceLine y={params.starting_balance} stroke="hsl(45 93% 58%)" strokeDasharray="4 2" />
-                      <Area type="monotone" dataKey="portfolio" stroke={result.totalPnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} strokeWidth={2} fill="url(#equityGrad)" dot={false} />
-                    </AreaChart>
-                  </ResponsiveContainer>
+            <div className="rounded-lg bg-secondary/40 px-3 py-2 text-xs font-mono text-muted-foreground">
+              <span className="text-foreground font-bold">{eligibleCount}</span> trades qualify
+              <span className="block mt-0.5">of {trades.filter(t => t.outcome !== 'pending').length} settled</span>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <button
+                onClick={handleRun}
+                disabled={running || trades.length === 0}
+                className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:bg-primary/90 disabled:opacity-50 transition-all"
+              >
+                {running ? <div className="w-4 h-4 border-2 border-primary-foreground/20 border-t-primary-foreground rounded-full animate-spin" /> : <Play className="w-4 h-4" />}
+                {running ? 'Running...' : 'Run Backtest'}
+              </button>
+              <button
+                onClick={() => { setParams(DEFAULT_PARAMS); setResult(null); }}
+                className="flex items-center justify-center gap-2 w-full py-2 rounded-lg border border-border text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-secondary transition-all"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                Reset
+              </button>
+            </div>
+
+            {result && (
+              <button
+                onClick={handleDeploy}
+                className="flex items-center justify-center gap-2 w-full py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 transition-all"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                Deploy to Live Bot
+              </button>
+            )}
+          </div>
+
+          {/* Results */}
+          <div className="lg:col-span-2 space-y-4">
+            {!result ? (
+              <div className="rounded-xl border border-border bg-card p-12 text-center text-muted-foreground">
+                <Play className="w-8 h-8 mx-auto mb-3 opacity-30" />
+                <p className="text-sm">Configure parameters and click <strong className="text-foreground">Run Backtest</strong></p>
+                <p className="text-xs mt-1">Replays your actual trade history with new risk rules</p>
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                  <KPI label="Trades Taken" value={result.trades} />
+                  <KPI label="Win Rate" value={`${result.winRate}%`} color={result.winRate >= 50 ? 'text-accent' : 'text-destructive'} />
+                  <KPI label="Total P&L" value={`${result.totalPnl >= 0 ? '+' : ''}$${result.totalPnl}`} color={result.totalPnl >= 0 ? 'text-accent' : 'text-destructive'} />
+                  <KPI label="Sharpe Ratio" value={result.sharpe} color={result.sharpe > 0 ? 'text-accent' : 'text-destructive'} />
+                  <KPI label="Wins" value={result.wins} color="text-accent" />
+                  <KPI label="Losses" value={result.losses} color="text-destructive" />
+                  <KPI label="Max Drawdown" value={`${result.maxDrawdown}%`} color={result.maxDrawdown > 20 ? 'text-destructive' : result.maxDrawdown > 10 ? 'text-chart-4' : 'text-foreground'} />
+                  <KPI label="Final Portfolio" value={`$${result.finalPortfolio}`} color="text-primary" />
                 </div>
-              </div>
 
-              {/* Daily P&L */}
-              {result.dailyPnl.length > 0 && (
                 <div className="rounded-xl border border-border bg-card p-5">
-                  <h3 className="text-sm font-semibold text-foreground mb-1">Daily P&L (Backtest)</h3>
-                  <div className="h-40">
+                  <h3 className="text-sm font-semibold text-foreground mb-1">Equity Curve</h3>
+                  <div className="h-52">
                     <ResponsiveContainer width="100%" height="100%">
-                      <BarChart data={result.dailyPnl}>
+                      <AreaChart data={result.equity}>
+                        <defs>
+                          <linearGradient id="equityGrad" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="5%" stopColor={result.totalPnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} stopOpacity={0.25} />
+                            <stop offset="95%" stopColor={result.totalPnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} stopOpacity={0} />
+                          </linearGradient>
+                        </defs>
                         <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 14% 14%)" />
-                        <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'hsl(215 14% 50%)' }} tickLine={false} />
+                        <XAxis dataKey="label" tick={{ fontSize: 9, fill: 'hsl(215 14% 50%)' }} tickLine={false} interval="preserveStartEnd" />
                         <YAxis tick={{ fontSize: 10, fill: 'hsl(215 14% 50%)' }} tickLine={false} tickFormatter={v => `$${v}`} />
-                        <Tooltip formatter={(v) => [`$${v}`, 'P&L']} contentStyle={{ background: 'hsl(220 18% 7%)', border: '1px solid hsl(220 14% 14%)', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }} />
-                        <ReferenceLine y={0} stroke="hsl(215 14% 30%)" />
-                        <Bar dataKey="pnl" name="P&L" radius={[3, 3, 0, 0]}>
-                          {result.dailyPnl.map((d, i) => <Cell key={i} fill={d.pnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} />)}
-                        </Bar>
-                      </BarChart>
+                        <Tooltip formatter={(v) => [`$${v}`, 'Portfolio']} contentStyle={{ background: 'hsl(220 18% 7%)', border: '1px solid hsl(220 14% 14%)', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }} />
+                        <ReferenceLine y={params.starting_balance} stroke="hsl(45 93% 58%)" strokeDasharray="4 2" />
+                        <Area type="monotone" dataKey="portfolio" stroke={result.totalPnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} strokeWidth={2} fill="url(#equityGrad)" dot={false} />
+                      </AreaChart>
                     </ResponsiveContainer>
                   </div>
                 </div>
-              )}
 
-              {/* Verdict */}
-              <div className={`rounded-xl border p-4 flex items-start gap-3 ${result.totalPnl >= 0 ? 'border-accent/30 bg-accent/5' : 'border-destructive/30 bg-destructive/5'}`}>
-                {result.totalPnl >= 0 ? <TrendingUp className="w-5 h-5 text-accent mt-0.5" /> : <TrendingDown className="w-5 h-5 text-destructive mt-0.5" />}
-                <div>
-                  <p className={`text-sm font-semibold font-mono ${result.totalPnl >= 0 ? 'text-accent' : 'text-destructive'}`}>
-                    {result.totalPnl >= 0 ? '✅ Profitable Strategy' : '⚠️ Unprofitable Strategy'}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-1">
-                    {result.trades} trades · {result.winRate}% win rate · ${Math.abs(result.totalPnl).toFixed(2)} {result.totalPnl >= 0 ? 'profit' : 'loss'} · {result.maxDrawdown}% max drawdown
-                    {result.totalPnl >= 0 ? ' — Consider deploying these parameters.' : ' — Try increasing edge/confidence thresholds.'}
-                  </p>
+                {result.dailyPnl.length > 0 && (
+                  <div className="rounded-xl border border-border bg-card p-5">
+                    <h3 className="text-sm font-semibold text-foreground mb-1">Daily P&L (Backtest)</h3>
+                    <div className="h-40">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart data={result.dailyPnl}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(220 14% 14%)" />
+                          <XAxis dataKey="date" tick={{ fontSize: 9, fill: 'hsl(215 14% 50%)' }} tickLine={false} />
+                          <YAxis tick={{ fontSize: 10, fill: 'hsl(215 14% 50%)' }} tickLine={false} tickFormatter={v => `$${v}`} />
+                          <Tooltip formatter={(v) => [`$${v}`, 'P&L']} contentStyle={{ background: 'hsl(220 18% 7%)', border: '1px solid hsl(220 14% 14%)', borderRadius: 8, fontSize: 12, fontFamily: 'monospace' }} />
+                          <ReferenceLine y={0} stroke="hsl(215 14% 30%)" />
+                          <Bar dataKey="pnl" name="P&L" radius={[3, 3, 0, 0]}>
+                            {result.dailyPnl.map((d, i) => <Cell key={i} fill={d.pnl >= 0 ? 'hsl(142 71% 45%)' : 'hsl(0 72% 55%)'} />)}
+                          </Bar>
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                <div className={`rounded-xl border p-4 flex items-start gap-3 ${result.totalPnl >= 0 ? 'border-accent/30 bg-accent/5' : 'border-destructive/30 bg-destructive/5'}`}>
+                  {result.totalPnl >= 0 ? <TrendingUp className="w-5 h-5 text-accent mt-0.5" /> : <TrendingDown className="w-5 h-5 text-destructive mt-0.5" />}
+                  <div>
+                    <p className={`text-sm font-semibold font-mono ${result.totalPnl >= 0 ? 'text-accent' : 'text-destructive'}`}>
+                      {result.totalPnl >= 0 ? '✅ Profitable Strategy' : '⚠️ Unprofitable Strategy'}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {result.trades} trades · {result.winRate}% win rate · Sharpe {result.sharpe} · {result.maxDrawdown}% max drawdown
+                    </p>
+                  </div>
                 </div>
-              </div>
-            </>
-          )}
+              </>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* ── Optimizer Tab ───────────────────────────────────────────────────── */}
+      {activeTab === 1 && (
+        <div className="rounded-xl border border-border bg-card p-5">
+          <OptimizerTab trades={trades} configs={configs} />
+        </div>
+      )}
     </div>
   );
 }
