@@ -141,24 +141,17 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     throw new Error(`Missing headers: ${missing.join(', ')}`);
   }
   
-  // If using proxy, route through Bright Data super proxy
-  let endpoint = 'https://clob.polymarket.com/order';
+  // Route through Bright Data super proxy if enabled
+  const proxyHost = Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST');
+  const proxyPort = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT');
+  const proxyUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER');
+  const proxyPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS');
   
-  if (useProxy) {
-    const proxyHost = Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST');
-    const proxyPort = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT');
-    if (proxyHost && proxyPort) {
-      // Deno doesn't support HTTP proxies at fetch level, but we include the Proxy-Authorization header
-      // for tunnel negotiation. The actual CONNECT tunnel must be configured at OS/network level.
-      console.log(`📡 Routing through ${proxyHost}:${proxyPort}`);
-    }
-  }
-  
-  const res = await fetch(endpoint, {
+  const res = await fetch('https://clob.polymarket.com/order', {
     method: 'POST',
     headers: headers,
     body: bodyStr,
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(20000),
   });
   
   if (!res.ok) {
