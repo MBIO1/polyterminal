@@ -286,9 +286,14 @@ Deno.serve(async (req) => {
       return Response.json({ skipped: true, reason: 'max open positions', openCount });
     }
 
-    // Fetch order-book depth — use Promise.allSettled so one timeout can't crash the whole scan
+    // Fetch order-book depth with a hard 5s overall timeout
     const depthResults = await Promise.allSettled(
-      contracts.map(c => fetchOrderBookDepth(c.tokenId))
+      contracts.map(c =>
+        Promise.race([
+          fetchOrderBookDepth(c.tokenId),
+          new Promise(res => setTimeout(() => res({ bids_depth: 0, asks_depth: 0, spread_pct: 100 }), 5000))
+        ])
+      )
     );
     const depths = depthResults.map(r =>
       r.status === 'fulfilled' ? r.value : { bids_depth: 0, asks_depth: 0, spread_pct: 100 }
