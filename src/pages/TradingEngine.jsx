@@ -186,6 +186,7 @@ export default function TradingEngine() {
       return;
     }
     setPlacingOrder(true);
+    console.log('📤 Placing order:', { tokenId: orderForm.tokenId, side: orderForm.side, price: orderForm.price, sizeUsdc: orderForm.sizeUsdc });
     try {
       const res = await base44.functions.invoke('autoSignAndExecute', {
         tokenId: orderForm.tokenId,
@@ -193,14 +194,17 @@ export default function TradingEngine() {
         price: Number(orderForm.price),
         sizeUsdc: Number(orderForm.sizeUsdc),
       });
+      console.log('✅ Place order response:', res);
       if (res.data?.success) {
         toast.success(`✅ Order placed! ID: ${res.data.orderId?.slice(0, 10)}…`);
         setSignedPayload(null);
         setOrderForm({ tokenId: '', side: 'BUY', price: 0.5, sizeUsdc: 1, expirySecs: 300 });
       } else {
+        console.error('❌ Order response not success:', res.data);
         throw new Error(res.data?.error || 'Order failed');
       }
     } catch (err) {
+      console.error('❌ Place order error:', err);
       toast.error(`Order failed: ${err.message}`);
     } finally {
       setPlacingOrder(false);
