@@ -45,8 +45,8 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
   if (isNaN(sizeNum) || sizeNum <= 0) throw new Error(`Invalid size: ${sizeUsdc}`);
   
   // Convert amounts properly
-  const makerAmount = ethers.parseUnits(sizeNum.toString(), 6);
-  const takerAmount = ethers.parseUnits((sizeNum / priceNum).toString(), 6);
+  const makerAmount = ethers.parseUnits(sizeNum.toFixed(6), 6);
+  const takerAmount = ethers.parseUnits((sizeNum / priceNum).toFixed(6), 6);
   const now = Math.floor(Date.now() / 1000);
   
   return {
