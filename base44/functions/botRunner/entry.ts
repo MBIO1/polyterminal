@@ -437,8 +437,8 @@ Deno.serve(async (req) => {
       lastTradeTs[key] = ts;
 
       // ── Adaptive position sizing: $1 base, scales with profit accumulation, max $50 ────
-      const profitAccumulation = Math.max(0, portfolio - startBal);
-      const profitMultiplier = 1 + (profitAccumulation / startBal);
+      const profitAccumulation = Math.max(0, portfolio - config.starting_balance);
+      const profitMultiplier = 1 + (profitAccumulation / config.starting_balance);
       const adaptiveSize = Math.min(50, 1 * profitMultiplier);
       
       if (adaptiveSize < 0.5) continue;
@@ -458,8 +458,8 @@ Deno.serve(async (req) => {
       const winProb    = Math.max(0.40, Math.min(0.72, (rawWinP * 0.6) + (modelWinP * 0.4)));
       const outcome    = Math.random() < winProb ? 'win' : 'loss';
       const pnl        = outcome === 'win'
-        ? kellySize * ((1 - opp.polymarket_price) / opp.polymarket_price)
-        : -kellySize;
+        ? adaptiveSize * ((1 - opp.polymarket_price) / opp.polymarket_price)
+        : -adaptiveSize;
 
       const recentWins   = recentTrades.slice(0, 10).filter(t => t.outcome === 'win').length;
       const recentLosses = Math.min(10, recentTrades.slice(0, 10).length) - recentWins;
