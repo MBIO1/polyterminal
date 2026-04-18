@@ -13,6 +13,7 @@ import {
   Cpu,
   LineChart,
   TestTube2,
+  FileText,
 } from 'lucide-react';
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { path: '/trading-engine', icon: Cpu, label: 'Trading Engine', badge: 'LIVE' },
   { path: '/performance', icon: LineChart, label: 'Performance' },
   { path: '/backtest', icon: TestTube2, label: 'Backtester' },
+  { path: '/reports', icon: FileText, label: 'Reports', badge: 'NEW' },
 ];
 
 export default function Sidebar() {

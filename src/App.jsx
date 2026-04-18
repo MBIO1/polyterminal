@@ -17,6 +17,7 @@ import PolymarketResearch from '@/pages/PolymarketResearch';
 import TradingEngine from '@/pages/TradingEngine';
 import PerformanceDashboard from '@/pages/PerformanceDashboard';
 import Backtester from '@/pages/Backtester';
+import ReportingDashboard from '@/pages/ReportingDashboard';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -51,6 +52,7 @@ const AuthenticatedApp = () => {
         <Route path="/trading-engine" element={<TradingEngine />} />
         <Route path="/performance" element={<PerformanceDashboard />} />
         <Route path="/backtest" element={<Backtester />} />
+        <Route path="/reports" element={<ReportingDashboard />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
