@@ -234,6 +234,7 @@ Deno.serve(async (req) => {
       await base44.asServiceRole.entities.BotConfig.update(config.id, {
         bot_running: true,
         halt_until_ts: 0,
+        halt_reset_ts: Date.now(), // reset daily loss window on auto-resume
         kill_switch_active: false,
       });
       return Response.json({ auto_restarted: true, reason: 'halt_until_ts expired — bot resumed', haltUntil, now });
@@ -254,15 +255,17 @@ Deno.serve(async (req) => {
 
     // Fetch recent trade history for adaptive sizing
     const recentTrades = await base44.asServiceRole.entities.BotTrade.list('-created_date', 200);
-    const todayStart   = new Date(); todayStart.setHours(0,0,0,0);
-    const todayTrades  = recentTrades.filter(t => new Date(t.created_date) >= todayStart);
-    const todayPnl     = todayTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-    const allPnl       = recentTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
     const startBal     = config.starting_balance || 1000;
-    // Portfolio = starting balance + all settled P&L (only count settled trades for portfolio calc)
+    // Daily window: use halt_reset_ts if set (marks when bot last cleanly restarted),
+    // otherwise fall back to start of UTC day. This prevents yesterday's losses
+    // from blocking a clean restart.
+    const haltResetTs  = config.halt_reset_ts || 0;
+    const todayUTC     = new Date(); todayUTC.setUTCHours(0,0,0,0);
+    const windowStart  = new Date(Math.max(haltResetTs, todayUTC.getTime()));
+    const todayTrades  = recentTrades.filter(t => new Date(t.created_date) >= windowStart);
     const settledPnl   = recentTrades.filter(t => t.outcome !== 'pending').reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-    const portfolio    = Math.max(startBal * 0.1, startBal + settledPnl); // floor at 10% of start
-    // Daily drawdown: % of TODAY's losses vs START balance (not portfolio), avoids false triggers
+    const portfolio    = Math.max(startBal * 0.1, startBal + settledPnl);
+    // Daily drawdown: only losses within current window
     const dailyLoss    = todayTrades.filter(t => (t.pnl_usdc || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
     const dailyDD      = (dailyLoss / startBal) * 100;
     const openCount    = recentTrades.filter(t => t.outcome === 'pending').length;
