@@ -27,8 +27,8 @@ Deno.serve(async (req) => {
           quantity: 1,
         },
       ],
-      success_url: `${Deno.env.get('BASE44_APP_URL')}/dashboard?payment=success`,
-      cancel_url: `${Deno.env.get('BASE44_APP_URL')}/dashboard?payment=cancelled`,
+      success_url: `${Deno.env.get('BASE44_APP_URL')}/overview?payment=success`,
+      cancel_url: `${Deno.env.get('BASE44_APP_URL')}/overview?payment=cancelled`,
       customer_email: user.email,
       metadata: {
         base44_app_id: Deno.env.get('BASE44_APP_ID'),
