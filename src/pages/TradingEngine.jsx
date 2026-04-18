@@ -26,6 +26,18 @@ import {
   computeNetPnl,
 } from '@/lib/polymarket/clobClient.js';
 
+// Suppress harmless wallet extension initialization errors
+if (typeof window !== 'undefined') {
+  const originalError = console.error;
+  console.error = (...args) => {
+    const msg = String(args[0] || '');
+    if (msg.includes('Talisman') || msg.includes('MetaMask') || msg.includes('TronLink') || msg.includes('Cannot redefine property')) {
+      return;
+    }
+    originalError.apply(console, args);
+  };
+}
+
 // Known token IDs for quick-test
 const TEST_TOKEN = '21742633143463906290569050155826241533067272736897614950488156847949938836455';
 
