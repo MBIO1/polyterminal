@@ -43,7 +43,7 @@ export default function Sidebar() {
             <Zap className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-sans font-bold text-foreground text-lg tracking-tight"></h1>
+            <h1 className="font-sans font-bold text-foreground text-lg tracking-tight">MBIO TD</h1>
             <p className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase">Dashboard</p>
           </div>
         </Link>
