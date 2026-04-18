@@ -76,6 +76,8 @@ export default function TradingEngine() {
   });
   const [signedPayload, setSignedPayload] = useState(null);
   const [signingStatus, setSigningStatus] = useState(null);
+  const [diagResults, setDiagResults] = useState(null);
+  const [diagLoading, setDiagLoading] = useState(false);
 
   // Load credential status from server on mount
   useEffect(() => {
@@ -159,6 +161,19 @@ export default function TradingEngine() {
     }
   };
 
+  const handleRunDiagnostics = async () => {
+    setDiagLoading(true);
+    try {
+      const res = await base44.functions.invoke('diagnoseCLOBAuth', {});
+      setDiagResults(res.data);
+      toast.success('Diagnostics complete');
+    } catch (err) {
+      toast.error(`Diagnostics failed: ${err.message}`);
+    } finally {
+      setDiagLoading(false);
+    }
+  };
+
   return (
     <div className="p-4 md:p-6 max-w-[1200px] mx-auto space-y-6">
 
@@ -176,6 +191,10 @@ export default function TradingEngine() {
         <div className="text-xs text-muted-foreground space-y-1">
           <p><strong className="text-accent">Credentials are stored as server-side environment secrets.</strong> They are never sent to or stored in the browser. Private keys only exist in the secure server environment.</p>
           <p>To update credentials, go to <strong className="text-foreground">Base44 Dashboard → Settings → Environment Variables</strong>.</p>
+          <Button onClick={handleRunDiagnostics} size="sm" variant="outline" className="mt-2" disabled={diagLoading}>
+            {diagLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 mr-1.5" />}
+            Run Diagnostics
+          </Button>
         </div>
       </div>
 
@@ -393,6 +412,43 @@ export default function TradingEngine() {
           )}
         </div>
       </div>
+
+      {/* Diagnostics Results */}
+      {diagResults && (
+        <div className="rounded-xl border border-border bg-card p-5 space-y-4">
+          <SectionTitle icon={CheckCircle} title="Diagnostic Results" subtitle={`${diagResults.summary.passed} passed, ${diagResults.summary.failed} failed`} color={diagResults.summary.failed === 0 ? 'text-accent' : 'text-destructive'} />
+          
+          <div className="space-y-2">
+            {diagResults.results.map((r, i) => (
+              <div key={i} className={`p-3 rounded-lg border flex items-start gap-3 ${
+                r.type === 'pass' ? 'bg-accent/5 border-accent/20' :
+                r.type === 'fail' ? 'bg-destructive/5 border-destructive/20' :
+                'bg-chart-4/5 border-chart-4/20'
+              }`}>
+                <span className="text-lg">{r.type === 'pass' ? '✅' : r.type === 'fail' ? '❌' : '⚠️'}</span>
+                <div>
+                  <p className="text-xs font-bold text-foreground">{r.name}</p>
+                  <p className="text-[10px] text-muted-foreground">{r.message}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          <div className="rounded-lg bg-muted/30 border border-border p-3">
+            <p className="text-[10px] font-mono text-muted-foreground mb-2">RECOMMENDATIONS</p>
+            {diagResults.recommendations.map((rec, i) => (
+              <p key={i} className="text-xs text-muted-foreground mb-1">• {rec}</p>
+            ))}
+          </div>
+
+          {diagResults.summary.readyForTesting && (
+            <div className="rounded-lg bg-accent/5 border border-accent/20 p-3 flex items-start gap-2">
+              <CheckCircle className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
+              <p className="text-xs text-accent">Your setup looks good! If you still get 401 errors, the issue is likely account-level or geoblocking.</p>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* EIP-712 Architecture */}
       <Card>
