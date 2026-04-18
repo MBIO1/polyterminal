@@ -363,8 +363,8 @@ Deno.serve(async (req) => {
       r.status === 'fulfilled' ? r.value : { bids_depth: 0, asks_depth: 0, spread_pct: 100, imbalance: 0 }
     );
 
-    const edgeThresh = config.edge_threshold || 5;
-    const lagThresh  = config.lag_threshold || 3;
+    const edgeThresh = config.edge_threshold || 0.1;
+    const lagThresh  = config.lag_threshold || 1;
     // LOWERED from 85 → 68: research shows top traders win at 54-75% rate.
     // Setting threshold at 85 was filtering out too many valid opportunities.
     const confThresh  = config.confidence_threshold || 68;
@@ -403,6 +403,7 @@ Deno.serve(async (req) => {
           ...c, 
           polymarket_price: polyPWithLag,
           lag_pct: lagPctWithLag,
+          edge_pct: lagPctWithLag,
           depth, 
           depthLiquidity: (depth.bids_depth + depth.asks_depth) * 100, 
           effectiveSignalCount 
@@ -412,13 +413,7 @@ Deno.serve(async (req) => {
         const isBlocked = blockedPatterns.some(p =>
           p.asset === c.asset && p.contractType === c.type && p.side === c.recommended_side
         );
-        return (
-          !isBlocked &&
-          c.lag_pct >= lagThresh &&
-          c.edge_pct >= edgeThresh &&
-          c.confidence_score >= confThresh &&
-          c.effectiveSignalCount >= 2   // ← multi-signal confluence gate
-        );
+        return !isBlocked && c.lag_pct >= lagThresh && c.edge_pct >= edgeThresh;
       })
       .sort((a, b) => (b.effectiveSignalCount - a.effectiveSignalCount) || (b.edge_pct - a.edge_pct));
 
