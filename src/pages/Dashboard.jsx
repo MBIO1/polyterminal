@@ -8,6 +8,7 @@ import RecentTrades from '@/components/dashboard/RecentTrades';
 import LivePnLTicker from '@/components/dashboard/LivePnLTicker';
 import { Link } from 'react-router-dom';
 import { computeMetrics } from '@/lib/tradeMetrics';
+import RebalancingModule from '@/components/dashboard/RebalancingModule';
 
 const MiniMetric = ({ label, value, color = 'text-foreground', sub }) => (
   <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
@@ -143,6 +144,9 @@ export default function Dashboard() {
           <RecentTrades trades={trades.slice(0, 8)} />
         </div>
       </div>
+
+      {/* Rebalancer */}
+      <RebalancingModule portfolioValue={portfolioValue} startingBalance={startingBalance} />
 
       {/* Quick links */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
