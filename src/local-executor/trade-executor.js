@@ -12,9 +12,7 @@
  *   node trade-executor.js --tokenId=21742633... --side=0 --price=0.52 --size=1
  */
 
-const http = require('http');
 const https = require('https');
-const { HttpProxyAgent } = require('http-proxy-agent');
 const { HttpsProxyAgent } = require('https-proxy-agent');
 const { ethers } = require('ethers');
 const crypto = require('crypto');

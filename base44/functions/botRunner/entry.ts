@@ -20,23 +20,10 @@
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-// ── Oxylabs Scraper API helper ────────────────────────────────────────────────
-async function fetchViaOxylabs(url) {
-  const oxyUser = Deno.env.get('OXYLABS_USER');
-  const oxyPass = Deno.env.get('OXYLABS_PASS');
-  if (!oxyUser || !oxyPass) return fetch(url, { signal: AbortSignal.timeout(5000) });
-  const oxyAuth = btoa(`${oxyUser}:${oxyPass}`);
-  const res = await fetch('https://realtime.oxylabs.io/v1/queries', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Basic ${oxyAuth}` },
-    body: JSON.stringify({ source: 'universal', url }),
-    signal: AbortSignal.timeout(20000),
-  });
-  if (!res.ok) throw new Error(`Oxylabs error: ${res.status}`);
-  const data = await res.json();
-  const content = data?.results?.[0]?.content;
-  if (!content) throw new Error('No content from Oxylabs');
-  return { ok: true, json: async () => JSON.parse(content), text: async () => content };
+// Direct fetch (Bright Data proxy only when needed for live trades)
+// Order book depth uses direct API—no proxy required for reads
+async function fetchDirect(url) {
+  return fetch(url, { signal: AbortSignal.timeout(5000) });
 }
 
 // ── Real CEX spread: fetch Binance + Coinbase live prices ────────────────────
@@ -118,7 +105,7 @@ async function fetchMarketMicrostructure() {
 async function fetchOrderBookDepth(tokenId) {
   try {
     const res = await Promise.race([
-      fetchViaOxylabs(`https://clob.polymarket.com/book?token_id=${tokenId}`),
+      fetchDirect(`https://clob.polymarket.com/book?token_id=${tokenId}`),
       new Promise(r => setTimeout(() => r(null), 5000))
     ]);
     if (!res || !res.ok) return { bids_depth: 0, asks_depth: 0, spread_pct: 100, imbalance: 0 };
