@@ -186,16 +186,18 @@ export default function TradingEngine() {
       </div>
 
       {/* Security banner */}
-      <div className="rounded-xl border border-accent/30 bg-accent/5 p-4 flex items-start gap-3">
-        <Lock className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
-        <div className="text-xs text-muted-foreground space-y-1">
-          <p><strong className="text-accent">Credentials are stored as server-side environment secrets.</strong> They are never sent to or stored in the browser. Private keys only exist in the secure server environment.</p>
-          <p>To update credentials, go to <strong className="text-foreground">Base44 Dashboard → Settings → Environment Variables</strong>.</p>
-          <Button onClick={handleRunDiagnostics} size="sm" variant="outline" className="mt-2" disabled={diagLoading}>
-            {diagLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 mr-1.5" />}
-            Run Diagnostics
-          </Button>
+      <div className="rounded-xl border border-accent/30 bg-accent/5 p-4 flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3 flex-1">
+          <Lock className="w-4 h-4 text-accent mt-0.5 flex-shrink-0" />
+          <div className="text-xs text-muted-foreground space-y-1">
+            <p><strong className="text-accent">Credentials are stored as server-side environment secrets.</strong> They are never sent to or stored in the browser. Private keys only exist in the secure server environment.</p>
+            <p>To update credentials, go to <strong className="text-foreground">Base44 Dashboard → Settings → Environment Variables</strong>.</p>
+          </div>
         </div>
+        <Button onClick={handleRunDiagnostics} size="sm" variant="default" disabled={diagLoading} className="flex-shrink-0">
+          {diagLoading ? <Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /> : <Zap className="w-3.5 h-3.5 mr-1.5" />}
+          Run Diagnostics
+        </Button>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
