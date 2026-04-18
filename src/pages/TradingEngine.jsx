@@ -92,6 +92,8 @@ export default function TradingEngine() {
   const [diagLoading, setDiagLoading] = useState(false);
   const [paperMode, setPaperMode] = useState(true);
   const [togglingMode, setTogglingMode] = useState(false);
+  const [botRunning, setBotRunning] = useState(false);
+  const [botToggling, setBotToggling] = useState(false);
 
   // Load credential status and trading mode from server on mount
   useEffect(() => {
@@ -100,7 +102,10 @@ export default function TradingEngine() {
         .then(res => setServerCreds(res.data))
         .catch(() => setServerCreds({ allSet: false })),
       base44.functions.invoke('botRunner', { action: 'status' })
-        .then(res => setPaperMode(res.data?.config?.paper_trading !== false))
+        .then(res => {
+          setPaperMode(res.data?.config?.paper_trading !== false);
+          setBotRunning(res.data?.config?.bot_running === true);
+        })
         .catch(() => {}),
     ]).finally(() => setLoadingCreds(false));
   }, []);
@@ -242,6 +247,19 @@ export default function TradingEngine() {
     }
   };
 
+  const handleToggleBotRunning = async () => {
+    setBotToggling(true);
+    try {
+      const res = await base44.functions.invoke('toggleBotRunning', { running: !botRunning });
+      setBotRunning(res.data.bot_running);
+      toast.success(res.data.message);
+    } catch (err) {
+      toast.error(`Failed to toggle bot: ${err.message}`);
+    } finally {
+      setBotToggling(false);
+    }
+  };
+
   const handlePlaceOrder = async () => {
     if (!signedPayload?.signed) {
       toast.error('Order must be signed first');
@@ -307,20 +325,36 @@ export default function TradingEngine() {
             </>
           )}
         </div>
-        <Button 
-          onClick={handleToggleTradeMode} 
-          size="sm" 
-          disabled={togglingMode}
-          className={paperMode ? 'bg-accent hover:bg-accent/90' : 'bg-destructive hover:bg-destructive/90'}
-        >
-          {togglingMode ? (
-            <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Switching...</>
-          ) : (
-            <>
-              {paperMode ? 'Enable Live' : 'Switch to Paper'}
-            </>
-          )}
-        </Button>
+        <div className="flex gap-2">
+          <Button 
+            onClick={handleToggleTradeMode} 
+            size="sm" 
+            disabled={togglingMode}
+            variant="outline"
+          >
+            {togglingMode ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" />Switching...</>
+            ) : (
+              <>
+                {paperMode ? 'Enable Live' : 'Switch to Paper'}
+              </>
+            )}
+          </Button>
+          <Button 
+            onClick={handleToggleBotRunning} 
+            size="sm" 
+            disabled={botToggling}
+            className={botRunning ? 'bg-destructive hover:bg-destructive/90' : 'bg-accent hover:bg-accent/90'}
+          >
+            {botToggling ? (
+              <><Loader2 className="w-3.5 h-3.5 mr-1.5 animate-spin" /></>
+            ) : (
+              <>
+                {botRunning ? '⏹️ Stop Bot' : '🚀 Start Bot'}
+              </>
+            )}
+          </Button>
+        </div>
       </div>
 
       {/* Security banner */}
