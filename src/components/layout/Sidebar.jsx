@@ -1,10 +1,10 @@
 import React from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { 
+import {
   Bot,
-  TrendingUp, 
-  Briefcase, 
-  History, 
+  TrendingUp,
+  Briefcase,
+  History,
   Zap,
   LayoutDashboard,
   SlidersHorizontal,
@@ -13,23 +13,23 @@ import {
   Cpu,
   LineChart,
   TestTube2,
-  FileText,
-} from 'lucide-react';
+  FileText } from
+'lucide-react';
 
 const navItems = [
-  { path: '/', icon: Bot, label: 'Arb Bot' },
-  { path: '/overview', icon: LayoutDashboard, label: 'Overview' },
-  { path: '/markets', icon: TrendingUp, label: 'Markets' },
-  { path: '/portfolio', icon: Briefcase, label: 'Portfolio' },
-  { path: '/bot-manager', icon: SlidersHorizontal, label: 'Bot Manager' },
-  { path: '/trades', icon: History, label: 'Trade History' },
-  { path: '/analytics', icon: BarChart2, label: 'Analytics' },
-  { path: '/research', icon: FlaskConical, label: 'Research Report', badge: 'NEW' },
-  { path: '/trading-engine', icon: Cpu, label: 'Trading Engine', badge: 'LIVE' },
-  { path: '/performance', icon: LineChart, label: 'Performance' },
-  { path: '/backtest', icon: TestTube2, label: 'Backtester' },
-  { path: '/reports', icon: FileText, label: 'Reports', badge: 'NEW' },
-];
+{ path: '/', icon: Bot, label: 'Arb Bot' },
+{ path: '/overview', icon: LayoutDashboard, label: 'Overview' },
+{ path: '/markets', icon: TrendingUp, label: 'Markets' },
+{ path: '/portfolio', icon: Briefcase, label: 'Portfolio' },
+{ path: '/bot-manager', icon: SlidersHorizontal, label: 'Bot Manager' },
+{ path: '/trades', icon: History, label: 'Trade History' },
+{ path: '/analytics', icon: BarChart2, label: 'Analytics' },
+{ path: '/research', icon: FlaskConical, label: 'Research Report', badge: 'NEW' },
+{ path: '/trading-engine', icon: Cpu, label: 'Trading Engine', badge: 'LIVE' },
+{ path: '/performance', icon: LineChart, label: 'Performance' },
+{ path: '/backtest', icon: TestTube2, label: 'Backtester' },
+{ path: '/reports', icon: FileText, label: 'Reports', badge: 'NEW' }];
+
 
 export default function Sidebar() {
   const location = useLocation();
@@ -43,7 +43,7 @@ export default function Sidebar() {
             <Zap className="w-5 h-5 text-primary" />
           </div>
           <div>
-            <h1 className="font-sans font-bold text-foreground text-lg tracking-tight">PolyTrader</h1>
+            <h1 className="font-sans font-bold text-foreground text-lg tracking-tight"></h1>
             <p className="text-[10px] font-mono text-muted-foreground tracking-widest uppercase">Dashboard</p>
           </div>
         </Link>
@@ -58,21 +58,21 @@ export default function Sidebar() {
               key={item.path}
               to={item.path}
               className={`flex items-center gap-3 px-4 py-2.5 rounded-lg text-sm font-medium transition-all duration-200 ${
-                isActive
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-secondary'
-              }`}
-            >
+              isActive ?
+              'bg-primary/10 text-primary' :
+              'text-muted-foreground hover:text-foreground hover:bg-secondary'}`
+              }>
+              
               <item.icon className={`w-4 h-4 ${isActive ? 'text-primary' : ''}`} />
               {item.label}
-              {item.badge && !isActive && (
-                <span className="ml-auto text-[9px] font-mono px-1 py-0.5 rounded bg-chart-4/20 text-chart-4 font-bold">{item.badge}</span>
-              )}
-              {isActive && (
-                <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse-glow" />
-              )}
-            </Link>
-          );
+              {item.badge && !isActive &&
+              <span className="ml-auto text-[9px] font-mono px-1 py-0.5 rounded bg-chart-4/20 text-chart-4 font-bold">{item.badge}</span>
+              }
+              {isActive &&
+              <div className="ml-auto w-1.5 h-1.5 rounded-full bg-primary animate-pulse-glow" />
+              }
+            </Link>);
+
         })}
       </nav>
 
@@ -83,6 +83,6 @@ export default function Sidebar() {
           <span className="text-xs font-mono text-muted-foreground">Live</span>
         </div>
       </div>
-    </aside>
-  );
+    </aside>);
+
 }
