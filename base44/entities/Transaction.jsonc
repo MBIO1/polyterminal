@@ -1,0 +1,51 @@
+{
+  "name": "Transaction",
+  "type": "object",
+  "properties": {
+    "user_email": {
+      "type": "string",
+      "description": "Email of the user who made the transaction"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "deposit",
+        "withdrawal",
+        "trade"
+      ],
+      "description": "Transaction type"
+    },
+    "amount_usdc": {
+      "type": "number",
+      "description": "Amount in USDC"
+    },
+    "stripe_session_id": {
+      "type": "string",
+      "description": "Stripe checkout session ID"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "completed",
+        "failed"
+      ],
+      "default": "pending",
+      "description": "Transaction status"
+    },
+    "receipt_sent": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether receipt email was sent"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "user_email",
+    "type",
+    "amount_usdc"
+  ]
+}

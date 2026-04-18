@@ -39,6 +39,15 @@ export default function SubscriptionModal({ open, onClose }) {
     }
   };
 
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('payment') === 'success') {
+      toast.success('✅ Payment received! Receipt sent to your email. USDC deposited to your account.');
+      // Clear the query param
+      window.history.replaceState({}, document.title, window.location.pathname);
+    }
+  }, []);
+
   if (!open) return null;
 
   return (
