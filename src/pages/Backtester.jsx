@@ -9,6 +9,7 @@ import {
 import { toast } from 'sonner';
 import { Play, RotateCcw, CheckCircle2, TrendingUp, TrendingDown, Zap } from 'lucide-react';
 import OptimizerTab from '@/components/backtester/OptimizerTab';
+import TimeframeSelector from '@/components/backtester/TimeframeSelector';
 
 const DEFAULT_PARAMS = {
   edge_threshold: 5,
@@ -17,6 +18,7 @@ const DEFAULT_PARAMS = {
   kelly_fraction: 0.5,
   max_position_pct: 8,
   starting_balance: 1000,
+  timeframeId: 'all',
 };
 
 const TABS = ['Manual Backtest', 'Optimizer'];
@@ -46,6 +48,7 @@ export default function Backtester() {
   const [params, setParams] = useState(DEFAULT_PARAMS);
   const [result, setResult] = useState(null);
   const [running, setRunning] = useState(false);
+  const [selectedTimeframe, setSelectedTimeframe] = useState('all');
 
   const { data: trades = [] } = useQuery({
     queryKey: ['backtest-trades'],
@@ -68,7 +71,7 @@ export default function Backtester() {
   const handleRun = () => {
     setRunning(true);
     setTimeout(() => {
-      const res = runBacktest(trades, params);
+      const res = runBacktest(trades, { ...params, timeframeId: selectedTimeframe });
       setResult(res);
       setRunning(false);
     }, 400);
@@ -123,10 +126,18 @@ export default function Backtester() {
 
       {/* ── Manual Backtest Tab ─────────────────────────────────────────────── */}
       {activeTab === 0 && (
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* Controls */}
-          <div className="rounded-xl border border-border bg-card p-5 space-y-5">
-            <h3 className="text-sm font-semibold text-foreground">Risk Parameters</h3>
+        <div className="space-y-6">
+          {/* Timeframe Selector */}
+          <TimeframeSelector
+            trades={trades}
+            selected={selectedTimeframe}
+            onChange={setSelectedTimeframe}
+          />
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Controls */}
+            <div className="rounded-xl border border-border bg-card p-5 space-y-5">
+              <h3 className="text-sm font-semibold text-foreground">Risk Parameters</h3>
             <div className="space-y-4">
               <SliderRow label="Edge Threshold" value={params.edge_threshold} min={1} max={20} step={0.5} onChange={set('edge_threshold')} suffix="%" />
               <SliderRow label="Lag Threshold" value={params.lag_threshold} min={1} max={15} step={0.5} onChange={set('lag_threshold')} suffix="pp" />
@@ -245,6 +256,8 @@ export default function Backtester() {
                 </div>
               </>
             )}
+          </div>
+            </div>
           </div>
         </div>
       )}

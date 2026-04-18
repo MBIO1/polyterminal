@@ -11,9 +11,28 @@ export function runBacktest(trades, params) {
     kelly_fraction = 0.5,
     max_position_pct = 8,
     starting_balance = 1000,
+    timeframeId = 'all',
   } = params;
 
-  const eligible = trades
+  // Filter by timeframe
+  let filtered = trades;
+  if (timeframeId !== 'all') {
+    const daysBack = {
+      '7d': 7,
+      '14d': 14,
+      '30d': 30,
+      '90d': 90,
+    }[timeframeId] || null;
+
+    if (daysBack) {
+      const cutoff = new Date();
+      cutoff.setDate(cutoff.getDate() - daysBack);
+      const cutoffTime = cutoff.getTime();
+      filtered = trades.filter(t => new Date(t.created_date).getTime() >= cutoffTime);
+    }
+  }
+
+  const eligible = filtered
     .filter(t =>
       t.outcome !== 'pending' &&
       t.outcome !== 'cancelled' &&
