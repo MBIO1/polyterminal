@@ -339,8 +339,8 @@ Deno.serve(async (req) => {
     const startBal     = config.starting_balance || 1000;
     const haltResetTs  = config.halt_reset_ts || 0;
     const todayUTC     = new Date(); todayUTC.setUTCHours(0, 0, 0, 0);
-    const windowStart  = new Date(Math.max(haltResetTs, todayUTC.getTime()));
-    const todayTrades  = recentTrades.filter(t => new Date(t.created_date) >= windowStart);
+    const windowStart  = Math.max(haltResetTs, todayUTC.getTime());
+    const todayTrades  = recentTrades.filter(t => new Date(t.created_date).getTime() >= windowStart);
     const settledPnl   = recentTrades.filter(t => t.outcome !== 'pending').reduce((s, t) => s + (t.pnl_usdc || 0), 0);
     const portfolio    = Math.max(startBal * 0.1, startBal + settledPnl);
     const dailyLoss    = todayTrades.filter(t => (t.pnl_usdc || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
