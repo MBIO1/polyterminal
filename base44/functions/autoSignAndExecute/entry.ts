@@ -88,13 +88,11 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
   };
   
   const bodyStr = JSON.stringify(orderPayload);
-  const timestamp = Date.now().toString(); // milliseconds as string
+  const timestamp = Date.now().toString();
   const method = 'POST';
   const path = '/order';
   
-  // Signature message: timestamp + method + path + body (no spaces, exactly as shown)
   const signatureBody = timestamp + method + path + bodyStr;
-  
   if (!signatureBody || signatureBody.length === 0) {
     throw new Error('Signature body is empty');
   }
@@ -115,41 +113,73 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     throw new Error('HMAC signature generation failed');
   }
   
-  // Build headers with validation
-  const headers = {
-    'Content-Type': 'application/json',
-    'POLY-SIGNATURE': hmacSig,
-    'POLY-API-KEY': apiKey,
-    'POLY-API-PASSPHRASE': passphrase,
-    'POLY-NONCE': timestamp,
-  };
+  // Build header string for curl
+  const headerLines = [
+    `POLY-SIGNATURE: ${hmacSig}`,
+    `POLY-API-KEY: ${apiKey}`,
+    `POLY-API-PASSPHRASE: ${passphrase}`,
+    `POLY-NONCE: ${timestamp}`,
+    `Content-Type: application/json`,
+  ];
   
-  // Add Bright Data super proxy auth if enabled
+  // Try via curl with VPS proxy if available
   if (useProxy) {
-    const proxyUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER');
-    const proxyPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS');
-    if (proxyUser && proxyPass) {
-      const proxyAuth = btoa(`${proxyUser}:${proxyPass}`);
-      headers['Proxy-Authorization'] = `Basic ${proxyAuth}`;
+    const vpsProxyHost = Deno.env.get('VPS_PROXY_HOST');
+    const vpsProxyPort = Deno.env.get('VPS_PROXY_PORT');
+    const vpsProxyUser = Deno.env.get('VPS_PROXY_USER');
+    const vpsProxyPass = Deno.env.get('VPS_PROXY_PASS');
+    
+    if (vpsProxyHost && vpsProxyPort) {
+      console.log(`📡 Attempting via VPS proxy: ${vpsProxyHost}:${vpsProxyPort}`);
+      try {
+        const proxyUrl = vpsProxyUser && vpsProxyPass 
+          ? `http://${vpsProxyUser}:${vpsProxyPass}@${vpsProxyHost}:${vpsProxyPort}`
+          : `http://${vpsProxyHost}:${vpsProxyPort}`;
+        
+        const curlArgs = [
+          '-X', 'POST',
+          '-x', proxyUrl,
+          '-H', 'Content-Type: application/json',
+          ...headerLines.flatMap(h => ['-H', h]),
+          '-d', bodyStr,
+          '--connect-timeout', '10',
+          '--max-time', '20',
+          'https://clob.polymarket.com/order',
+        ];
+        
+        const cmd = new Deno.Command('curl', { args: curlArgs, stdout: 'piped', stderr: 'piped' });
+        const proc = cmd.spawn();
+        const { success, stdout, stderr } = await proc.output();
+        
+        const responseText = new TextDecoder().decode(stdout);
+        const errorText = new TextDecoder().decode(stderr);
+        
+        if (success) {
+          return JSON.parse(responseText);
+        } else {
+          console.log(`VPS proxy curl failed: ${errorText}`);
+          if (errorText.includes('403') || errorText.includes('geoblocked')) {
+            throw new Error(`VPS Proxy 403 Geoblocked: ${errorText}`);
+          }
+          throw new Error(`VPS proxy request failed: ${errorText}`);
+        }
+      } catch (err) {
+        console.log(`VPS proxy error: ${err.message}`);
+        throw err;
+      }
     }
   }
   
-  // Validate all headers are present
-  const requiredHeaders = ['POLY-SIGNATURE', 'POLY-API-KEY', 'POLY-API-PASSPHRASE', 'POLY-NONCE', 'Content-Type'];
-  const missing = requiredHeaders.filter(h => !headers[h]);
-  if (missing.length > 0) {
-    throw new Error(`Missing headers: ${missing.join(', ')}`);
-  }
-  
-  // Route through Bright Data super proxy if enabled
-  const proxyHost = Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST');
-  const proxyPort = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT');
-  const proxyUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER');
-  const proxyPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS');
-  
+  // Fallback: direct fetch
   const res = await fetch('https://clob.polymarket.com/order', {
     method: 'POST',
-    headers: headers,
+    headers: {
+      'Content-Type': 'application/json',
+      'POLY-SIGNATURE': hmacSig,
+      'POLY-API-KEY': apiKey,
+      'POLY-API-PASSPHRASE': passphrase,
+      'POLY-NONCE': timestamp,
+    },
     body: bodyStr,
     signal: AbortSignal.timeout(20000),
   });
@@ -158,10 +188,10 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     const errorText = await res.text();
     const status = res.status;
     if (status === 401) {
-      throw new Error(`CLOB 401 Unauthorized: Check API key, secret, passphrase validity and account approval status. Details: ${errorText}`);
+      throw new Error(`CLOB 401 Unauthorized`);
     }
     if (status === 403) {
-      throw new Error(`CLOB 403 Geoblocked: ${errorText}. Retrying via Oxylabs proxy...`);
+      throw new Error(`CLOB 403 Geoblocked`);
     }
     throw new Error(`CLOB ${status}: ${errorText}`);
   }
