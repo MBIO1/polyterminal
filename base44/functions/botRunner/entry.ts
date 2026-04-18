@@ -538,7 +538,7 @@ Deno.serve(async (req) => {
       const signalNote   = `signals=${opp.effectiveSignalCount}/5 [sprd=${opp.signals.spread} fund=${opp.signals.funding} mark=${opp.signals.mark} trend=${opp.signals.trend}]`;
       const adaptNote    = `size=$${adaptiveSize.toFixed(2)} profit_mult=${profitMultiplier.toFixed(2)}x streak=${recentWins}W/${recentLosses}L ob_imbal=${opp.depth.imbalance.toFixed(2)}`;
 
-      await base44.asServiceRole.entities.BotTrade.create({
+      const newTrade = await base44.asServiceRole.entities.BotTrade.create({
         market_title:          opp.title,
         asset:                 opp.asset,
         contract_type:         opp.type,
@@ -558,6 +558,8 @@ Deno.serve(async (req) => {
         telegram_sent:         false,
         notes:                 `🤖 ${signalNote} · ${adaptNote}`,
       });
+      
+      // Telegram automation will be triggered by the entity create event above
 
       executed.push({ opp: opp.id, outcome, pnl: pnl.toFixed(4), signals: opp.effectiveSignalCount, winProb: winProb.toFixed(2) });
     }
