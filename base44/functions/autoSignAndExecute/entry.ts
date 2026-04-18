@@ -122,53 +122,8 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     `Content-Type: application/json`,
   ];
   
-  // Try via curl with VPS proxy if available
-  if (useProxy) {
-    const vpsProxyHost = Deno.env.get('VPS_PROXY_HOST');
-    const vpsProxyPort = Deno.env.get('VPS_PROXY_PORT');
-    const vpsProxyUser = Deno.env.get('VPS_PROXY_USER');
-    const vpsProxyPass = Deno.env.get('VPS_PROXY_PASS');
-    
-    if (vpsProxyHost && vpsProxyPort) {
-      console.log(`📡 Attempting via VPS proxy: ${vpsProxyHost}:${vpsProxyPort}`);
-      try {
-        const proxyUrl = vpsProxyUser && vpsProxyPass 
-          ? `http://${vpsProxyUser}:${vpsProxyPass}@${vpsProxyHost}:${vpsProxyPort}`
-          : `http://${vpsProxyHost}:${vpsProxyPort}`;
-        
-        const curlArgs = [
-          '-X', 'POST',
-          '-x', proxyUrl,
-          '-H', 'Content-Type: application/json',
-          ...headerLines.flatMap(h => ['-H', h]),
-          '-d', bodyStr,
-          '--connect-timeout', '10',
-          '--max-time', '20',
-          'https://clob.polymarket.com/order',
-        ];
-        
-        const cmd = new Deno.Command('curl', { args: curlArgs, stdout: 'piped', stderr: 'piped' });
-        const proc = cmd.spawn();
-        const { success, stdout, stderr } = await proc.output();
-        
-        const responseText = new TextDecoder().decode(stdout);
-        const errorText = new TextDecoder().decode(stderr);
-        
-        if (success) {
-          return JSON.parse(responseText);
-        } else {
-          console.log(`VPS proxy curl failed: ${errorText}`);
-          if (errorText.includes('403') || errorText.includes('geoblocked')) {
-            throw new Error(`VPS Proxy 403 Geoblocked: ${errorText}`);
-          }
-          throw new Error(`VPS proxy request failed: ${errorText}`);
-        }
-      } catch (err) {
-        console.log(`VPS proxy error: ${err.message}`);
-        throw err;
-      }
-    }
-  }
+  // Note: Deno Deploy sandboxes all network access—proxies and custom dispatchers are blocked.
+  // Trades must be executed from local machine with proper proxy tunnel or non-sandboxed environment.
   
   // Fallback: direct fetch
   const res = await fetch('https://clob.polymarket.com/order', {
