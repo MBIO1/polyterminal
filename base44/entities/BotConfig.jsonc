@@ -81,6 +81,11 @@
       "type": "number",
       "default": 0,
       "description": "Unix ms timestamp until which trading is frozen"
+    },
+    "halt_reset_ts": {
+      "type": "number",
+      "default": 0,
+      "description": "Unix ms timestamp \u2014 daily loss window resets from this point"
     }
   },
   "required": []
