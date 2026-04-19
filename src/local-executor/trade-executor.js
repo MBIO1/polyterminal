@@ -21,6 +21,7 @@
 import { ethers } from 'ethers';
 import crypto from 'node:crypto';
 import process from 'node:process';
+import { Buffer } from 'node:buffer';
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 const args = Object.fromEntries(
