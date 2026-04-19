@@ -108,8 +108,10 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
 
   // Try Bright Data residential proxy first (to bypass Polymarket geoblocking)
   // Use Deno TCP CONNECT tunnel — the only reliable proxy method in Deno Deploy
-  const bdUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER') || Deno.env.get('BRIGHT_DATA_USER');
-  const bdPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS') || Deno.env.get('BRIGHT_DATA_PASS');
+  // Credentials: HOST=full username, PORT=password
+  const bdUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST');
+  const bdPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT');
+  console.log(`[PROXY] bdUser="${bdUser}" bdPass_len=${bdPass?.length}`);
 
   if (bdUser && bdPass) {
     try {
@@ -202,6 +204,7 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
     
+    console.log(`[AUTH] user=${user?.email} role=${user?.role}`);
     if (!user || user.role !== 'admin') {
       return Response.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
     }
@@ -238,9 +241,12 @@ Deno.serve(async (req) => {
     if (!sizeUsdc) throw new Error('sizeUsdc is required');
     
     // Build and sign order
+    console.log(`[SIGN] Building order: tokenId=${tokenId.slice(0,10)} side=${side} price=${price} size=${sizeUsdc}`);
     const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress);
+    console.log(`[SIGN] Order built, signing with ethers...`);
     const wallet = new ethers.Wallet(privateKey);
     const eip712Sig = await wallet.signTypedData(EIP712_DOMAIN, ORDER_TYPES, orderStruct);
+    console.log(`[SIGN] Signed: ${eip712Sig.slice(0,20)}`);
     
     if (!eip712Sig || !eip712Sig.startsWith('0x')) {
       throw new Error('EIP-712 signature generation failed');
