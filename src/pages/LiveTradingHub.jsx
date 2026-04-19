@@ -145,6 +145,12 @@ export default function LiveTradingHub() {
           <code className="block font-mono bg-secondary/50 text-foreground px-3 py-1.5 rounded-lg mt-1">
             node run-bot.js
           </code>
+          <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 flex items-start gap-2">
+            <AlertTriangle className="w-3.5 h-3.5 text-destructive mt-0.5 flex-shrink-0" />
+            <p className="text-[11px] text-destructive font-semibold">
+              <strong>NEVER commit your .env file to GitHub.</strong> Add <code className="font-mono bg-destructive/20 px-1 rounded">.env</code> to <code className="font-mono bg-destructive/20 px-1 rounded">.gitignore</code> before your first commit. If keys were already exposed, rotate them immediately.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -175,6 +181,11 @@ export default function LiveTradingHub() {
                   <p className="text-[10px] text-muted-foreground">{desc}</p>
                 </div>
               ))}
+            </div>
+            <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
+              <p className="text-[10px] font-mono font-bold text-destructive mb-1.5">⚠️ .gitignore — add this before first commit</p>
+              <pre className="text-[10px] font-mono text-foreground bg-secondary/50 rounded p-2 whitespace-pre">{`.env\n.env.local\n*.env\nnode_modules/`}</pre>
+              <p className="text-[9px] text-muted-foreground mt-1.5">If <code className="font-mono">.env</code> was already pushed: rotate ALL keys immediately (Polymarket API, wallet private key).</p>
             </div>
           </Card>
 
