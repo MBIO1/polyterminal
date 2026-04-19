@@ -256,6 +256,46 @@ function halfKelly(edge, price, portfolio, maxPosPct, kellyFraction) {
   return Math.min(kellySize, maxSize, 50); // hard $50 cap
 }
 
+// ── Fetch live USDC wallet balance from Polygon ───────────────────────────────
+const POLYGON_RPC = 'https://polygon-rpc.com';
+const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+function encodeBalanceOf(address) {
+  const selector = '70a08231';
+  const padded = address.replace('0x', '').toLowerCase().padStart(64, '0');
+  return '0x' + selector + padded;
+}
+async function fetchWalletBalance() {
+  const walletAddress = Deno.env.get('POLY_WALLET_ADDRESS');
+  if (!walletAddress) return { usdc: null, matic: null };
+  try {
+    const [usdcRes, maticRes] = await Promise.all([
+      fetch(POLYGON_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: USDC_CONTRACT, data: encodeBalanceOf(walletAddress) }, 'latest'], id: 1 }),
+        signal: AbortSignal.timeout(5000),
+      }),
+      fetch(POLYGON_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [walletAddress, 'latest'], id: 2 }),
+        signal: AbortSignal.timeout(5000),
+      }),
+    ]);
+    const usdcData = await usdcRes.json();
+    const maticData = await maticRes.json();
+    const usdcHex = usdcData?.result || '0x0';
+    const maticHex = maticData?.result || '0x0';
+    const usdc = Number(BigInt(usdcHex === '0x' ? '0x0' : usdcHex)) / 1_000_000;
+    const matic = Number(BigInt(maticHex === '0x' ? '0x0' : maticHex)) / 1e18;
+    console.log(`[WALLET] USDC: $${usdc.toFixed(2)} | MATIC: ${matic.toFixed(4)}`);
+    return { usdc: parseFloat(usdc.toFixed(2)), matic: parseFloat(matic.toFixed(4)), gas_ok: matic >= 0.01 };
+  } catch (err) {
+    console.log(`[WALLET] Balance fetch failed: ${err.message}`);
+    return { usdc: null, matic: null, gas_ok: false };
+  }
+}
+
 // ── Throttle: contract id → last trade timestamp ──────────────────────────────
 const lastTradeTs = {};
 
@@ -309,11 +349,12 @@ Deno.serve(async (req) => {
     if (!config?.bot_running) return Response.json({ skipped: true, reason: 'bot not running' });
     if (config.kill_switch_active || haltUntil > now) return Response.json({ skipped: true, reason: 'halted' });
 
-    // ── Fetch all signals in parallel ────────────────────────────────────────
-    let [prices, funding, micro] = await Promise.all([
+    // ── Fetch all signals + wallet balance in parallel ────────────────────────
+    let [prices, funding, micro, wallet] = await Promise.all([
       fetchLivePrices(),
       fetchFundingRates(),
       fetchMarketMicrostructure(),
+      fetchWalletBalance(),
     ]);
 
     // ── Inject mock spreads if test mode enabled ─────────────────────────────
@@ -343,7 +384,15 @@ Deno.serve(async (req) => {
     const windowStart  = Math.max(haltResetTs, todayUTC.getTime());
     const todayTrades  = recentTrades.filter(t => new Date(t.created_date).getTime() >= windowStart);
     const settledPnl   = recentTrades.filter(t => t.outcome !== 'pending').reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-    const portfolio    = Math.max(startBal * 0.1, startBal + settledPnl);
+    const dbPortfolio  = Math.max(startBal * 0.1, startBal + settledPnl);
+
+    // Use live on-chain USDC balance as authoritative portfolio value when available
+    // Fall back to DB-calculated value for paper trading
+    const isPaperMode  = config.paper_trading !== false;
+    const portfolio    = (!isPaperMode && wallet.usdc !== null && wallet.usdc > 0)
+      ? wallet.usdc
+      : dbPortfolio;
+    console.log(`[PORTFOLIO] Live wallet: $${wallet.usdc ?? 'N/A'} | DB calc: $${dbPortfolio.toFixed(2)} | Using: $${portfolio.toFixed(2)} | Mode: ${isPaperMode ? 'paper' : 'live'}`);
     const dailyLoss    = todayTrades.filter(t => (t.pnl_usdc || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
     const dailyDD      = (dailyLoss / startBal) * 100;
     const openCount    = recentTrades.filter(t => t.outcome === 'pending').length;
@@ -367,6 +416,16 @@ Deno.serve(async (req) => {
     // Max positions gate
     const maxPos = config.max_open_positions ?? 5;
     if (openCount >= maxPos) return Response.json({ skipped: true, reason: 'max open positions', openCount });
+
+    // Live mode: block if wallet is empty or has no gas
+    if (!isPaperMode) {
+      if (wallet.usdc !== null && wallet.usdc < 1) {
+        return Response.json({ skipped: true, reason: 'insufficient USDC balance', wallet_usdc: wallet.usdc });
+      }
+      if (wallet.gas_ok === false) {
+        return Response.json({ skipped: true, reason: 'insufficient MATIC for gas', wallet_matic: wallet.matic });
+      }
+    }
 
     // Consecutive loss halt: if 5+ losses in a row, pause 30 min
     const last10 = recentTrades.slice(0, 10);
@@ -561,6 +620,8 @@ Deno.serve(async (req) => {
       prices: { btc: prices.btc, eth: prices.eth },
       funding: { btc: funding.btcFunding, eth: funding.ethFunding },
       portfolio,
+      portfolio_source: (!isPaperMode && wallet.usdc !== null && wallet.usdc > 0) ? 'on_chain' : 'db_calculated',
+      wallet: { usdc: wallet.usdc, matic: wallet.matic, gas_ok: wallet.gas_ok },
       dailyDD,
       adaptedKelly: adjustedKelly,
       blockedPatterns: blockedPatterns.length,
