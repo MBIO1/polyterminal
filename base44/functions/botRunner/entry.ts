@@ -258,7 +258,8 @@ function halfKelly(edge, price, portfolio, maxPosPct, kellyFraction) {
 
 // ── Fetch live USDC wallet balance from Polygon ───────────────────────────────
 const POLYGON_RPC = 'https://polygon-bor-rpc.publicnode.com';
-const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
+const USDC_BRIDGED = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC.e
+const USDC_NATIVE  = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'; // native USDC
 function encodeBalanceOf(address) {
   const selector = '70a08231';
   const padded = address.replace('0x', '').toLowerCase().padStart(64, '0');
@@ -268,28 +269,39 @@ async function fetchWalletBalance() {
   const walletAddress = Deno.env.get('POLY_WALLET_ADDRESS');
   if (!walletAddress) return { usdc: null, matic: null };
   try {
-    const [usdcRes, maticRes] = await Promise.all([
+    const encoded = encodeBalanceOf(walletAddress);
+    const [usdcBridgedRes, usdcNativeRes, maticRes] = await Promise.all([
       fetch(POLYGON_RPC, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: USDC_CONTRACT, data: encodeBalanceOf(walletAddress) }, 'latest'], id: 1 }),
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: USDC_BRIDGED, data: encoded }, 'latest'], id: 1 }),
         signal: AbortSignal.timeout(5000),
       }),
       fetch(POLYGON_RPC, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [walletAddress, 'latest'], id: 2 }),
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: USDC_NATIVE, data: encoded }, 'latest'], id: 2 }),
+        signal: AbortSignal.timeout(5000),
+      }),
+      fetch(POLYGON_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [walletAddress, 'latest'], id: 3 }),
         signal: AbortSignal.timeout(5000),
       }),
     ]);
-    const usdcData = await usdcRes.json();
-    const maticData = await maticRes.json();
-    const usdcHex = usdcData?.result || '0x0';
-    const maticHex = maticData?.result || '0x0';
-    const usdc = Number(BigInt(usdcHex === '0x' ? '0x0' : usdcHex)) / 1_000_000;
+    const b1 = await usdcBridgedRes.json();
+    const b2 = await usdcNativeRes.json();
+    const b3 = await maticRes.json();
+    const hex1 = b1?.result || '0x0';
+    const hex2 = b2?.result || '0x0';
+    const maticHex = b3?.result || '0x0';
+    const usdcBridged = Number(BigInt(hex1 === '0x' ? '0x0' : hex1)) / 1_000_000;
+    const usdcNative  = Number(BigInt(hex2 === '0x' ? '0x0' : hex2)) / 1_000_000;
+    const usdc = parseFloat((usdcBridged + usdcNative).toFixed(2));
     const matic = Number(BigInt(maticHex === '0x' ? '0x0' : maticHex)) / 1e18;
-    console.log(`[WALLET] USDC: $${usdc.toFixed(2)} | MATIC: ${matic.toFixed(4)}`);
-    return { usdc: parseFloat(usdc.toFixed(2)), matic: parseFloat(matic.toFixed(4)), gas_ok: matic >= 0.01 };
+    console.log(`[WALLET] USDC: $${usdc.toFixed(2)} (bridged=$${usdcBridged.toFixed(2)} native=$${usdcNative.toFixed(2)}) | MATIC: ${matic.toFixed(4)}`);
+    return { usdc, matic: parseFloat(matic.toFixed(4)), gas_ok: matic >= 0.01 };
   } catch (err) {
     console.log(`[WALLET] Balance fetch failed: ${err.message}`);
     return { usdc: null, matic: null, gas_ok: false };
