@@ -1,141 +1,70 @@
-# Local Trade Executor for Polymarket CLOB
+# Droplet Trade Executor for Polymarket CLOB
 
-Execute live trades on Polymarket using Bright Data residential proxy to bypass geoblocking. Runs on your local machine.
+Executes live trades on Polymarket directly from the DigitalOcean droplet. **No proxy.** The droplet's IP (`64.225.16.230`) is not geoblocked by Polymarket.
 
-## Why Local?
+## Why on the droplet?
 
-Deno Deploy sandboxes all network access—proxies, subprocesses, and custom dispatchers are blocked. Live trades **must execute locally** with proper HTTP tunneling via Bright Data.
+Base44 backend functions run on Deno Deploy, whose cloud IPs are geoblocked by Polymarket's CLOB. The droplet has a clean residential-grade IP that hits CLOB directly. All signing happens locally; the private key never leaves the droplet.
 
 ## Setup
 
-### 1. Install Dependencies
-
 ```bash
 cd local-executor
-npm install ethers https-proxy-agent
+npm install
 ```
 
-### 2. Set Environment Variables
+## Environment Variables
 
-Create a `.env` file or export them:
+Required:
 
 ```bash
-export BRIGHT_DATA_SUPERPROXY_HOST="brd.superproxy.io"
-export BRIGHT_DATA_SUPERPROXY_PORT="33335"
-export BRIGHT_DATA_SUPERPROXY_USER="your_bright_data_user"
-export BRIGHT_DATA_SUPERPROXY_PASS="your_bright_data_pass"
-
-export POLY_WALLET_ADDRESS="0x..."
 export POLY_PRIVATE_KEY="0x..."
-export POLY_API_KEY="poly_..."
-export POLY_API_SECRET="..."
-export POLY_API_PASSPHRASE="..."
+export POLY_WALLET_ADDRESS="0x..."
 ```
 
-### 3. Load from Base44 Secrets (Recommended)
-
-Export directly from your Base44 dashboard environment variables into your shell:
+Optional (enables logging trades back to Base44 `BotTrade`):
 
 ```bash
-source <(base44 env export)
+export BASE44_API_KEY="..."
+export BASE44_APP_ID="..."
 ```
 
-Or use `dotenv`:
-
-```bash
-npm install dotenv
-# Create .env with secrets, then load in script
-```
+Put them in `.env` and `source` it, or use `pm2` / systemd with the env baked in.
 
 ## Usage
 
-### Execute a $1 Test Trade
+```bash
+node trade-executor.js \
+  --tokenId=<polymarket_token_id> \
+  --side=<0|1> \
+  --price=<0.01-0.99> \
+  --size=<usdc>
+```
+
+- `--side=0` → BUY
+- `--side=1` → SELL
+
+### Example — $5 BUY YES @ 0.16
 
 ```bash
 node trade-executor.js \
-  --tokenId=21742633143463906290569050155826241533067272736897614950488156847949938836455 \
+  --tokenId=10355316169421062771540371697837923442956106006258739802114788264214901200573 \
   --side=0 \
-  --price=0.52 \
-  --size=1
+  --price=0.16 \
+  --size=5
 ```
 
-### Parameters
+## How it works
 
-- `--tokenId` — Polymarket token ID (YES/NO contract)
-- `--side` — `0` = BUY, `1` = SELL
-- `--price` — Order price (0.01–0.99)
-- `--size` — Position size in USDC
-
-### Example Output
-
-```
-╔══════════════════════════════════════════════════════════════╗
-║  Polymarket CLOB Trade Executor (Local + Bright Data Proxy)  ║
-╚══════════════════════════════════════════════════════════════╝
-
-🚀 Executing order via Bright Data proxy...
-   Token: 21742633...
-   Side: BUY | Price: 0.52 | Size: $1
-
-📋 Building EIP-712 order struct...
-🔐 Signing with EIP-712...
-   Signature: 0x1f2a4b8c9d...abc123def
-
-🔑 Computing HMAC-SHA256 REST auth...
-
-📡 Broadcasting via Bright Data to CLOB...
-
-✅ Order accepted!
-   Order ID: 12345
-
-🎉 Trade execution complete!
-```
-
-## How It Works
-
-1. **Build EIP-712 Order Struct** — Package trade params (tokenId, side, price, size)
-2. **Sign Locally** — ethers.js signs with your private key (never leaves local machine)
-3. **Compute HMAC-SHA256** — Generate REST authentication header using API secret
-4. **Bright Data Tunnel** — Route HTTPS request through residential proxy for non-US IP
-5. **CLOB Broadcast** — POST signed order to Polymarket order book
-6. **Settle** — Order matches, fills, or gets cancelled based on market state
+1. Derive fresh Polymarket L2 API creds (L1 signed with wallet).
+2. Build EIP-712 order struct (salt, maker, tokenId, amounts, expiration, nonce).
+3. Sign locally with `ethers.js`.
+4. Compute HMAC-SHA256 REST auth header using the derived API secret.
+5. `POST /order` directly to `clob.polymarket.com` — from the droplet's IP.
+6. (Optional) log the accepted order to Base44 `BotTrade` via REST.
 
 ## Security
 
-- ✅ Private key never transmitted to server or proxy
-- ✅ All signing happens locally
-- ✅ Bright Data proxy handles geoblocking only—cannot see order contents
-- ✅ HMAC signature prevents replay attacks
-- ✅ EIP-712 ensures order integrity
-
-## Troubleshooting
-
-### `POLY_API_KEY not set`
-
-Export your Base44 secrets:
-
-```bash
-export $(cat .env | grep POLY | xargs)
-```
-
-### `Signature verification failed`
-
-Ensure `POLY_PRIVATE_KEY` matches `POLY_WALLET_ADDRESS`.
-
-### `403 Geoblocked`
-
-Verify Bright Data credentials are correct:
-
-```bash
-curl -x http://user:pass@brd.superproxy.io:33335 https://geo.brdtest.com/welcome.txt
-```
-
-### `Connection timeout`
-
-Bright Data proxy may be slow. Increase timeout in `trade-executor.js` line ~180.
-
-## Next Steps
-
-- Run daily trades via cron: `0 9 * * * node /path/trade-executor.js --tokenId=... --side=0 --price=0.5 --size=10`
-- Integrate with botRunner automation to queue live orders
-- Monitor order IDs via Polymarket API to confirm settlement
+- Private key never transmitted anywhere — signing is local.
+- Fresh API creds derived on every run; no stale secrets.
+- Direct fetch only — no third-party proxy in the path.

@@ -1,0 +1,16 @@
+{
+  "name": "polymarket-droplet-executor",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Direct Polymarket CLOB executor — runs on DigitalOcean droplet, no proxy",
+  "main": "trade-executor.js",
+  "scripts": {
+    "trade": "node trade-executor.js"
+  },
+  "dependencies": {
+    "ethers": "^6.13.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
