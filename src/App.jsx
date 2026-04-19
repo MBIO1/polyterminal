@@ -19,6 +19,7 @@ import PerformanceDashboard from '@/pages/PerformanceDashboard';
 import Backtester from '@/pages/Backtester';
 import ReportingDashboard from '@/pages/ReportingDashboard';
 import Signer from '@/pages/Signer';
+import LiveTradingHub from '@/pages/LiveTradingHub';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -55,6 +56,7 @@ const AuthenticatedApp = () => {
         <Route path="/backtest" element={<Backtester />} />
         <Route path="/reports" element={<ReportingDashboard />} />
         <Route path="/signer" element={<Signer />} />
+        <Route path="/live-trading" element={<LiveTradingHub />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
