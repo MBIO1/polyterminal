@@ -3,7 +3,6 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
 import PriceTickerBar from '@/components/bot/PriceTickerBar';
-import KillSwitch from '@/components/bot/KillSwitch';
 import OpportunityScanner from '@/components/bot/OpportunityScanner';
 import TradeLog from '@/components/bot/TradeLog';
 import BotControls from '@/components/bot/BotControls';
@@ -178,21 +177,6 @@ export default function BotDashboard() {
     toast.success(`${isPaper ? '📄' : '💰'} ${opp.asset} ${opp.recommended_side?.toUpperCase()} · ${outcome === 'win' ? `+$${pnl.toFixed(2)}` : `-$${Math.abs(pnl).toFixed(2)}`}`, { duration: 5000 });
   };
 
-  const handleKillActivate = () => {
-    handleConfigUpdate({ kill_switch_active: true, bot_running: false });
-    drawdownMutation.mutate({
-      event_type: 'kill_switch', drawdown_pct: totalDrawdown,
-      portfolio_value: portfolioValue, triggered_at_pct: config.total_drawdown_kill || 40,
-      message: 'Manual kill switch activated',
-    });
-    toast.error('🛑 Kill switch activated — server bot halted');
-  };
-
-  const handleKillReset = () => {
-    handleConfigUpdate({ kill_switch_active: false, halt_until_ts: 0 });
-    toast.success('✅ Kill switch reset');
-  };
-
   // Auto-start bot once config is loaded, if not already running and not halted
   const autoStarted = React.useRef(false);
   useEffect(() => {
@@ -297,15 +281,6 @@ export default function BotDashboard() {
               onUpdate={handleConfigUpdate}
               dailyDrawdown={dailyDrawdown}
               openPositionCount={openTradeCount}
-            />
-            <KillSwitch
-              active={config.kill_switch_active}
-              dailyDrawdown={dailyDrawdown}
-              totalDrawdown={totalDrawdown}
-              dailyHaltPct={config.daily_drawdown_halt || 20}
-              killPct={config.total_drawdown_kill || 40}
-              onActivate={handleKillActivate}
-              onReset={handleKillReset}
             />
             <ConfigPanel config={config} onUpdate={handleConfigUpdate} />
           </div>
