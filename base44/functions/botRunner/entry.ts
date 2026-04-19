@@ -480,10 +480,10 @@ Deno.serve(async (req) => {
       // Top traders use 0.5-2% position sizing. Start small to verify edge.
       const profitAccumulation = Math.max(0, portfolio - config.starting_balance);
       const profitMultiplier = Math.max(1, 1 + (profitAccumulation / config.starting_balance) * 0.5); // slow scaling
-      const baseSize = 0.25; // start $0.25 (was $1)
-      const adaptiveSize = Math.min(5, baseSize * profitMultiplier); // max $5 (was $50)
+      const baseSize = 1.00; // start $1
+      const adaptiveSize = Math.min(50, baseSize * profitMultiplier); // max $50
       
-      if (adaptiveSize < 0.10) continue;
+      if (adaptiveSize < 1.00) continue;
 
       const isPaper = config.paper_trading !== false;
 
