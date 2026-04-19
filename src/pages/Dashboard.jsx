@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Wallet, TrendingUp, CheckCircle, Activity, TrendingDown, BarChart2, Percent, CreditCard } from 'lucide-react';
+import { Wallet, TrendingUp, CheckCircle, Activity } from 'lucide-react';
 import StatCard from '@/components/dashboard/StatCard';
 import PortfolioChart from '@/components/dashboard/PortfolioChart';
 import RecentTrades from '@/components/dashboard/RecentTrades';
@@ -10,8 +10,6 @@ import { Link } from 'react-router-dom';
 import { computeMetrics } from '@/lib/tradeMetrics';
 import RebalancingModule from '@/components/dashboard/RebalancingModule';
 import HealthCheckPanel from '@/components/system/HealthCheckPanel';
-import SubscriptionModal from '@/components/payments/SubscriptionModal';
-import { Button } from '@/components/ui/button';
 
 const MiniMetric = ({ label, value, color = 'text-foreground', sub }) => (
   <div className="rounded-lg border border-border bg-secondary/30 px-3 py-2.5">
@@ -22,8 +20,6 @@ const MiniMetric = ({ label, value, color = 'text-foreground', sub }) => (
 );
 
 export default function Dashboard() {
-  const [paymentModalOpen, setPaymentModalOpen] = useState(false);
-
   const { data: configs = [] } = useQuery({
     queryKey: ['bot-config'],
     queryFn: () => base44.entities.BotConfig.list(),
@@ -62,10 +58,6 @@ export default function Dashboard() {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button onClick={() => setPaymentModalOpen(true)} variant="outline" size="sm" className="gap-2">
-            <CreditCard className="w-4 h-4" />
-            Fund Account
-          </Button>
           <LivePnLTicker />
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full ${isRunning ? 'bg-accent/10' : 'bg-muted/50'}`}>
             <div className={`w-2 h-2 rounded-full ${isRunning ? 'bg-accent animate-pulse' : 'bg-muted-foreground'}`} />
@@ -75,9 +67,6 @@ export default function Dashboard() {
           </div>
         </div>
       </div>
-
-      {/* Subscription Modal */}
-      <SubscriptionModal open={paymentModalOpen} onClose={() => setPaymentModalOpen(false)} />
 
       {/* Stats Row 1 */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
