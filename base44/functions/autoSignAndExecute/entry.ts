@@ -317,7 +317,37 @@ Deno.serve(async (req) => {
       mode: 'live',
       notes: `✅ Live order · ${user.email} · EIP712 sig: ${eip712Sig.slice(0, 20)}…`,
     });
-    
+
+    // Send Telegram notification (fire-and-forget — never block response)
+    try {
+      const tgToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
+      const tgChat  = Deno.env.get('TELEGRAM_CHAT_ID');
+      if (tgToken && tgChat) {
+        const sideLabel = side === 0 ? 'BUY (YES)' : 'SELL (NO)';
+        const orderId = clobRes.order_id || clobRes.id || 'pending';
+        const text =
+          `✅ *Live Trade Executed*\n\n` +
+          `*Side:* ${sideLabel}\n` +
+          `*Entry Price:* ${price}\n` +
+          `*Size:* $${sizeUsdc} USDC\n` +
+          `*Token:* \`${tokenId.slice(0, 12)}…\`\n` +
+          `*Order ID:* \`${orderId}\`\n` +
+          `*By:* ${user.email}\n` +
+          `*Time:* ${new Date().toISOString()}`;
+        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: tgChat, text, parse_mode: 'Markdown' }),
+          signal: AbortSignal.timeout(5000),
+        });
+        console.log('[TELEGRAM] Notification sent');
+      } else {
+        console.log('[TELEGRAM] Skipped — missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID');
+      }
+    } catch (tgErr) {
+      console.log(`[TELEGRAM] Send failed: ${tgErr.message}`);
+    }
+
     return Response.json({
       success: true,
       orderId: clobRes.order_id || clobRes.id || 'pending',
