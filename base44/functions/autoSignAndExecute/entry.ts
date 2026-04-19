@@ -254,14 +254,30 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
   return res.json();
 }
 
+// Allowlisted IPs that can invoke without admin auth (e.g., DigitalOcean droplet)
+const ALLOWED_IPS = new Set(['64.225.16.230']);
+
+function getClientIP(req) {
+  // Check forwarded headers (Deno Deploy sets these)
+  const fwd = req.headers.get('x-forwarded-for') || '';
+  const first = fwd.split(',')[0].trim();
+  return first || req.headers.get('x-real-ip') || '';
+}
+
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
-    
-    console.log(`[AUTH] user=${user?.email} role=${user?.role}`);
-    if (!user || user.role !== 'admin') {
-      return Response.json({ error: 'Forbidden: Admin access required' }, { status: 403 });
+    const clientIP = getClientIP(req);
+    const ipAllowed = ALLOWED_IPS.has(clientIP);
+
+    let user = null;
+    try { user = await base44.auth.me(); } catch (_) { /* droplet has no user session */ }
+
+    console.log(`[AUTH] user=${user?.email} role=${user?.role} ip=${clientIP} ipAllowed=${ipAllowed}`);
+
+    // Admit if EITHER: admin user OR request from allowlisted droplet IP
+    if (!ipAllowed && (!user || user.role !== 'admin')) {
+      return Response.json({ error: 'Forbidden: admin or allowlisted IP required' }, { status: 403 });
     }
     
     const body = await req.json();
@@ -315,7 +331,7 @@ Deno.serve(async (req) => {
       shares: Math.round(sizeUsdc / price),
       outcome: 'pending',
       mode: 'live',
-      notes: `✅ Live order · ${user.email} · EIP712 sig: ${eip712Sig.slice(0, 20)}…`,
+      notes: `✅ Live order · ${user?.email || `droplet:${clientIP}`} · EIP712 sig: ${eip712Sig.slice(0, 20)}…`,
     });
 
     // Send Telegram notification (fire-and-forget — never block response)
@@ -332,7 +348,7 @@ Deno.serve(async (req) => {
           `*Size:* $${sizeUsdc} USDC\n` +
           `*Token:* \`${tokenId.slice(0, 12)}…\`\n` +
           `*Order ID:* \`${orderId}\`\n` +
-          `*By:* ${user.email}\n` +
+          `*By:* ${user?.email || `droplet:${clientIP}`}\n` +
           `*Time:* ${new Date().toISOString()}`;
         await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
           method: 'POST',
