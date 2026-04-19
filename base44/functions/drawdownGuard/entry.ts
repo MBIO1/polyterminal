@@ -71,7 +71,7 @@ Deno.serve(async (req) => {
     const killSwitchThreshold = 40; // -40% permanent halt (cumulative)
 
     // ── Check cumulative portfolio drawdown (high water mark) ─────────────────
-    const totalLosses = recentTrades.filter(t => (t.pnl_usdc || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
+    const totalLosses = trades.filter(t => (t.pnl_usdc || 0) < 0).reduce((s, t) => s + Math.abs(t.pnl_usdc || 0), 0);
     const cumulativeDrawdownPct = (totalLosses / (config.starting_balance || 1000)) * 100;
 
     let action = 'none';

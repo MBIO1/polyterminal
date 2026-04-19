@@ -374,15 +374,18 @@ Deno.serve(async (req) => {
     for (const t of last10) {
       if (t.outcome === 'loss') {
         consecutiveLosses++;
-        if (consecutiveLosses >= 5) {
-          await base44.asServiceRole.entities.BotConfig.update(config.id, {
-            bot_running: false,
-            halt_until_ts: Date.now() + 30 * 60 * 1000, // 30 min halt
-          });
-          return Response.json({ skipped: true, reason: '5 consecutive losses — 30 min halt', consecutiveLosses });
-        }
-      } else if (t.outcome === 'win') {
-        consecutiveLosses = 0;
+      } else if (t.outcome === 'win' || t.outcome === 'pending') {
+        break; // streak broken — stop counting
+      }
+    }
+    if (consecutiveLosses >= 5) {
+      // Only halt if not already in a halt window
+      if (!config.halt_until_ts || config.halt_until_ts <= Date.now()) {
+        await base44.asServiceRole.entities.BotConfig.update(config.id, {
+          bot_running: false,
+          halt_until_ts: Date.now() + 30 * 60 * 1000, // 30 min halt
+        });
+        return Response.json({ skipped: true, reason: '5 consecutive losses — 30 min halt', consecutiveLosses });
       }
     }
 
