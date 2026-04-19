@@ -9,7 +9,7 @@ import React, { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import {
-  Bot, Zap, Wallet, BarChart2, Settings, Code2,
+  Bot, Wallet, BarChart2, Settings, Code2,
   ChevronRight, CheckCircle, AlertTriangle, DollarSign,
   Clock, RefreshCw, Activity, Play, Square, TrendingUp,
 } from 'lucide-react';
@@ -94,13 +94,7 @@ const COMMANDS = [
   { cmd: 'npm run stats',          desc: 'Export performance report' },
 ];
 
-// ── Env vars required ──────────────────────────────────────────────────────────
-const ENV_VARS = [
-  { name: 'POLYMARKET_API_KEY', required: true },
-  { name: 'WALLET_PRIVATE_KEY', required: true },
-  { name: 'WALLET_ADDRESS',     required: true },
-  { name: 'POLYGON_RPC_URL',    required: false, note: 'optional, defaults to polygon-rpc.com' },
-];
+
 
 export default function LiveTradingHub() {
   const [expandedModule, setExpandedModule] = useState(null);
@@ -182,29 +176,10 @@ export default function LiveTradingHub() {
                 </div>
               ))}
             </div>
-            <div className="mt-3 rounded-lg border border-destructive/30 bg-destructive/10 p-3">
-              <p className="text-[10px] font-mono font-bold text-destructive mb-1.5">⚠️ .gitignore — add this before first commit</p>
-              <pre className="text-[10px] font-mono text-foreground bg-secondary/50 rounded p-2 whitespace-pre">{`.env\n.env.local\n*.env\nnode_modules/`}</pre>
-              <p className="text-[9px] text-muted-foreground mt-1.5">If <code className="font-mono">.env</code> was already pushed: rotate ALL keys immediately (Polymarket API, wallet private key).</p>
-            </div>
+
           </Card>
 
-          <Card>
-            <SectionTitle icon={Zap} title="Environment Variables" subtitle=".env file in project root" />
-            <div className="space-y-2">
-              {ENV_VARS.map(({ name, required, note }) => (
-                <div key={name} className="flex items-start gap-2">
-                  <span className={`text-[9px] font-mono px-1 py-0.5 rounded mt-0.5 flex-shrink-0 ${required ? 'bg-destructive/10 text-destructive' : 'bg-muted/50 text-muted-foreground'}`}>
-                    {required ? 'REQ' : 'OPT'}
-                  </span>
-                  <div>
-                    <code className="text-[10px] font-mono text-foreground">{name}</code>
-                    {note && <p className="text-[9px] text-muted-foreground">{note}</p>}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
+
         </div>
 
         {/* ── CENTER: Modules ── */}
