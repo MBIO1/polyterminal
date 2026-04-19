@@ -65,7 +65,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
   };
 }
 
-async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, useProxy = true) {
+async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) {
   if (!apiKey || !apiSecret || !passphrase) {
     throw new Error('Missing REST auth credentials: apiKey, apiSecret, or passphrase');
   }
@@ -203,18 +203,8 @@ Deno.serve(async (req) => {
       throw new Error('EIP-712 signature generation failed');
     }
     
-    // Broadcast to CLOB (first attempt direct, retry via proxy on 403)
-    let clobRes;
-    try {
-      clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase, false);
-    } catch (error) {
-      if (error.message.includes('403')) {
-        console.log('🔄 Direct request blocked, retrying via Oxylabs proxy...');
-        clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase, true);
-      } else {
-        throw error;
-      }
-    }
+    // Broadcast directly to CLOB
+    const clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase);
     
     // Log trade
     await base44.asServiceRole.entities.BotTrade.create({
