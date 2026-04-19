@@ -557,23 +557,13 @@ Deno.serve(async (req) => {
       const modelWinP  = 0.51 + signalBonus + edgeBonus;
       const winProb    = Math.max(0.40, Math.min(0.70, (rawWinP * 0.70) + (modelWinP * 0.30)));
       
-      // LIVE MODE: Call auto-signer to generate + submit real order
+      // LIVE MODE: Log the signal — execution happens via local bot wallet
+      // PAPER MODE: Simulate outcome
       let outcome, pnl;
       if (!isPaper) {
-        try {
-          const signResult = await base44.asServiceRole.functions.invoke('autoSignAndExecute', {
-            tokenId: opp.tokenId,
-            side: opp.recommended_side === 'yes' ? 0 : 1, // 0 = BUY YES, 1 = BUY NO
-            price: opp.polymarket_price,
-            sizeUsdc: adaptiveSize,
-          });
-          // Log live execution
-          outcome = signResult.success ? 'pending' : 'rejected';
-          pnl = signResult.success ? adaptiveSize * 0.01 : -adaptiveSize; // placeholder P&L tracking
-        } catch (err) {
-          outcome = 'rejected';
-          pnl = -adaptiveSize;
-        }
+        // Record as pending — local bot picks this up and executes on-chain
+        outcome = 'pending';
+        pnl = 0;
       } else {
         // Paper trading: simulate outcome
         outcome = Math.random() < winProb ? 'win' : 'loss';
@@ -593,7 +583,7 @@ Deno.serve(async (req) => {
         contract_type:         opp.type,
         side:                  opp.recommended_side,
         entry_price:           opp.polymarket_price,
-        exit_price:            outcome === 'win' ? 1.0 : 0.0,
+        exit_price:            isPaper && outcome === 'win' ? 1.0 : isPaper ? 0.0 : null,
         shares:                Math.floor(adaptiveSize / opp.polymarket_price),
         size_usdc:             Number(adaptiveSize.toFixed(4)),
         edge_at_entry:         opp.edge_pct,
