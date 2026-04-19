@@ -35,6 +35,46 @@ const ORDER_TYPES = {
   ],
 };
 
+// L1 auth types for deriving L2 API creds on demand
+const L1_AUTH_DOMAIN = { name: 'ClobAuthDomain', version: '1', chainId: 137 };
+const L1_AUTH_TYPES = {
+  ClobAuth: [
+    { name: 'address',   type: 'address' },
+    { name: 'timestamp', type: 'string'  },
+    { name: 'nonce',     type: 'uint256' },
+    { name: 'message',   type: 'string'  },
+  ],
+};
+
+/**
+ * Derive fresh L2 API credentials from the wallet's private key.
+ * Bypasses any stale stored secrets — always returns what Polymarket currently has on file.
+ */
+async function deriveApiCreds(wallet) {
+  const ts = `${Math.floor(Date.now() / 1000)}`;
+  const value = {
+    address: wallet.address,
+    timestamp: ts,
+    nonce: 0,
+    message: 'This message attests that I control the given wallet',
+  };
+  const sig = await wallet.signTypedData(L1_AUTH_DOMAIN, L1_AUTH_TYPES, value);
+  const res = await fetch('https://clob.polymarket.com/auth/derive-api-key', {
+    method: 'GET',
+    headers: {
+      'content-type':   'application/json',
+      'poly_address':   wallet.address,
+      'poly_signature': sig,
+      'poly_timestamp': ts,
+      'poly_nonce':     '0',
+    },
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`derive-api-key ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return { apiKey: data.apiKey, apiSecret: data.secret, passphrase: data.passphrase };
+}
+
 function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
   // Validate all inputs
   if (!tokenId || typeof tokenId !== 'string') throw new Error('Invalid tokenId');
@@ -65,7 +105,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
   };
 }
 
-async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) {
+async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, makerAddress) {
   if (!apiKey || !apiSecret || !passphrase) {
     throw new Error('Missing REST auth credentials: apiKey, apiSecret, or passphrase');
   }
@@ -115,7 +155,7 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
   // Polymarket uses snake_case lowercase headers (not dashed uppercase)
   const reqHeaders = {
     'Content-Type':    'application/json',
-    'poly_address':    Deno.env.get('POLY_WALLET_ADDRESS'),
+    'poly_address':    makerAddress,
     'poly_signature':  hmacSig,
     'poly_timestamp':  timestamp,
     'poly_api_key':    apiKey,
@@ -227,25 +267,14 @@ Deno.serve(async (req) => {
     const body = await req.json();
     const { tokenId, side, price, sizeUsdc } = body;
     
-    // Pre-flight checks
-    const makerAddress = Deno.env.get('POLY_WALLET_ADDRESS');
+    // Pre-flight: only the wallet credentials are required — API creds are derived live
     const privateKey = Deno.env.get('POLY_PRIVATE_KEY');
-    const apiKey = Deno.env.get('POLY_API_KEY');
-    const apiSecret = Deno.env.get('POLY_API_SECRET');
-    const passphrase = Deno.env.get('POLY_API_PASSPHRASE');
-    
-    const missingCreds = [];
-    if (!makerAddress) missingCreds.push('POLY_WALLET_ADDRESS');
-    if (!privateKey) missingCreds.push('POLY_PRIVATE_KEY');
-    if (!apiKey) missingCreds.push('POLY_API_KEY');
-    if (!apiSecret) missingCreds.push('POLY_API_SECRET');
-    if (!passphrase) missingCreds.push('POLY_API_PASSPHRASE');
-    
-    if (missingCreds.length > 0) {
-      return Response.json({ 
+    const walletAddressEnv = Deno.env.get('POLY_WALLET_ADDRESS');
+    if (!privateKey || !walletAddressEnv) {
+      return Response.json({
         success: false,
-        error: `Missing environment credentials: ${missingCreds.join(', ')}`,
-        status: 'credential_error'
+        error: 'Missing POLY_PRIVATE_KEY or POLY_WALLET_ADDRESS',
+        status: 'credential_error',
       }, { status: 500 });
     }
     
@@ -255,11 +284,16 @@ Deno.serve(async (req) => {
     if (!price) throw new Error('price is required');
     if (!sizeUsdc) throw new Error('sizeUsdc is required');
     
+    // Build wallet + derive fresh L2 API creds (bypasses any stale stored secrets)
+    const wallet = new ethers.Wallet(privateKey);
+    const makerAddress = wallet.address;
+    console.log(`[AUTH] Deriving fresh API creds for ${makerAddress}`);
+    const { apiKey, apiSecret, passphrase } = await deriveApiCreds(wallet);
+    console.log(`[AUTH] Got apiKey=${apiKey}`);
+    
     // Build and sign order
     console.log(`[SIGN] Building order: tokenId=${tokenId.slice(0,10)} side=${side} price=${price} size=${sizeUsdc}`);
     const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress);
-    console.log(`[SIGN] Order built, signing with ethers...`);
-    const wallet = new ethers.Wallet(privateKey);
     const eip712Sig = await wallet.signTypedData(EIP712_DOMAIN, ORDER_TYPES, orderStruct);
     console.log(`[SIGN] Signed: ${eip712Sig.slice(0,20)}`);
     
@@ -268,7 +302,7 @@ Deno.serve(async (req) => {
     }
     
     // Broadcast directly to CLOB
-    const clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase);
+    const clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase, makerAddress);
     
     // Log trade
     await base44.asServiceRole.entities.BotTrade.create({
