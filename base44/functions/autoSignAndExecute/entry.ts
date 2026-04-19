@@ -1,8 +1,8 @@
 /**
- * Auto-Signer for Live Trading
+ * Auto-Signer for Live Trading v2
  *
- * Runs server-side. Uses ethers.js to sign EIP-712 orders and broadcasts to Polymarket CLOB.
- * Private key never touches the browser.
+ * Runs server-side. Uses ethers.js to sign EIP-712 orders and broadcasts DIRECTLY to Polymarket CLOB.
+ * No proxy — direct fetch only. Private key never touches the browser.
  *
  * SECURITY:
  * - All orders require admin role

@@ -257,7 +257,7 @@ function halfKelly(edge, price, portfolio, maxPosPct, kellyFraction) {
 }
 
 // ── Fetch live USDC wallet balance from Polygon ───────────────────────────────
-const POLYGON_RPC = 'https://polygon-rpc.com';
+const POLYGON_RPC = 'https://polygon-bor-rpc.publicnode.com';
 const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
 function encodeBalanceOf(address) {
   const selector = '70a08231';
