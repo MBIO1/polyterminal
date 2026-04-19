@@ -70,7 +70,6 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     throw new Error('Missing REST auth credentials: apiKey, apiSecret, or passphrase');
   }
 
-  // Serialize order payload exactly as Polymarket expects
   const orderPayload = {
     salt: order.salt.toString(),
     maker: order.maker,
@@ -86,71 +85,115 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     signatureType: order.signatureType,
     signature,
   };
-  
+
   const bodyStr = JSON.stringify(orderPayload);
   const timestamp = Date.now().toString();
-  const method = 'POST';
-  const path = '/order';
-  
-  const signatureBody = timestamp + method + path + bodyStr;
-  if (!signatureBody || signatureBody.length === 0) {
-    throw new Error('Signature body is empty');
-  }
-  
-  // Generate HMAC-SHA256
+  const signatureBody = timestamp + 'POST' + '/order' + bodyStr;
+
   const encoder = new TextEncoder();
-  const keyBuffer = encoder.encode(apiSecret);
-  const dataBuffer = encoder.encode(signatureBody);
   const hashBuffer = await crypto.subtle.sign(
     'HMAC',
-    await crypto.subtle.importKey('raw', keyBuffer, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
-    dataBuffer
+    await crypto.subtle.importKey('raw', encoder.encode(apiSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
+    encoder.encode(signatureBody)
   );
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
-  const hmacSig = btoa(String.fromCharCode(...hashArray));
-  
-  if (!hmacSig || hmacSig.length === 0) {
-    throw new Error('HMAC signature generation failed');
+  const hmacSig = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+
+  const reqHeaders = {
+    'Content-Type': 'application/json',
+    'POLY-SIGNATURE': hmacSig,
+    'POLY-API-KEY': apiKey,
+    'POLY-API-PASSPHRASE': passphrase,
+    'POLY-NONCE': timestamp,
+  };
+
+  // Try Bright Data residential proxy first (to bypass Polymarket geoblocking)
+  // Use Deno TCP CONNECT tunnel — the only reliable proxy method in Deno Deploy
+  const bdUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER') || Deno.env.get('BRIGHT_DATA_USER');
+  const bdPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS') || Deno.env.get('BRIGHT_DATA_PASS');
+
+  if (bdUser && bdPass) {
+    try {
+      console.log(`[PROXY] Opening TCP tunnel via brd.superproxy.io:22225`);
+      const conn = await Deno.connect({ hostname: 'brd.superproxy.io', port: 22225 });
+
+      const proxyAuth = btoa(`${bdUser}:${bdPass}`);
+      const connectReq = `CONNECT clob.polymarket.com:443 HTTP/1.1\r\nHost: clob.polymarket.com:443\r\nProxy-Authorization: Basic ${proxyAuth}\r\n\r\n`;
+      await conn.write(new TextEncoder().encode(connectReq));
+
+      // Read CONNECT response
+      const buf = new Uint8Array(4096);
+      const n = await conn.read(buf);
+      const connectResp = new TextDecoder().decode(buf.subarray(0, n));
+      console.log(`[PROXY] CONNECT response: ${connectResp.split('\r\n')[0]}`);
+
+      if (!connectResp.includes('200')) {
+        conn.close();
+        throw new Error(`Proxy CONNECT failed: ${connectResp.split('\r\n')[0]}`);
+      }
+
+      // TLS upgrade over the tunnel
+      const tlsConn = await Deno.startTls(conn, { hostname: 'clob.polymarket.com' });
+
+      // Send HTTP request over TLS tunnel
+      const httpReq = [
+        `POST /order HTTP/1.1`,
+        `Host: clob.polymarket.com`,
+        ...Object.entries(reqHeaders).map(([k, v]) => `${k}: ${v}`),
+        `Content-Length: ${new TextEncoder().encode(bodyStr).length}`,
+        `Connection: close`,
+        ``,
+        bodyStr,
+      ].join('\r\n');
+
+      await tlsConn.write(new TextEncoder().encode(httpReq));
+
+      // Read response
+      const chunks = [];
+      const readBuf = new Uint8Array(8192);
+      while (true) {
+        const nr = await tlsConn.read(readBuf);
+        if (nr === null) break;
+        chunks.push(readBuf.slice(0, nr));
+      }
+      tlsConn.close();
+
+      const fullResp = new TextDecoder().decode(
+        chunks.reduce((a, b) => { const c = new Uint8Array(a.length + b.length); c.set(a); c.set(b, a.length); return c; }, new Uint8Array())
+      );
+      const [respHead, ...respBodyParts] = fullResp.split('\r\n\r\n');
+      const statusLine = respHead.split('\r\n')[0];
+      const statusCode = parseInt(statusLine.split(' ')[1]);
+      const respBody = respBodyParts.join('\r\n\r\n').trim();
+
+      console.log(`[PROXY] CLOB response: ${statusLine}`);
+
+      if (statusCode === 401) throw new Error(`CLOB 401 Unauthorized`);
+      if (statusCode === 403) throw new Error(`CLOB 403 Geoblocked`);
+      if (statusCode < 200 || statusCode >= 300) throw new Error(`CLOB ${statusCode}: ${respBody}`);
+
+      return JSON.parse(respBody);
+    } catch (proxyErr) {
+      console.log(`[PROXY] Failed: ${proxyErr.message} — falling back to direct`);
+      // Fall through to direct fetch below
+    }
   }
-  
-  // Build header string for curl
-  const headerLines = [
-    `POLY-SIGNATURE: ${hmacSig}`,
-    `POLY-API-KEY: ${apiKey}`,
-    `POLY-API-PASSPHRASE: ${passphrase}`,
-    `POLY-NONCE: ${timestamp}`,
-    `Content-Type: application/json`,
-  ];
-  
-  // Note: Deno Deploy sandboxes all network access—proxies and custom dispatchers are blocked.
-  // Trades must be executed from local machine with proper proxy tunnel or non-sandboxed environment.
-  
-  // Fallback: direct fetch
+
+  // Fallback: direct (will be geoblocked on Deno Deploy cloud IPs)
   const res = await fetch('https://clob.polymarket.com/order', {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'POLY-SIGNATURE': hmacSig,
-      'POLY-API-KEY': apiKey,
-      'POLY-API-PASSPHRASE': passphrase,
-      'POLY-NONCE': timestamp,
-    },
+    headers: reqHeaders,
     body: bodyStr,
     signal: AbortSignal.timeout(20000),
   });
-  
+
   if (!res.ok) {
     const errorText = await res.text();
     const status = res.status;
-    if (status === 401) {
-      throw new Error(`CLOB 401 Unauthorized`);
-    }
-    if (status === 403) {
-      throw new Error(`CLOB 403 Geoblocked`);
-    }
+    if (status === 401) throw new Error(`CLOB 401 Unauthorized`);
+    if (status === 403) throw new Error(`CLOB 403 Geoblocked`);
     throw new Error(`CLOB ${status}: ${errorText}`);
   }
-  
+
   return res.json();
 }
 
