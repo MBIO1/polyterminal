@@ -16,11 +16,24 @@ const L1_TYPES    = {
   ],
 };
 
+// Polymarket HMAC: base64url-decode the secret to bytes, sign, then base64url-encode the result
+function base64UrlDecode(str) {
+  const s = str.replace(/-/g, '+').replace(/_/g, '/');
+  const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
+  const bin = atob(s + pad);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+function base64UrlEncode(bytes) {
+  return btoa(String.fromCharCode(...new Uint8Array(bytes))).replace(/\+/g, '-').replace(/\//g, '_');
+}
 async function hmacSign(secret, ts, method, path, body = '') {
   const msg = `${ts}${method.toUpperCase()}${path}${body}`;
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const keyBytes = base64UrlDecode(secret);
+  const key = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const buf = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(msg));
-  return btoa(String.fromCharCode(...new Uint8Array(buf)));
+  return base64UrlEncode(buf);
 }
 
 Deno.serve(async (req) => {
@@ -130,25 +143,34 @@ Deno.serve(async (req) => {
     }
   }
 
-  // ── Test derived creds against /trades (bypasses stale secrets) ─────────────
+  // ── Test derived creds against multiple endpoints ───────────────────────────
   if (derivedKey && derivedSecret && derivedPassphrase) {
-    const ts3 = Math.floor(Date.now() / 1000);
-    const sig3 = await hmacSign(derivedSecret, ts3, 'GET', '/trades');
-    try {
-      const r = await fetch(`https://clob.polymarket.com/trades?maker_address=${checksumAddr}&limit=5`, {
-        headers: {
-          'poly_address':    checksumAddr,
-          'poly_signature':  sig3,
-          'poly_timestamp':  `${ts3}`,
-          'poly_api_key':    derivedKey,
-          'poly_passphrase': derivedPassphrase,
-        },
-        signal: AbortSignal.timeout(8000),
-      });
-      const body = await r.text();
-      results.push({ step: 'GET /trades with DERIVED creds', status: r.status, body: body.slice(0, 300) });
-    } catch (e) {
-      results.push({ step: 'GET /trades DERIVED error', error: e.message });
+    const endpoints = [
+      { method: 'GET', path: '/trades',         url: `https://clob.polymarket.com/trades?maker_address=${checksumAddr}&limit=5` },
+      { method: 'GET', path: '/data/api-keys',  url: 'https://clob.polymarket.com/data/api-keys' },
+      { method: 'GET', path: '/auth/api-keys',  url: 'https://clob.polymarket.com/auth/api-keys' },
+      { method: 'GET', path: '/data/positions', url: `https://clob.polymarket.com/data/positions?user=${checksumAddr}` },
+    ];
+    for (const ep of endpoints) {
+      const ts3 = Math.floor(Date.now() / 1000);
+      const sig3 = await hmacSign(derivedSecret, ts3, ep.method, ep.path);
+      try {
+        const r = await fetch(ep.url, {
+          method: ep.method,
+          headers: {
+            'poly_address':    checksumAddr,
+            'poly_signature':  sig3,
+            'poly_timestamp':  `${ts3}`,
+            'poly_api_key':    derivedKey,
+            'poly_passphrase': derivedPassphrase,
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+        const body = await r.text();
+        results.push({ step: `${ep.method} ${ep.path} DERIVED`, status: r.status, body: body.slice(0, 250) });
+      } catch (e) {
+        results.push({ step: `${ep.method} ${ep.path} ERROR`, error: e.message });
+      }
     }
   }
 

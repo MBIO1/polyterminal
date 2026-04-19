@@ -87,23 +87,39 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
   };
 
   const bodyStr = JSON.stringify(orderPayload);
-  const timestamp = Date.now().toString();
-  const signatureBody = timestamp + 'POST' + '/order' + bodyStr;
+  // Polymarket HMAC spec: timestamp in SECONDS, body with single→double quote swap for parity with Go/TS
+  const timestamp = Math.floor(Date.now() / 1000).toString();
+  const bodyForSig = bodyStr.replace(/'/g, '"');
+  const signatureBody = timestamp + 'POST' + '/order' + bodyForSig;
 
-  const encoder = new TextEncoder();
+  // base64url-decode the secret into raw bytes, HMAC-SHA256, then base64url-encode the result
+  const base64UrlDecode = (str) => {
+    const s = str.replace(/-/g, '+').replace(/_/g, '/');
+    const pad = s.length % 4 === 0 ? '' : '='.repeat(4 - (s.length % 4));
+    const bin = atob(s + pad);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return bytes;
+  };
+  const base64UrlEncode = (buf) =>
+    btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_');
+
+  const keyBytes = base64UrlDecode(apiSecret);
   const hashBuffer = await crypto.subtle.sign(
     'HMAC',
-    await crypto.subtle.importKey('raw', encoder.encode(apiSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
-    encoder.encode(signatureBody)
+    await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']),
+    new TextEncoder().encode(signatureBody)
   );
-  const hmacSig = btoa(String.fromCharCode(...new Uint8Array(hashBuffer)));
+  const hmacSig = base64UrlEncode(hashBuffer);
 
+  // Polymarket uses snake_case lowercase headers (not dashed uppercase)
   const reqHeaders = {
-    'Content-Type': 'application/json',
-    'POLY-SIGNATURE': hmacSig,
-    'POLY-API-KEY': apiKey,
-    'POLY-API-PASSPHRASE': passphrase,
-    'POLY-NONCE': timestamp,
+    'Content-Type':    'application/json',
+    'poly_address':    Deno.env.get('POLY_WALLET_ADDRESS'),
+    'poly_signature':  hmacSig,
+    'poly_timestamp':  timestamp,
+    'poly_api_key':    apiKey,
+    'poly_passphrase': passphrase,
   };
 
   // Try Bright Data residential proxy — pick whichever secret name is set
