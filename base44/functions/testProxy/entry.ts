@@ -38,12 +38,6 @@ Deno.serve(async (req) => {
 
   logs.push(`[USING] user="${bdUser}" pass_len=${bdPass?.length}`);
 
-  // Try a few different session/country combos to find clean IPs
-  const sessionId = Math.floor(Math.random() * 999999);
-  // Append country=us and session to get US residential IPs (Polymarket requires US)
-  const bdUserWithSession = `${bdUser}-country-us-session-${sessionId}`;
-  logs.push(`[USING with session] user="${bdUserWithSession}"`);
-
   // Step 1: TCP connect to Bright Data superproxy
   let conn;
   try {
@@ -56,7 +50,7 @@ Deno.serve(async (req) => {
 
   // Step 2: Send CONNECT
   try {
-    const proxyAuth = btoa(`${bdUserWithSession}:${bdPass}`);
+    const proxyAuth = btoa(`${bdUser}:${bdPass}`);
     const connectReq = `CONNECT clob.polymarket.com:443 HTTP/1.1\r\nHost: clob.polymarket.com:443\r\nProxy-Authorization: Basic ${proxyAuth}\r\n\r\n`;
     await conn.write(new TextEncoder().encode(connectReq));
     logs.push('CONNECT request sent');
