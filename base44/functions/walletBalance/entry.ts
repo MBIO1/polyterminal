@@ -1,18 +1,29 @@
 /**
  * walletBalance — fetches USDC balance on Polygon for the configured wallet
- * Uses Polygon RPC directly (public endpoint, no proxy needed)
+ * Checks both bridged USDC.e and native USDC contracts
  */
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 const POLYGON_RPC = 'https://polygon-rpc.com';
-// USDC on Polygon
-const USDC_CONTRACT = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174';
-// ERC-20 balanceOf ABI encoded selector
+const USDC_BRIDGED = '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174'; // USDC.e (bridged)
+const USDC_NATIVE  = '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359'; // Native USDC
+
 function encodeBalanceOf(address) {
-  // balanceOf(address) = 0x70a08231
   const selector = '70a08231';
   const padded = address.replace('0x', '').toLowerCase().padStart(64, '0');
   return '0x' + selector + padded;
+}
+
+async function ethCall(contract, data, id) {
+  const res = await fetch(POLYGON_RPC, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_call', params: [{ to: contract, data }, 'latest'], id }),
+    signal: AbortSignal.timeout(8000),
+  });
+  const json = await res.json();
+  const hex = json?.result || '0x0';
+  return Number(BigInt(hex === '0x' ? '0x0' : hex)) / 1_000_000;
 }
 
 Deno.serve(async (req) => {
@@ -26,45 +37,31 @@ Deno.serve(async (req) => {
   }
 
   try {
-    // Call USDC balanceOf via eth_call
-    const rpcRes = await fetch(POLYGON_RPC, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_call',
-        params: [{ to: USDC_CONTRACT, data: encodeBalanceOf(walletAddress) }, 'latest'],
-        id: 1,
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
+    const encodedData = encodeBalanceOf(walletAddress);
 
-    const rpcData = await rpcRes.json();
-    const hex = rpcData?.result || '0x0';
-    const raw = BigInt(hex === '0x' ? '0x0' : hex);
-    // USDC has 6 decimals on Polygon
-    const balance_usdc = Number(raw) / 1_000_000;
+    // Fetch bridged USDC.e, native USDC, and MATIC in parallel
+    const [usdcBridged, usdcNative, maticRes] = await Promise.all([
+      ethCall(USDC_BRIDGED, encodedData, 1),
+      ethCall(USDC_NATIVE, encodedData, 2),
+      fetch(POLYGON_RPC, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'eth_getBalance', params: [walletAddress, 'latest'], id: 3 }),
+        signal: AbortSignal.timeout(8000),
+      }).then(r => r.json()),
+    ]);
 
-    // Also fetch MATIC balance for gas
-    const maticRes = await fetch(POLYGON_RPC, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        jsonrpc: '2.0',
-        method: 'eth_getBalance',
-        params: [walletAddress, 'latest'],
-        id: 2,
-      }),
-      signal: AbortSignal.timeout(8000),
-    });
-    const maticData = await maticRes.json();
-    const maticHex = maticData?.result || '0x0';
-    const maticRaw = BigInt(maticHex === '0x' ? '0x0' : maticHex);
-    const balance_matic = Number(maticRaw) / 1e18;
+    const maticHex = maticRes?.result || '0x0';
+    const balance_matic = Number(BigInt(maticHex === '0x' ? '0x0' : maticHex)) / 1e18;
+
+    // Total USDC = bridged + native
+    const balance_usdc = parseFloat((usdcBridged + usdcNative).toFixed(2));
 
     return Response.json({
       wallet: walletAddress,
-      balance_usdc: parseFloat(balance_usdc.toFixed(2)),
+      balance_usdc,
+      balance_usdc_bridged: parseFloat(usdcBridged.toFixed(2)),
+      balance_usdc_native: parseFloat(usdcNative.toFixed(2)),
       balance_matic: parseFloat(balance_matic.toFixed(4)),
       gas_ok: balance_matic >= 0.01,
       timestamp: new Date().toISOString(),
