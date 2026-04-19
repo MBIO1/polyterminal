@@ -145,19 +145,14 @@ const POLY_CONTRACTS = [
  * that's 50bps of pure arbitrage, regardless of confidence score.
  */
 function buildContracts(prices, funding, micro) {
-  const { btc, eth, btcBinance, btcCoinbase, ethBinance, ethCoinbase } = prices;
-  
-  // Use injected Coinbase if available (mock mode), fallback to Binance
-  const realBtcCoinbase = btcCoinbase || btcBinance;
-  const realEthCoinbase = ethCoinbase || ethBinance;
+  const { btcBinance, btcCoinbase, ethBinance, ethCoinbase } = prices;
 
   return POLY_CONTRACTS.map((c, i) => {
     const isbtc = c.asset === 'BTC';
     const binancePrice = isbtc ? btcBinance : ethBinance;
     const coinbasePrice = isbtc ? btcCoinbase : ethCoinbase;
-    const vol = isbtc ? 0.012 : 0.018;
 
-    // Use injected prices if mock mode, fallback to Binance for Coinbase
+    // Fallback to Binance price if Coinbase is missing
     const finalCoinbasePrice = coinbasePrice || binancePrice;
     
     if (!binancePrice || !finalCoinbasePrice) {
@@ -326,20 +321,6 @@ Deno.serve(async (req) => {
     return Response.json({ running: configs[0]?.bot_running || false, config: configs[0] || {}, recentTrades: trades });
   }
 
-  // ── TOGGLE MOCK MODE ────────────────────────────────────────────────────────
-  if (action === 'mock_toggle') {
-    const configs = await base44.asServiceRole.entities.BotConfig.list();
-    const config = configs[0];
-    const newMockMode = !config.mock_mode_enabled;
-    await base44.asServiceRole.entities.BotConfig.update(config.id, {
-      mock_mode_enabled: newMockMode,
-    });
-    return Response.json({
-      mock_mode_enabled: newMockMode,
-      message: newMockMode ? '✅ Mock spreads enabled' : '❌ Mock spreads disabled',
-    });
-  }
-
   // ── SCAN + AUTO-EXECUTE ─────────────────────────────────────────────────────
   if (action === 'scan') {
     const configs = await base44.asServiceRole.entities.BotConfig.list();
@@ -362,29 +343,12 @@ Deno.serve(async (req) => {
     if (config.kill_switch_active || haltUntil > now) return Response.json({ skipped: true, reason: 'halted' });
 
     // ── Fetch all signals + wallet balance in parallel ────────────────────────
-    let [prices, funding, micro, wallet] = await Promise.all([
+    const [prices, funding, micro, wallet] = await Promise.all([
       fetchLivePrices(),
       fetchFundingRates(),
       fetchMarketMicrostructure(),
       fetchWalletBalance(),
     ]);
-
-    // ── Inject mock spreads if test mode enabled ─────────────────────────────
-    if (config.mock_mode_enabled) {
-      // Use the mid-price (btc/eth) as the base if Binance is missing
-      const btcBase = prices.btcBinance || prices.btc || 76000;
-      const ethBase = prices.ethBinance || prices.eth || 2400;
-      
-      const btcSpread = 1 + (0.005 + Math.random() * 0.015); // 0.5-2% spread
-      const ethSpread = 1 + (0.005 + Math.random() * 0.015);
-      prices = {
-        ...prices,
-        btcBinance: btcBase, // ensure Binance is set
-        ethBinance: ethBase,
-        btcCoinbase: btcBase / btcSpread, // Coinbase lags by spread
-        ethCoinbase: ethBase / ethSpread,
-      };
-    }
 
     const contracts = buildContracts(prices, funding, micro);
 
@@ -586,7 +550,7 @@ Deno.serve(async (req) => {
 
       const recentWins   = recentTrades.slice(0, 10).filter(t => t.outcome === 'win').length;
       const recentLosses = Math.min(10, recentTrades.slice(0, 10).length) - recentWins;
-      const signalNote   = `signals=${opp.effectiveSignalCount}/5 [sprd=${opp.signals.spread} fund=${opp.signals.funding} mark=${opp.signals.mark} trend=${opp.signals.trend}]`;
+      const signalNote   = `signals=${opp.effectiveSignalCount}/4 [sprd=${opp.signals.spread} fund=${opp.signals.funding} mark=${opp.signals.mark}]`;
       const adaptNote    = `size=$${adaptiveSize.toFixed(2)} profit_mult=${profitMultiplier.toFixed(2)}x streak=${recentWins}W/${recentLosses}L ob_imbal=${opp.depth.imbalance.toFixed(2)}`;
 
       const newTrade = await base44.asServiceRole.entities.BotTrade.create({
@@ -627,7 +591,6 @@ Deno.serve(async (req) => {
       dailyDD,
       adaptedKelly: adjustedKelly,
       blockedPatterns: blockedPatterns.length,
-      mockModeEnabled: config.mock_mode_enabled,
     });
   }
 

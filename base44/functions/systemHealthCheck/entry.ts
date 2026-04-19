@@ -122,34 +122,7 @@ Deno.serve(async (req) => {
     }
 
     // ──────────────────────────────────────────────────────────────────
-    // 6. OXYLABS PROXY (Scraper)
-    // ──────────────────────────────────────────────────────────────────
-    const oxyUser = Deno.env.get('OXYLABS_USER');
-    const oxyPass = Deno.env.get('OXYLABS_PASS');
-    if (oxyUser && oxyPass) {
-      try {
-        const oxyAuth = btoa(`${oxyUser}:${oxyPass}`);
-        const res = await Promise.race([
-          fetch('https://realtime.oxylabs.io/api/ping', {
-            headers: { 'Authorization': `Basic ${oxyAuth}` },
-            signal: AbortSignal.timeout(5000),
-          }),
-          new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 5500)),
-        ]);
-        health.checks.oxylabs = {
-          status: 'OK',
-          details: { endpoint: 'realtime.oxylabs.io', authenticated: !!oxyAuth },
-        };
-      } catch (err) {
-        health.checks.oxylabs = { status: 'FAILED', error: err.message };
-        health.failedChecks.push('Oxylabs: ' + err.message);
-      }
-    } else {
-      health.checks.oxylabs = { status: 'SKIPPED', reason: 'Credentials not set' };
-    }
-
-    // ──────────────────────────────────────────────────────────────────
-    // 7. TELEGRAM BOT API
+    // 6. TELEGRAM BOT API
     // ──────────────────────────────────────────────────────────────────
     const botToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
     const chatId = Deno.env.get('TELEGRAM_CHAT_ID');

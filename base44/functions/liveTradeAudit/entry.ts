@@ -32,14 +32,12 @@ Deno.serve(async (req) => {
       'POLY_API_KEY',
       'POLY_API_SECRET',
       'POLY_API_PASSPHRASE',
-      'OXYLABS_USER',
-      'OXYLABS_PASS',
     ];
     
     creds.forEach(c => {
       const val = Deno.env.get(c);
       checks.credentials[c] = val ? 'SET' : 'MISSING';
-      if (!val && c !== 'OXYLABS_USER' && c !== 'OXYLABS_PASS') {
+      if (!val) {
         checks.readiness = false;
         checks.failures.push(`${c} not set`);
       }
