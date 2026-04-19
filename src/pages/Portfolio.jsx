@@ -25,23 +25,32 @@ export default function Portfolio() {
     queryFn: () => base44.entities.BotConfig.list(),
   });
 
-  const [trades, setTrades] = React.useState([]);
-  const { isLoading } = useQuery({
+  const { data: fetchedTrades = [], isLoading } = useQuery({
     queryKey: ['bot-trades-portfolio'],
     queryFn: () => base44.entities.BotTrade.list('-created_date', 500),
-    onSuccess: (data) => setTrades(data),
+    refetchInterval: 15000,
   });
 
+  const [liveTrades, setLiveTrades] = React.useState([]);
+
+  // Sync fetched trades into local state when query refetches
+  React.useEffect(() => {
+    setLiveTrades(fetchedTrades);
+  }, [fetchedTrades]);
+
+  // Real-time subscription for instant updates
   React.useEffect(() => {
     const unsubscribe = base44.entities.BotTrade.subscribe((event) => {
       if (event.type === 'create') {
-        setTrades(prev => [event.data, ...prev]);
+        setLiveTrades(prev => [event.data, ...prev]);
       } else if (event.type === 'update') {
-        setTrades(prev => prev.map(t => t.id === event.id ? event.data : t));
+        setLiveTrades(prev => prev.map(t => t.id === event.id ? event.data : t));
       }
     });
     return unsubscribe;
   }, []);
+
+  const trades = liveTrades;
 
   const config = configs[0] || {};
   const startingBalance = config.starting_balance || 1000;
