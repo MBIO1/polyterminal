@@ -8,14 +8,41 @@ Deno.serve(async (req) => {
   const user = await base44.auth.me();
   if (!user || user.role !== 'admin') return Response.json({ error: 'Forbidden' }, { status: 403 });
 
-  // Secrets are stored with swapped names:
-  // BRIGHT_DATA_SUPERPROXY_HOST = full username (brd-customer-xxx-zone-yyy)
-  // BRIGHT_DATA_SUPERPROXY_PORT = password
-  const bdUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST'); // full username
-  const bdPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT'); // password
   const logs = [];
 
-  logs.push(`using user="${bdUser}" pass_len=${bdPass?.length}`);
+  // Try all possible secret name combinations to find which one has actual credentials
+  const candidates = {
+    superproxy_user: Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER'),
+    superproxy_pass: Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS'),
+    superproxy_host: Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST'),
+    superproxy_port: Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT'),
+    user: Deno.env.get('BRIGHT_DATA_USER'),
+    pass: Deno.env.get('BRIGHT_DATA_PASS'),
+  };
+
+  logs.push(`[SECRETS] superproxy_user="${candidates.superproxy_user}" len=${candidates.superproxy_user?.length}`);
+  logs.push(`[SECRETS] superproxy_pass len=${candidates.superproxy_pass?.length}`);
+  logs.push(`[SECRETS] superproxy_host="${candidates.superproxy_host}" len=${candidates.superproxy_host?.length}`);
+  logs.push(`[SECRETS] superproxy_port="${candidates.superproxy_port}" len=${candidates.superproxy_port?.length}`);
+  logs.push(`[SECRETS] user="${candidates.user}" len=${candidates.user?.length}`);
+  logs.push(`[SECRETS] pass len=${candidates.pass?.length}`);
+
+  // BRIGHT_DATA_SUPERPROXY_HOST has the full "brd-customer-xxx-zone-yyy" username
+  // BRIGHT_DATA_SUPERPROXY_PORT has the actual password — use these first
+  const bdUser = candidates.superproxy_host || candidates.user || candidates.superproxy_user;
+  const bdPass = candidates.superproxy_port || candidates.pass || candidates.superproxy_pass;
+
+  if (!bdUser || !bdPass) {
+    return Response.json({ success: false, step: 'no_credentials', logs, candidates: Object.fromEntries(Object.entries(candidates).map(([k,v]) => [k, v ? `SET(len=${v.length})` : 'MISSING'])) });
+  }
+
+  logs.push(`[USING] user="${bdUser}" pass_len=${bdPass?.length}`);
+
+  // Try a few different session/country combos to find clean IPs
+  const sessionId = Math.floor(Math.random() * 999999);
+  // Append country=us and session to get US residential IPs (Polymarket requires US)
+  const bdUserWithSession = `${bdUser}-country-us-session-${sessionId}`;
+  logs.push(`[USING with session] user="${bdUserWithSession}"`);
 
   // Step 1: TCP connect to Bright Data superproxy
   let conn;
@@ -29,7 +56,7 @@ Deno.serve(async (req) => {
 
   // Step 2: Send CONNECT
   try {
-    const proxyAuth = btoa(`${bdUser}:${bdPass}`);
+    const proxyAuth = btoa(`${bdUserWithSession}:${bdPass}`);
     const connectReq = `CONNECT clob.polymarket.com:443 HTTP/1.1\r\nHost: clob.polymarket.com:443\r\nProxy-Authorization: Basic ${proxyAuth}\r\n\r\n`;
     await conn.write(new TextEncoder().encode(connectReq));
     logs.push('CONNECT request sent');

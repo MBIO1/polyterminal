@@ -106,11 +106,10 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase) 
     'POLY-NONCE': timestamp,
   };
 
-  // Try Bright Data residential proxy first (to bypass Polymarket geoblocking)
-  // Use Deno TCP CONNECT tunnel — the only reliable proxy method in Deno Deploy
-  // Credentials: HOST=full username, PORT=password
-  const bdUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST');
-  const bdPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT');
+  // Try Bright Data residential proxy — pick whichever secret name is set
+  // HOST = full "brd-customer-xxx-zone-yyy" username, PORT = password
+  const bdUser = Deno.env.get('BRIGHT_DATA_SUPERPROXY_HOST') || Deno.env.get('BRIGHT_DATA_USER') || Deno.env.get('BRIGHT_DATA_SUPERPROXY_USER');
+  const bdPass = Deno.env.get('BRIGHT_DATA_SUPERPROXY_PORT') || Deno.env.get('BRIGHT_DATA_PASS') || Deno.env.get('BRIGHT_DATA_SUPERPROXY_PASS');
   console.log(`[PROXY] bdUser="${bdUser}" bdPass_len=${bdPass?.length}`);
 
   if (bdUser && bdPass) {
