@@ -306,6 +306,14 @@ async function fetchWalletBalance() {
 // ── Throttle: contract id → last trade timestamp ──────────────────────────────
 const lastTradeTs = {};
 
+async function tgAlert(base44, kind, title, lines) {
+  try {
+    await base44.asServiceRole.functions.invoke('sendTelegramAlert', { kind, title, lines });
+  } catch (e) {
+    console.log(`[TG] alert failed: ${e.message}`);
+  }
+}
+
 Deno.serve(async (req) => {
   const base44 = createClientFromRequest(req);
   let user = null;
@@ -323,6 +331,7 @@ Deno.serve(async (req) => {
 
   // ── SCAN + AUTO-EXECUTE ─────────────────────────────────────────────────────
   if (action === 'scan') {
+    try {
     const configs = await base44.asServiceRole.entities.BotConfig.list();
     const config  = configs[0];
     const haltUntil = config.halt_until_ts || 0;
@@ -501,6 +510,20 @@ Deno.serve(async (req) => {
       })
       .sort((a, b) => (b.effectiveSignalCount - a.effectiveSignalCount) || (b.edge_pct - a.edge_pct));
 
+    // ── Signal detected alert (top opportunity, once per scan) ───────────────
+    if (opportunities.length > 0) {
+      const top = opportunities[0];
+      await tgAlert(base44, 'signal', 'New trade signal detected', [
+        `<b>Market:</b> ${top.title}`,
+        `<b>Asset:</b> ${top.asset} · ${top.type.replace(/_/g, ' ')}`,
+        `<b>Side:</b> <code>${top.recommended_side.toUpperCase()}</code>`,
+        `<b>Edge:</b> ${top.edge_pct.toFixed(3)}%`,
+        `<b>Confidence:</b> ${top.confidence_score.toFixed(0)}%`,
+        `<b>Signals:</b> ${top.effectiveSignalCount}/4`,
+        `<b>Total opps:</b> ${opportunities.length}`,
+      ]);
+    }
+
     const executed = [];
     const slotsLeft = Math.min(5, maxPos - openCount); // take up to 5 per scan (was 3)
 
@@ -592,6 +615,14 @@ Deno.serve(async (req) => {
       adaptedKelly: adjustedKelly,
       blockedPatterns: blockedPatterns.length,
     });
+    } catch (scanErr) {
+      console.error('[SCAN] Error:', scanErr.message);
+      await tgAlert(base44, 'error', 'Bot scan failed', [
+        `<b>Error:</b> <code>${scanErr.message.slice(0, 200)}</code>`,
+        `<b>Action:</b> scan`,
+      ]);
+      return Response.json({ success: false, error: scanErr.message }, { status: 500 });
+    }
   }
 
   return Response.json({ error: 'Unknown action' }, { status: 400 });

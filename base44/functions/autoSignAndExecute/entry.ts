@@ -373,7 +373,26 @@ Deno.serve(async (req) => {
     });
   } catch (error) {
     const msg = error.message || '';
-    
+
+    // Fire Telegram error alert (fire-and-forget)
+    try {
+      const tgToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
+      const tgChat  = Deno.env.get('TELEGRAM_CHAT_ID');
+      if (tgToken && tgChat) {
+        const text =
+          `🚨 *Live Execution Failed*\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `*Error:* \`${msg.slice(0, 250)}\`\n` +
+          `*Time:* ${new Date().toISOString()}`;
+        await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_id: tgChat, text, parse_mode: 'Markdown' }),
+          signal: AbortSignal.timeout(5000),
+        });
+      }
+    } catch (_) { /* swallow */ }
+
     if (msg.includes('401')) {
       return Response.json({ 
         success: false, 
