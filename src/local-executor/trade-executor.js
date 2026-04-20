@@ -104,14 +104,14 @@ async function deriveApiCreds(wallet) {
 }
 
 // ── Build EIP-712 order struct ────────────────────────────────────────────────
-function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
+function buildOrderStruct(tokenId, side, price, sizeUsdc, proxyAddress, signerAddress) {
   const makerAmount = ethers.parseUnits(sizeUsdc.toFixed(6), 6);
   const takerAmount = ethers.parseUnits((sizeUsdc / price).toFixed(6), 6);
   const now = Math.floor(Date.now() / 1000);
   return {
     salt:          ethers.toBigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
-    maker:         makerAddress,
-    signer:        makerAddress,
+    maker:         proxyAddress,   // Polymarket proxy (holds USDC)
+    signer:        signerAddress,  // EOA that signs (derived from private key)
     taker:         '0x0000000000000000000000000000000000000000',
     tokenId:       ethers.toBigInt(tokenId),
     makerAmount,
@@ -120,7 +120,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, makerAddress) {
     nonce:         ethers.toBigInt(Date.now()),
     feeRateBps:    720,
     side,
-    signatureType: 1,
+    signatureType: 2,  // 2 = Polymarket proxy wallet
   };
 }
 
@@ -213,21 +213,23 @@ async function logTradeToBase44(trade) {
   console.log(`🚀 Order: tokenId=${tokenId.slice(0, 12)}… side=${side === 0 ? 'BUY' : 'SELL'} price=${price} size=$${sizeUsdc}\n`);
 
   const wallet = new ethers.Wallet(privateKey);
-  if (wallet.address.toLowerCase() !== walletAddress.toLowerCase()) {
-    throw new Error(`POLY_PRIVATE_KEY does not match POLY_WALLET_ADDRESS`);
-  }
+  const signerAddress = wallet.address;       // EOA (signs)
+  const proxyAddress  = walletAddress;        // Polymarket proxy (holds USDC, receives orders)
+  console.log(`   signer (EOA):  ${signerAddress}`);
+  console.log(`   maker (proxy): ${proxyAddress}\n`);
 
   console.log('🔑 Deriving fresh API credentials…');
   const { apiKey, apiSecret, passphrase } = await deriveApiCreds(wallet);
   console.log(`   apiKey=${apiKey}\n`);
 
-  console.log('📋 Building & signing EIP-712 order…');
-  const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, wallet.address);
+  console.log('📋 Building & signing EIP-712 order (signatureType=2, proxy wallet)…');
+  const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, proxyAddress, signerAddress);
   const eip712Sig   = await wallet.signTypedData(EIP712_DOMAIN, ORDER_TYPES, orderStruct);
   console.log(`   signature=${eip712Sig.slice(0, 24)}…\n`);
 
   console.log('📡 Broadcasting to CLOB…');
-  const clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase, wallet.address);
+  // REST auth uses the EOA (signer) address — derived API creds are keyed to it
+  const clobRes = await broadcastToCLOB(orderStruct, eip712Sig, apiKey, apiSecret, passphrase, signerAddress);
 
   console.log('\n✅ Order accepted!');
   console.log(`   orderId=${clobRes.order_id || clobRes.id || 'pending'}`);
