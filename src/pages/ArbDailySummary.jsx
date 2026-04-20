@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import Section from '@/components/arb/Section';
 import EmptyState from '@/components/arb/EmptyState';
+import DailyPnlBarChart from '@/components/arb/DailyPnlBarChart';
 import { fmtUSD, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDailySummary() {
@@ -46,6 +47,10 @@ export default function ArbDailySummary() {
         <h1 className="text-2xl font-bold text-foreground">Daily Summary</h1>
         <p className="text-sm text-muted-foreground mt-1 font-mono">Aggregated PnL, fees, funding, and rebalance impact by day</p>
       </div>
+
+      <Section title="Daily PnL" subtitle={`Last ${Math.min(30, rows.length)} days of net performance`}>
+        <DailyPnlBarChart rows={rows} days={30} />
+      </Section>
 
       <Section title="Daily Aggregates">
         {isLoading ? (

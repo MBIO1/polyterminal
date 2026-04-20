@@ -21,6 +21,42 @@ const ALERT_META = {
   transfer_stuck:         { emoji: '🔁', label: 'Transfer Not Confirmed',   default: 'High' },
 };
 
+async function postToTelegram({ alertType, severity, title, description, fields }) {
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
+  const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
+  if (!token || !chatId) return; // silently skip if not configured
+
+  const meta = ALERT_META[alertType] || ALERT_META.exception;
+  const sev = severity || meta.default;
+  const lines = [
+    `${meta.emoji} <b>${meta.label} — ${sev}</b>${title ? ` · ${title}` : ''}`,
+    '━━━━━━━━━━━━━━━━━━━━━━',
+    description || '(no details)',
+  ];
+  const fieldLines = (fields || [])
+    .filter(f => f && f.value !== undefined && f.value !== null && f.value !== '')
+    .map(f => `<b>${f.title}:</b> <code>${String(f.value)}</code>`);
+  if (fieldLines.length) {
+    lines.push('');
+    lines.push(...fieldLines);
+  }
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: lines.join('\n'), parse_mode: 'HTML' }),
+      signal: AbortSignal.timeout(10000),
+    });
+    if (!res.ok) {
+      const errText = await res.text();
+      console.error('Telegram send failed', res.status, errText);
+    }
+  } catch (err) {
+    console.error('Telegram send error', err);
+  }
+}
+
 async function postToSlack(webhook, { alertType, severity, title, description, fields }) {
   const meta = ALERT_META[alertType] || ALERT_META.exception;
   const sev = severity || meta.default;
@@ -74,7 +110,7 @@ Deno.serve(async (req) => {
       }
       if (!exc) return Response.json({ error: 'no exception data' }, { status: 400 });
 
-      await postToSlack(webhook, {
+      const excArgs = {
         alertType: 'exception',
         severity: exc.severity,
         title: exc.exception_id || '',
@@ -87,7 +123,11 @@ Deno.serve(async (req) => {
           { title: 'Trade', value: exc.linked_trade_id },
           { title: 'Owner', value: exc.owner },
         ],
-      });
+      };
+      await Promise.all([
+        postToSlack(webhook, excArgs),
+        postToTelegram(excArgs),
+      ]);
       return Response.json({ ok: true, mode: 'exception' });
     }
 
@@ -104,13 +144,17 @@ Deno.serve(async (req) => {
       return Response.json({ error: `unknown alert_type: ${alert_type}` }, { status: 400 });
     }
 
-    await postToSlack(webhook, {
+    const directArgs = {
       alertType: alert_type,
       severity,
       title,
       description,
       fields,
-    });
+    };
+    await Promise.all([
+      postToSlack(webhook, directArgs),
+      postToTelegram(directArgs),
+    ]);
     return Response.json({ ok: true, mode: 'direct', alert_type });
   } catch (error) {
     console.error('slackAlert error', error);
