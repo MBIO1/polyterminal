@@ -1,0 +1,17 @@
+{
+  "name": "arb-ws-bot",
+  "version": "1.0.0",
+  "description": "Droplet WebSocket arbitrage signal bot for MBIO ARB",
+  "type": "module",
+  "main": "bot.mjs",
+  "scripts": {
+    "start": "node bot.mjs"
+  },
+  "dependencies": {
+    "ws": "^8.18.0",
+    "dotenv": "^16.4.5"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

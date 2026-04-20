@@ -13,12 +13,14 @@ import {
   Zap,
   Radar,
   ClipboardCheck,
+  Radio,
 } from 'lucide-react';
 
 const navItems = [
   { path: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { path: '/config', icon: SlidersHorizontal, label: 'Config' },
   { path: '/scan', icon: Radar, label: 'Market Scan' },
+  { path: '/signals', icon: Radio, label: 'Signal Feed' },
   { path: '/trades', icon: History, label: 'Trades' },
   { path: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
   { path: '/positions', icon: Activity, label: 'Live Positions' },

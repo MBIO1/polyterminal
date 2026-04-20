@@ -1,0 +1,109 @@
+{
+  "name": "ArbSignal",
+  "type": "object",
+  "properties": {
+    "signal_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the signal was detected on the droplet"
+    },
+    "received_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When Base44 ingested the signal"
+    },
+    "pair": {
+      "type": "string",
+      "description": "e.g. BTC-USDT"
+    },
+    "asset": {
+      "type": "string",
+      "enum": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "Other"
+      ]
+    },
+    "buy_exchange": {
+      "type": "string"
+    },
+    "sell_exchange": {
+      "type": "string"
+    },
+    "buy_price": {
+      "type": "number"
+    },
+    "sell_price": {
+      "type": "number"
+    },
+    "raw_spread_bps": {
+      "type": "number",
+      "description": "Raw spread before fees/slippage"
+    },
+    "net_edge_bps": {
+      "type": "number",
+      "description": "Edge after taker fees + modeled slippage"
+    },
+    "buy_depth_usd": {
+      "type": "number",
+      "description": "USD liquidity in top levels of buy book"
+    },
+    "sell_depth_usd": {
+      "type": "number",
+      "description": "USD liquidity in top levels of sell book"
+    },
+    "fillable_size_usd": {
+      "type": "number",
+      "description": "Max size fillable at signal edge"
+    },
+    "signal_age_ms": {
+      "type": "number",
+      "description": "Age of signal when POSTed"
+    },
+    "exchange_latency_ms": {
+      "type": "number",
+      "description": "Round-trip WS latency avg"
+    },
+    "confirmed_exchanges": {
+      "type": "number",
+      "description": "How many of the 4 venues agreed on the divergence"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "detected",
+        "alerted",
+        "executed",
+        "expired",
+        "rejected"
+      ],
+      "default": "detected"
+    },
+    "rejection_reason": {
+      "type": "string"
+    },
+    "executed_pnl_bps": {
+      "type": "number",
+      "description": "Realized edge if traded on this signal"
+    },
+    "executed_pnl_usd": {
+      "type": "number"
+    },
+    "win": {
+      "type": "boolean",
+      "description": "True if executed_pnl_bps > 0"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "pair",
+    "buy_exchange",
+    "sell_exchange",
+    "raw_spread_bps",
+    "net_edge_bps",
+    "status"
+  ]
+}

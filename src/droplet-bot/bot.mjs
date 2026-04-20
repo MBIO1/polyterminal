@@ -1,0 +1,256 @@
+// Droplet WebSocket arbitrage bot.
+// Runs on your VPS, NOT on Base44. Posts qualified signals to Base44.
+//
+// Start: node bot.mjs
+// See README.md for systemd setup.
+
+import 'dotenv/config';
+import WebSocket from 'ws';
+
+// ───────────────────────────────────────────────────────────────
+// Config
+// ───────────────────────────────────────────────────────────────
+const INGEST_URL = process.env.BASE44_INGEST_URL;
+const STATS_URL = process.env.BASE44_STATS_URL;
+const TOKEN = process.env.BASE44_USER_TOKEN;
+const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT').split(',');
+const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 5);
+const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 200);
+const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 10_000);
+const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
+const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 10);
+
+if (!INGEST_URL || !TOKEN) {
+  console.error('Missing BASE44_INGEST_URL or BASE44_USER_TOKEN');
+  process.exit(1);
+}
+
+// Per-pair adaptive threshold (overrides MIN_NET_EDGE_BPS when higher)
+const pairThresholds = Object.fromEntries(PAIRS.map(p => [p, MIN_NET_EDGE_BPS]));
+
+// Book state: books[exchange][pair] = { bid, ask, bidSize, askSize, ts }
+const books = { OKX: {}, Binance: {}, Coinbase: {}, Bybit: {} };
+
+// Recently-posted signals for local dedupe (key = pair+buy+sell, value = ts)
+const recentlyPosted = new Map();
+
+// ───────────────────────────────────────────────────────────────
+// WebSocket subscribers
+// ───────────────────────────────────────────────────────────────
+function connectOKX() {
+  const ws = new WebSocket('wss://ws.okx.com:8443/ws/v5/public');
+  ws.on('open', () => {
+    const args = PAIRS.map(p => ({ channel: 'tickers', instId: p }));
+    ws.send(JSON.stringify({ op: 'subscribe', args }));
+  });
+  ws.on('message', raw => {
+    const msg = JSON.parse(raw);
+    if (msg.data) {
+      for (const d of msg.data) {
+        const pair = d.instId;
+        books.OKX[pair] = {
+          bid: Number(d.bidPx), ask: Number(d.askPx),
+          bidSize: Number(d.bidSz) * Number(d.bidPx),
+          askSize: Number(d.askSz) * Number(d.askPx),
+          ts: Date.now(),
+        };
+        evaluate(pair);
+      }
+    }
+  });
+  ws.on('close', () => setTimeout(connectOKX, 2000));
+  ws.on('error', e => console.error('OKX WS:', e.message));
+}
+
+function connectBinance() {
+  const streams = PAIRS.map(p => p.replace('-', '').toLowerCase() + '@bookTicker').join('/');
+  const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
+  ws.on('message', raw => {
+    const msg = JSON.parse(raw);
+    const d = msg.data;
+    if (!d || !d.s) return;
+    // Reconstruct pair name BTCUSDT -> BTC-USDT
+    const pair = PAIRS.find(p => p.replace('-', '') === d.s);
+    if (!pair) return;
+    books.Binance[pair] = {
+      bid: Number(d.b), ask: Number(d.a),
+      bidSize: Number(d.B) * Number(d.b),
+      askSize: Number(d.A) * Number(d.a),
+      ts: Date.now(),
+    };
+    evaluate(pair);
+  });
+  ws.on('close', () => setTimeout(connectBinance, 2000));
+  ws.on('error', e => console.error('Binance WS:', e.message));
+}
+
+function connectCoinbase() {
+  const ws = new WebSocket('wss://ws-feed.exchange.coinbase.com');
+  ws.on('open', () => {
+    // Coinbase uses BTC-USD not BTC-USDT — map accordingly
+    const product_ids = PAIRS.map(p => p.replace('-USDT', '-USD'));
+    ws.send(JSON.stringify({ type: 'subscribe', product_ids, channels: ['ticker'] }));
+  });
+  ws.on('message', raw => {
+    const d = JSON.parse(raw);
+    if (d.type !== 'ticker' || !d.product_id) return;
+    const pair = d.product_id.replace('-USD', '-USDT');
+    if (!PAIRS.includes(pair)) return;
+    books.Coinbase[pair] = {
+      bid: Number(d.best_bid), ask: Number(d.best_ask),
+      bidSize: Number(d.best_bid_size) * Number(d.best_bid),
+      askSize: Number(d.best_ask_size) * Number(d.best_ask),
+      ts: Date.now(),
+    };
+    evaluate(pair);
+  });
+  ws.on('close', () => setTimeout(connectCoinbase, 2000));
+  ws.on('error', e => console.error('Coinbase WS:', e.message));
+}
+
+function connectBybit() {
+  const ws = new WebSocket('wss://stream.bybit.com/v5/public/spot');
+  ws.on('open', () => {
+    const args = PAIRS.map(p => `tickers.${p.replace('-', '')}`);
+    ws.send(JSON.stringify({ op: 'subscribe', args }));
+  });
+  ws.on('message', raw => {
+    const msg = JSON.parse(raw);
+    if (msg.topic && msg.data) {
+      const sym = msg.topic.split('.')[1];
+      const pair = PAIRS.find(p => p.replace('-', '') === sym);
+      if (!pair) return;
+      const d = msg.data;
+      books.Bybit[pair] = {
+        bid: Number(d.bid1Price), ask: Number(d.ask1Price),
+        bidSize: Number(d.bid1Size) * Number(d.bid1Price),
+        askSize: Number(d.ask1Size) * Number(d.ask1Price),
+        ts: Date.now(),
+      };
+      evaluate(pair);
+    }
+  });
+  ws.on('close', () => setTimeout(connectBybit, 2000));
+  ws.on('error', e => console.error('Bybit WS:', e.message));
+}
+
+// ───────────────────────────────────────────────────────────────
+// Signal evaluation
+// ───────────────────────────────────────────────────────────────
+function evaluate(pair) {
+  const now = Date.now();
+  const venues = ['OKX', 'Binance', 'Coinbase', 'Bybit'];
+  const fresh = venues
+    .map(v => ({ v, b: books[v][pair] }))
+    .filter(x => x.b && now - x.b.ts < MAX_SIGNAL_AGE_MS);
+
+  if (fresh.length < 2) return;
+
+  // Find best bid (sell side) and best ask (buy side) across venues
+  let bestAsk = { price: Infinity };
+  let bestBid = { price: -Infinity };
+  for (const { v, b } of fresh) {
+    if (b.ask < bestAsk.price) bestAsk = { v, price: b.ask, size: b.askSize, ts: b.ts };
+    if (b.bid > bestBid.price) bestBid = { v, price: b.bid, size: b.bidSize, ts: b.ts };
+  }
+  if (bestAsk.v === bestBid.v) return; // same venue, no arb
+
+  const rawSpreadBps = ((bestBid.price - bestAsk.price) / bestAsk.price) * 10_000;
+  const netEdgeBps = rawSpreadBps - 2 * TAKER_FEE_BPS;
+
+  const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
+  if (netEdgeBps < threshold) return;
+
+  const fillable = Math.min(bestAsk.size, bestBid.size);
+  if (fillable < MIN_FILLABLE_USD) return;
+
+  const signalAgeMs = now - Math.min(bestAsk.ts, bestBid.ts);
+  if (signalAgeMs > MAX_SIGNAL_AGE_MS) return;
+
+  // Local dedupe: 20s per (pair, buy, sell)
+  const key = `${pair}|${bestAsk.v}|${bestBid.v}`;
+  const last = recentlyPosted.get(key);
+  if (last && now - last < 20_000) return;
+  recentlyPosted.set(key, now);
+
+  post({
+    pair,
+    asset: pair.split('-')[0],
+    buy_exchange: bestAsk.v,
+    sell_exchange: bestBid.v,
+    buy_price: bestAsk.price,
+    sell_price: bestBid.price,
+    raw_spread_bps: rawSpreadBps,
+    net_edge_bps: netEdgeBps,
+    buy_depth_usd: bestAsk.size,
+    sell_depth_usd: bestBid.size,
+    fillable_size_usd: fillable,
+    signal_age_ms: signalAgeMs,
+    exchange_latency_ms: 0,
+    confirmed_exchanges: fresh.length,
+    signal_time: new Date().toISOString(),
+    alert: netEdgeBps >= ALERT_EDGE_BPS,
+  });
+}
+
+async function post(payload) {
+  try {
+    const res = await fetch(INGEST_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${TOKEN}`,
+      },
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json();
+    console.log(`[${payload.pair}] ${payload.buy_exchange}→${payload.sell_exchange} ${payload.net_edge_bps.toFixed(2)}bps fillable=$${Math.round(payload.fillable_size_usd)} → ${res.status} ${body.duplicate ? '(dup)' : body.signal_id || ''}`);
+  } catch (e) {
+    console.error('POST failed:', e.message);
+  }
+}
+
+// ───────────────────────────────────────────────────────────────
+// Adaptive thresholds feedback loop
+// ───────────────────────────────────────────────────────────────
+async function refreshThresholds() {
+  if (!STATS_URL) return;
+  try {
+    const res = await fetch(STATS_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${TOKEN}` },
+      body: JSON.stringify({ window_hours: 24 }),
+    });
+    const data = await res.json();
+    if (!data?.pairs) return;
+    for (const s of data.pairs) {
+      if (s.recommended_min_bps && PAIRS.includes(s.pair)) {
+        const old = pairThresholds[s.pair];
+        pairThresholds[s.pair] = s.recommended_min_bps;
+        if (old !== s.recommended_min_bps) {
+          console.log(`[threshold] ${s.pair}: ${old} → ${s.recommended_min_bps} bps (win rate ${(s.win_rate * 100).toFixed(1)}%)`);
+        }
+      }
+    }
+  } catch (e) {
+    console.error('refreshThresholds:', e.message);
+  }
+}
+
+// Periodic dedupe cleanup
+setInterval(() => {
+  const cutoff = Date.now() - 60_000;
+  for (const [k, v] of recentlyPosted) if (v < cutoff) recentlyPosted.delete(k);
+}, 30_000);
+
+setInterval(refreshThresholds, 15 * 60_000);
+
+// ───────────────────────────────────────────────────────────────
+// Boot
+// ───────────────────────────────────────────────────────────────
+console.log(`Arb WS bot starting · pairs: ${PAIRS.join(', ')} · min edge: ${MIN_NET_EDGE_BPS}bps`);
+connectOKX();
+connectBinance();
+connectCoinbase();
+connectBybit();
+refreshThresholds();
