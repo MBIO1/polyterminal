@@ -13,7 +13,6 @@ import Trades from '@/pages/Trades';
 import Dashboard from '@/pages/Dashboard';
 import BotManager from '@/pages/BotManager';
 import Analytics from '@/pages/Analytics';
-import TradingEngine from '@/pages/TradingEngine';
 import PerformanceDashboard from '@/pages/PerformanceDashboard';
 import Backtester from '@/pages/Backtester';
 import ReportingDashboard from '@/pages/ReportingDashboard';
@@ -47,7 +46,6 @@ const AuthenticatedApp = () => {
         <Route path="/trades" element={<Trades />} />
         <Route path="/bot-manager" element={<BotManager />} />
         <Route path="/analytics" element={<Analytics />} />
-        <Route path="/trading-engine" element={<TradingEngine />} />
         <Route path="/performance" element={<PerformanceDashboard />} />
         <Route path="/backtest" element={<Backtester />} />
         <Route path="/reports" element={<ReportingDashboard />} />

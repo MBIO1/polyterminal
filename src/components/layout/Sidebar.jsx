@@ -25,9 +25,6 @@ const navItems = [
 { path: '/bot-manager', icon: SlidersHorizontal, label: 'Bot Manager' },
 { path: '/trades', icon: History, label: 'Trade History' },
 { path: '/analytics', icon: BarChart2, label: 'Analytics' },
-{ path: '/research', icon: FlaskConical, label: 'Research Report', badge: 'NEW' },
-{ path: '/trading-engine', icon: Cpu, label: 'Trading Engine' },
-{ path: '/live-trading', icon: Flame, label: 'Live Trading Hub', badge: 'LIVE' },
 { path: '/performance', icon: LineChart, label: 'Performance' },
 { path: '/backtest', icon: TestTube2, label: 'Backtester' },
 { path: '/reports', icon: FileText, label: 'Reports', badge: 'NEW' }];
