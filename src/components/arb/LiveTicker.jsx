@@ -3,8 +3,8 @@ import { base44 } from '@/api/base44Client';
 import { TrendingUp, TrendingDown, Wifi, WifiOff, AlertTriangle } from 'lucide-react';
 import { fmtUSD, fmtBps } from '@/lib/arbMath';
 
-const REFRESH_MS = 10_000;
-const STALE_MS = 60_000;
+const REFRESH_MS = 3_000;
+const STALE_MS = 20_000;
 
 function fmtPx(n) {
   if (n == null) return '—';

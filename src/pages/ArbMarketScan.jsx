@@ -8,7 +8,7 @@ import Sparkline from '@/components/arb/Sparkline';
 import BasisHistoryChart from '@/components/arb/BasisHistoryChart';
 import { fmtUSD, fmtBps } from '@/lib/arbMath';
 
-const REFRESH_MS = 10000;
+const REFRESH_MS = 3000;
 const SPARK_MAX = 60;
 
 function fmtFundingPct(r) {
