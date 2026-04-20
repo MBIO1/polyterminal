@@ -45,8 +45,10 @@ async function bybitGet(path, params = {}) {
       'X-BAPI-RECV-WINDOW': recvWindow,
     },
   });
-  const json = await res.json();
-  return { httpStatus: res.status, body: json, environment: isTestnet ? 'testnet' : 'mainnet' };
+  const text = await res.text();
+  let body;
+  try { body = JSON.parse(text); } catch { body = { raw: text.slice(0, 500) }; }
+  return { httpStatus: res.status, body, environment: isTestnet ? 'testnet' : 'mainnet' };
 }
 
 Deno.serve(async (req) => {
@@ -62,7 +64,9 @@ Deno.serve(async (req) => {
     const isTestnet = (Deno.env.get('BYBIT_TESTNET') || 'true').toLowerCase() !== 'false';
     const base = isTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
     const timeRes = await fetch(`${base}/v5/market/time`);
-    const timeJson = await timeRes.json();
+    const timeText = await timeRes.text();
+    let timeJson;
+    try { timeJson = JSON.parse(timeText); } catch { timeJson = { httpStatus: timeRes.status, raw: timeText.slice(0, 500) }; }
 
     // 2) Wallet balance (signed) — confirms API key + secret + permissions
     const wallet = await bybitGet('/v5/account/wallet-balance', { accountType: 'UNIFIED' });
