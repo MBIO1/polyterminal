@@ -1,12 +1,15 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { base44 } from '@/api/base44Client';
 import { RefreshCw, TrendingUp, TrendingDown, Activity } from 'lucide-react';
 import Section from '@/components/arb/Section';
 import StatTile from '@/components/arb/StatTile';
 import EmptyState from '@/components/arb/EmptyState';
+import Sparkline from '@/components/arb/Sparkline';
+import BasisHistoryChart from '@/components/arb/BasisHistoryChart';
 import { fmtUSD, fmtBps } from '@/lib/arbMath';
 
 const REFRESH_MS = 10000;
+const SPARK_MAX = 60;
 
 function fmtFundingPct(r) {
   if (r === null || r === undefined) return '—';
@@ -27,6 +30,9 @@ export default function ArbMarketScan() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [lastUpdate, setLastUpdate] = useState(null);
+  const [sparks, setSparks] = useState({}); // { BTC: [bps, ...], ETH: [...], SOL: [...] }
+  const [history, setHistory] = useState([]);
+  const sparksRef = useRef({});
 
   const fetchData = useCallback(async () => {
     try {
@@ -35,6 +41,17 @@ export default function ArbMarketScan() {
       if (res.data?.error) throw new Error(res.data.error);
       setData(res.data);
       setLastUpdate(new Date());
+
+      // append to in-memory sparklines
+      const next = { ...sparksRef.current };
+      for (const r of res.data?.rows || []) {
+        if (r.basis_bps === null || r.basis_bps === undefined) continue;
+        const arr = next[r.asset] ? [...next[r.asset], r.basis_bps] : [r.basis_bps];
+        if (arr.length > SPARK_MAX) arr.shift();
+        next[r.asset] = arr;
+      }
+      sparksRef.current = next;
+      setSparks(next);
     } catch (e) {
       setError(e.message || 'Failed to fetch');
     } finally {
@@ -42,11 +59,22 @@ export default function ArbMarketScan() {
     }
   }, []);
 
+  const fetchHistory = useCallback(async () => {
+    try {
+      const list = await base44.entities.ArbScanSnapshot.list('-snapshot_time', 500);
+      setHistory(list);
+    } catch (e) {
+      // silent — history table may be empty before recorder runs
+    }
+  }, []);
+
   useEffect(() => {
     fetchData();
+    fetchHistory();
     const id = setInterval(fetchData, REFRESH_MS);
-    return () => clearInterval(id);
-  }, [fetchData]);
+    const hid = setInterval(fetchHistory, 60000);
+    return () => { clearInterval(id); clearInterval(hid); };
+  }, [fetchData, fetchHistory]);
 
   const rows = data?.rows || [];
 
@@ -109,6 +137,7 @@ export default function ArbMarketScan() {
                   <th className="text-right font-medium">Perp</th>
                   <th className="text-right font-medium">Basis ($)</th>
                   <th className="text-right font-medium">Basis (bps)</th>
+                  <th className="text-right font-medium">Trend</th>
                   <th className="text-right font-medium">Funding</th>
                   <th className="text-right font-medium">Next Funding</th>
                   <th className="text-right font-medium">24h Vol (USDT)</th>

@@ -1,0 +1,49 @@
+{
+  "name": "ArbScanSnapshot",
+  "type": "object",
+  "properties": {
+    "snapshot_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the snapshot was taken"
+    },
+    "asset": {
+      "type": "string",
+      "enum": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "Other"
+      ]
+    },
+    "spot_price": {
+      "type": "number"
+    },
+    "perp_price": {
+      "type": "number"
+    },
+    "basis_abs": {
+      "type": "number",
+      "description": "Perp - Spot in USD"
+    },
+    "basis_bps": {
+      "type": "number",
+      "description": "Basis in basis points"
+    },
+    "funding_rate": {
+      "type": "number",
+      "description": "Current funding rate (decimal)"
+    },
+    "next_funding_rate": {
+      "type": "number"
+    },
+    "exchange": {
+      "type": "string",
+      "default": "OKX"
+    }
+  },
+  "required": [
+    "asset",
+    "snapshot_time"
+  ]
+}
