@@ -223,16 +223,16 @@ export default function ArbDashboard() {
         <Section title="Risk Limits" subtitle="Configured thresholds">
           <div className="space-y-3 text-xs font-mono">
             {[
-              ['Max daily drawdown', `${((config?.max_daily_drawdown_pct || 0) * 100).toFixed(2)}%`, Percent],
-              ['Max single trade loss', `${((config?.max_single_trade_loss_pct || 0) * 100).toFixed(3)}%`, DollarSign],
-              ['Max net delta drift', `${((config?.max_net_delta_drift_pct || 0) * 100).toFixed(3)}%`, Activity],
-              ['Max margin utilization', `${((config?.max_margin_utilization_pct || 0) * 100).toFixed(1)}%`, TrendingUp],
-              ['BTC min edge', `${config?.btc_min_edge_bps || 0} bps`, ArrowLeftRight],
-              ['ETH min edge', `${config?.eth_min_edge_bps || 0} bps`, ArrowLeftRight],
-            ].map(([k, v, Icon]) => (
+              { k: 'Max daily drawdown', v: `${((config?.max_daily_drawdown_pct || 0) * 100).toFixed(2)}%`, icon: Percent },
+              { k: 'Max single trade loss', v: `${((config?.max_single_trade_loss_pct || 0) * 100).toFixed(3)}%`, icon: DollarSign },
+              { k: 'Max net delta drift', v: `${((config?.max_net_delta_drift_pct || 0) * 100).toFixed(3)}%`, icon: Activity },
+              { k: 'Max margin utilization', v: `${((config?.max_margin_utilization_pct || 0) * 100).toFixed(1)}%`, icon: TrendingUp },
+              { k: 'BTC min edge', v: `${config?.btc_min_edge_bps || 0} bps`, icon: ArrowLeftRight },
+              { k: 'ETH min edge', v: `${config?.eth_min_edge_bps || 0} bps`, icon: ArrowLeftRight },
+            ].map(({ k, v, icon: RiskIcon }) => (
               <div key={k} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                 <span className="flex items-center gap-2 text-muted-foreground">
-                  <Icon className="w-3 h-3" /> {k}
+                  <RiskIcon className="w-3 h-3" /> {k}
                 </span>
                 <span className="text-foreground font-semibold">{v}</span>
               </div>
