@@ -16,6 +16,7 @@ import ArbExceptions from '@/pages/ArbExceptions';
 import ArbInstructions from '@/pages/ArbInstructions';
 import ArbBybit from '@/pages/ArbBybit';
 import ArbMarketScan from '@/pages/ArbMarketScan';
+import ArbSop100 from '@/pages/ArbSop100';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -49,6 +50,7 @@ const AuthenticatedApp = () => {
         <Route path="/instructions" element={<ArbInstructions />} />
         <Route path="/bybit" element={<ArbBybit />} />
         <Route path="/scan" element={<ArbMarketScan />} />
+        <Route path="/sop100" element={<ArbSop100 />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

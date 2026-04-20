@@ -12,6 +12,7 @@ import {
   Plug,
   Zap,
   Radar,
+  ClipboardCheck,
 } from 'lucide-react';
 
 const navItems = [
@@ -24,6 +25,7 @@ const navItems = [
   { path: '/daily', icon: CalendarDays, label: 'Daily Summary' },
   { path: '/exceptions', icon: AlertTriangle, label: 'Exceptions' },
   { path: '/bybit', icon: Plug, label: 'Bybit' },
+  { path: '/sop100', icon: ClipboardCheck, label: '$100 SOP' },
   { path: '/instructions', icon: BookOpen, label: 'Instructions' },
 ];
 
