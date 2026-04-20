@@ -104,13 +104,13 @@ async function deriveApiCreds(wallet) {
 }
 
 // ── Build EIP-712 order struct ────────────────────────────────────────────────
-function buildOrderStruct(tokenId, side, price, sizeUsdc, proxyAddress, signerAddress) {
+function buildOrderStruct(tokenId, side, price, sizeUsdc, signerAddress) {
   const makerAmount = ethers.parseUnits(sizeUsdc.toFixed(6), 6);
   const takerAmount = ethers.parseUnits((sizeUsdc / price).toFixed(6), 6);
   const now = Math.floor(Date.now() / 1000);
   return {
     salt:          ethers.toBigInt(Math.floor(Math.random() * Number.MAX_SAFE_INTEGER)),
-    maker:         proxyAddress,   // Polymarket proxy (holds USDC)
+    maker:         signerAddress,  // EOA-only: maker == signer
     signer:        signerAddress,  // EOA that signs (derived from private key)
     taker:         '0x0000000000000000000000000000000000000000',
     tokenId:       ethers.toBigInt(tokenId),
@@ -120,7 +120,7 @@ function buildOrderStruct(tokenId, side, price, sizeUsdc, proxyAddress, signerAd
     nonce:         ethers.toBigInt(Date.now()),
     feeRateBps:    720,
     side,
-    signatureType: 2,  // 2 = Polymarket proxy wallet
+    signatureType: 0,  // 0 = EOA (no proxy)
   };
 }
 
@@ -213,17 +213,15 @@ async function logTradeToBase44(trade) {
   console.log(`🚀 Order: tokenId=${tokenId.slice(0, 12)}… side=${side === 0 ? 'BUY' : 'SELL'} price=${price} size=$${sizeUsdc}\n`);
 
   const wallet = new ethers.Wallet(privateKey);
-  const signerAddress = wallet.address;       // EOA (signs)
-  const proxyAddress  = walletAddress;        // Polymarket proxy (holds USDC, receives orders)
-  console.log(`   signer (EOA):  ${signerAddress}`);
-  console.log(`   maker (proxy): ${proxyAddress}\n`);
+  const signerAddress = wallet.address;       // EOA (signs & holds USDC)
+  console.log(`   signer/maker (EOA): ${signerAddress}\n`);
 
   console.log('🔑 Deriving fresh API credentials…');
   const { apiKey, apiSecret, passphrase } = await deriveApiCreds(wallet);
   console.log(`   apiKey=${apiKey}\n`);
 
-  console.log('📋 Building & signing EIP-712 order (signatureType=2, proxy wallet)…');
-  const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, proxyAddress, signerAddress);
+  console.log('📋 Building & signing EIP-712 order (signatureType=0, EOA)…');
+  const orderStruct = buildOrderStruct(tokenId, side, price, sizeUsdc, signerAddress);
   const eip712Sig   = await wallet.signTypedData(EIP712_DOMAIN, ORDER_TYPES, orderStruct);
   console.log(`   signature=${eip712Sig.slice(0, 24)}…\n`);
 
