@@ -9,6 +9,7 @@ import StatusBadge from '@/components/arb/StatusBadge';
 import EmptyState from '@/components/arb/EmptyState';
 import DailyPnlChart from '@/components/arb/DailyPnlChart';
 import CapitalBuckets from '@/components/arb/CapitalBuckets';
+import TradeLifecycleTile from '@/components/arb/TradeLifecycleTile';
 import { fmtUSD, fmtBps, sumBy, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDashboard() {
@@ -109,6 +110,14 @@ export default function ArbDashboard() {
           </Section>
         </div>
       </div>
+
+      <Section
+        title="Trade Lifecycle"
+        subtitle="Full-cycle monitor · Slack alert on every status transition"
+        action={<Link to="/trades" className="text-xs font-mono text-primary hover:underline">manage →</Link>}
+      >
+        <TradeLifecycleTile trades={trades} />
+      </Section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Section
