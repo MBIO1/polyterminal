@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import Section from '@/components/arb/Section';
+import CapitalBuckets from '@/components/arb/CapitalBuckets';
 
 const GROUPS = [
   {
@@ -83,6 +84,10 @@ export default function ArbConfig() {
           {save.isPending ? 'Saving…' : 'Save Changes'}
         </Button>
       </div>
+
+      <Section title="Capital Buckets" subtitle="Derived allocation preview">
+        <CapitalBuckets config={f} />
+      </Section>
 
       <Section title="Bot Controls">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

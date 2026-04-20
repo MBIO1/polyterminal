@@ -8,6 +8,7 @@ import StatTile from '@/components/arb/StatTile';
 import StatusBadge from '@/components/arb/StatusBadge';
 import EmptyState from '@/components/arb/EmptyState';
 import DailyPnlChart from '@/components/arb/DailyPnlChart';
+import CapitalBuckets from '@/components/arb/CapitalBuckets';
 import { fmtUSD, fmtBps, sumBy, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDashboard() {
@@ -27,6 +28,10 @@ export default function ArbDashboard() {
     queryKey: ['arb-exceptions'],
     queryFn: () => base44.entities.ArbException.list('-exception_date', 200),
   });
+  const { data: transfers = [] } = useQuery({
+    queryKey: ['arb-transfers'],
+    queryFn: () => base44.entities.ArbTransfer.list('-transfer_date', 500),
+  });
 
   const closed = trades.filter(t => t.status === 'Closed');
   const open = trades.filter(t => t.status === 'Open');
@@ -41,6 +46,7 @@ export default function ArbDashboard() {
   const avgEdge = closed.length
     ? closed.reduce((a, t) => a + (t.net_pnl_bps || 0), 0) / closed.length
     : 0;
+  const netTransferImpact = sumBy(transfers, 'rebalance_impact_usd');
 
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto space-y-6">
@@ -79,9 +85,30 @@ export default function ArbDashboard() {
         />
       </div>
 
-      <Section title="Daily Profit Trend" subtitle="Cumulative realized PnL · last 30 days">
-        <DailyPnlChart trades={trades} days={30} />
-      </Section>
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <StatTile
+          label="Net Transfer Impact"
+          value={fmtUSD(netTransferImpact)}
+          sub={`${transfers.length} transfers`}
+          tone={netTransferImpact >= 0 ? 'positive' : 'negative'}
+        />
+        <StatTile label="Open Exceptions" value={openExceptions} sub="Requiring attention" tone={openExceptions > 0 ? 'warn' : 'positive'} />
+        <StatTile label="Open Trades" value={open.length} sub="Live" tone="primary" />
+        <StatTile label="Closed Trades" value={closed.length} sub="Historical" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+        <div className="lg:col-span-3">
+          <Section title="Daily Profit Trend" subtitle="Cumulative realized PnL · last 30 days">
+            <DailyPnlChart trades={trades} days={30} />
+          </Section>
+        </div>
+        <div className="lg:col-span-2">
+          <Section title="Capital Buckets" subtitle="Allocation breakdown from Config">
+            <CapitalBuckets config={config} />
+          </Section>
+        </div>
+      </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Section
