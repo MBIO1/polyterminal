@@ -6,15 +6,14 @@ import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppLayout from '@/components/layout/AppLayout';
-import BotDashboard from '@/pages/BotDashboard';
-import Portfolio from '@/pages/Portfolio';
-import Trades from '@/pages/Trades';
-import Dashboard from '@/pages/Dashboard';
-import BotManager from '@/pages/BotManager';
-import Analytics from '@/pages/Analytics';
-import PerformanceDashboard from '@/pages/PerformanceDashboard';
-import Backtester from '@/pages/Backtester';
-import ReportingDashboard from '@/pages/ReportingDashboard';
+import ArbDashboard from '@/pages/ArbDashboard';
+import ArbConfig from '@/pages/ArbConfig';
+import ArbTrades from '@/pages/ArbTrades';
+import ArbTransfers from '@/pages/ArbTransfers';
+import ArbLivePositions from '@/pages/ArbLivePositions';
+import ArbDailySummary from '@/pages/ArbDailySummary';
+import ArbExceptions from '@/pages/ArbExceptions';
+import ArbInstructions from '@/pages/ArbInstructions';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -38,15 +37,14 @@ const AuthenticatedApp = () => {
   return (
     <Routes>
       <Route element={<AppLayout />}>
-        <Route path="/" element={<BotDashboard />} />
-        <Route path="/overview" element={<Dashboard />} />
-        <Route path="/portfolio" element={<Portfolio />} />
-        <Route path="/trades" element={<Trades />} />
-        <Route path="/bot-manager" element={<BotManager />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/performance" element={<PerformanceDashboard />} />
-        <Route path="/backtest" element={<Backtester />} />
-        <Route path="/reports" element={<ReportingDashboard />} />
+        <Route path="/" element={<ArbDashboard />} />
+        <Route path="/config" element={<ArbConfig />} />
+        <Route path="/trades" element={<ArbTrades />} />
+        <Route path="/transfers" element={<ArbTransfers />} />
+        <Route path="/positions" element={<ArbLivePositions />} />
+        <Route path="/daily" element={<ArbDailySummary />} />
+        <Route path="/exceptions" element={<ArbExceptions />} />
+        <Route path="/instructions" element={<ArbInstructions />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

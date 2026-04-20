@@ -1,0 +1,72 @@
+{
+  "name": "ArbException",
+  "type": "object",
+  "properties": {
+    "exception_id": {
+      "type": "string",
+      "description": "Human-readable ID (e.g., E-001)"
+    },
+    "exception_date": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "Execution",
+        "Reconciliation",
+        "Latency",
+        "Margin",
+        "Transfer",
+        "Other"
+      ]
+    },
+    "exchange": {
+      "type": "string"
+    },
+    "asset": {
+      "type": "string"
+    },
+    "linked_trade_id": {
+      "type": "string"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Open",
+        "Closed",
+        "Monitoring"
+      ],
+      "default": "Open"
+    },
+    "severity": {
+      "type": "string",
+      "enum": [
+        "Low",
+        "Medium",
+        "High",
+        "Critical"
+      ],
+      "default": "Medium"
+    },
+    "description": {
+      "type": "string"
+    },
+    "action_taken": {
+      "type": "string"
+    },
+    "owner": {
+      "type": "string"
+    },
+    "resolved_date": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "required": [
+    "exception_id",
+    "type",
+    "status",
+    "severity"
+  ]
+}

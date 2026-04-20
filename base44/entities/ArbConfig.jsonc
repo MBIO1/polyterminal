@@ -1,0 +1,99 @@
+{
+  "name": "ArbConfig",
+  "type": "object",
+  "properties": {
+    "total_capital": {
+      "type": "number",
+      "default": 100000,
+      "description": "Starting capital for the strategy (USD)"
+    },
+    "reserve_pct": {
+      "type": "number",
+      "default": 0.3,
+      "description": "Capital held out of deployment (decimal)"
+    },
+    "spot_allocation_pct": {
+      "type": "number",
+      "default": 0.35,
+      "description": "Share of total capital for spot legs (decimal)"
+    },
+    "perp_collateral_pct": {
+      "type": "number",
+      "default": 0.245,
+      "description": "Share for perp margin/collateral (decimal)"
+    },
+    "execution_buffer_pct": {
+      "type": "number",
+      "default": 0.105,
+      "description": "Working capital buffer (decimal)"
+    },
+    "max_daily_drawdown_pct": {
+      "type": "number",
+      "default": 0.01,
+      "description": "Hard daily drawdown stop (decimal)"
+    },
+    "max_single_trade_loss_pct": {
+      "type": "number",
+      "default": 0.0035,
+      "description": "Trade-level loss cap (decimal)"
+    },
+    "max_net_delta_drift_pct": {
+      "type": "number",
+      "default": 0.001,
+      "description": "Allowed delta mismatch vs total capital (decimal)"
+    },
+    "max_margin_utilization_pct": {
+      "type": "number",
+      "default": 0.35,
+      "description": "Max initial margin usage after entry (decimal)"
+    },
+    "btc_min_edge_bps": {
+      "type": "number",
+      "default": 30,
+      "description": "Minimum expected net edge BTC (bps)"
+    },
+    "eth_min_edge_bps": {
+      "type": "number",
+      "default": 40,
+      "description": "Minimum expected net edge ETH (bps)"
+    },
+    "spot_maker_fee": {
+      "type": "number",
+      "default": 0.0002
+    },
+    "spot_taker_fee": {
+      "type": "number",
+      "default": 0.0004
+    },
+    "perp_maker_fee": {
+      "type": "number",
+      "default": 0.0002
+    },
+    "perp_taker_fee": {
+      "type": "number",
+      "default": 0.0004
+    },
+    "stress_slippage_multiplier": {
+      "type": "number",
+      "default": 2,
+      "description": "Multiplier applied to expected slippage"
+    },
+    "bot_running": {
+      "type": "boolean",
+      "default": false
+    },
+    "paper_trading": {
+      "type": "boolean",
+      "default": true
+    },
+    "kill_switch_active": {
+      "type": "boolean",
+      "default": false
+    },
+    "halt_until_ts": {
+      "type": "number",
+      "default": 0
+    }
+  },
+  "required": []
+}

@@ -1,0 +1,84 @@
+{
+  "name": "ArbLivePosition",
+  "type": "object",
+  "properties": {
+    "snapshot_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "asset": {
+      "type": "string",
+      "enum": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "Other"
+      ]
+    },
+    "spot_exchange": {
+      "type": "string"
+    },
+    "perp_exchange": {
+      "type": "string"
+    },
+    "spot_qty": {
+      "type": "number"
+    },
+    "perp_qty": {
+      "type": "number",
+      "description": "Negative for short"
+    },
+    "spot_mark": {
+      "type": "number"
+    },
+    "perp_mark": {
+      "type": "number"
+    },
+    "spot_notional": {
+      "type": "number"
+    },
+    "perp_notional": {
+      "type": "number"
+    },
+    "net_delta_usd": {
+      "type": "number",
+      "description": "Should stay near zero"
+    },
+    "collateral_balance": {
+      "type": "number"
+    },
+    "margin_used": {
+      "type": "number"
+    },
+    "margin_utilization_pct": {
+      "type": "number"
+    },
+    "liq_distance_pct": {
+      "type": "number"
+    },
+    "funding_next": {
+      "type": "number",
+      "description": "Expected next funding payment"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Open",
+        "Closing",
+        "Closed",
+        "Error"
+      ],
+      "default": "Open"
+    },
+    "linked_trade_id": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "asset",
+    "status"
+  ]
+}

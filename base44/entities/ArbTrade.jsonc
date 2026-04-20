@@ -1,0 +1,210 @@
+{
+  "name": "ArbTrade",
+  "type": "object",
+  "properties": {
+    "trade_id": {
+      "type": "string",
+      "description": "Human-readable trade ID (e.g., T-001)"
+    },
+    "trade_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "entry_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "exit_timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Planned",
+        "Open",
+        "Closed",
+        "Cancelled",
+        "Error"
+      ],
+      "default": "Planned"
+    },
+    "strategy": {
+      "type": "string",
+      "enum": [
+        "Same-venue Spot/Perp Carry",
+        "Cross-venue Perp/Perp",
+        "Cross-venue Spot Spread",
+        "Funding Capture"
+      ]
+    },
+    "asset": {
+      "type": "string",
+      "enum": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "Other"
+      ]
+    },
+    "spot_exchange": {
+      "type": "string",
+      "description": "Exchange holding the spot leg"
+    },
+    "perp_exchange": {
+      "type": "string",
+      "description": "Exchange holding the perp leg"
+    },
+    "direction": {
+      "type": "string",
+      "description": "e.g. Long Spot / Short Perp"
+    },
+    "spot_entry_px": {
+      "type": "number"
+    },
+    "perp_entry_px": {
+      "type": "number"
+    },
+    "spot_exit_px": {
+      "type": "number"
+    },
+    "perp_exit_px": {
+      "type": "number"
+    },
+    "spot_qty": {
+      "type": "number"
+    },
+    "perp_qty": {
+      "type": "number"
+    },
+    "gross_spread_entry": {
+      "type": "number",
+      "description": "Perp entry px - Spot entry px"
+    },
+    "gross_spread_exit": {
+      "type": "number"
+    },
+    "entry_spread_bps": {
+      "type": "number"
+    },
+    "exit_spread_bps": {
+      "type": "number"
+    },
+    "expected_funding": {
+      "type": "number"
+    },
+    "realized_funding": {
+      "type": "number"
+    },
+    "basis_pnl": {
+      "type": "number"
+    },
+    "spot_entry_fee": {
+      "type": "number"
+    },
+    "perp_entry_fee": {
+      "type": "number"
+    },
+    "spot_exit_fee": {
+      "type": "number"
+    },
+    "perp_exit_fee": {
+      "type": "number"
+    },
+    "borrow_conversion_cost": {
+      "type": "number",
+      "default": 0
+    },
+    "expected_slippage": {
+      "type": "number"
+    },
+    "realized_slippage": {
+      "type": "number"
+    },
+    "total_realized_fees": {
+      "type": "number",
+      "description": "Sum of all fees + borrow + slippage"
+    },
+    "net_pnl": {
+      "type": "number",
+      "description": "Basis PnL + funding - fees"
+    },
+    "net_pnl_bps": {
+      "type": "number"
+    },
+    "allocated_capital": {
+      "type": "number"
+    },
+    "margin_used": {
+      "type": "number"
+    },
+    "net_delta_usd": {
+      "type": "number",
+      "default": 0
+    },
+    "hold_hours": {
+      "type": "number"
+    },
+    "entry_order_type": {
+      "type": "string",
+      "enum": [
+        "Post-only Limit",
+        "Limit",
+        "Market",
+        "TWAP",
+        ""
+      ]
+    },
+    "exit_order_type": {
+      "type": "string",
+      "enum": [
+        "Post-only Limit",
+        "Limit",
+        "Market",
+        "TWAP",
+        ""
+      ]
+    },
+    "entry_fee_type": {
+      "type": "string",
+      "enum": [
+        "Maker",
+        "Taker",
+        "Mixed",
+        ""
+      ]
+    },
+    "exit_fee_type": {
+      "type": "string",
+      "enum": [
+        "Maker",
+        "Taker",
+        "Mixed",
+        ""
+      ]
+    },
+    "entry_thesis": {
+      "type": "string"
+    },
+    "exit_reason": {
+      "type": "string"
+    },
+    "review_notes": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "paper",
+        "live"
+      ],
+      "default": "paper"
+    }
+  },
+  "required": [
+    "trade_id",
+    "status",
+    "strategy",
+    "asset"
+  ]
+}

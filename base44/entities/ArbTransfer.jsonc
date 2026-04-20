@@ -1,0 +1,98 @@
+{
+  "name": "ArbTransfer",
+  "type": "object",
+  "properties": {
+    "transfer_id": {
+      "type": "string",
+      "description": "Human-readable ID (e.g., X-001)"
+    },
+    "transfer_date": {
+      "type": "string",
+      "format": "date"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "Deposit",
+        "Withdrawal",
+        "Internal Transfer",
+        "Rebalance Buy",
+        "Rebalance Sell",
+        "Funding Payment",
+        "Fee Adjustment"
+      ]
+    },
+    "asset": {
+      "type": "string",
+      "enum": [
+        "BTC",
+        "ETH",
+        "SOL",
+        "USDC",
+        "USDT",
+        "Other"
+      ]
+    },
+    "from_exchange": {
+      "type": "string"
+    },
+    "to_exchange": {
+      "type": "string"
+    },
+    "quantity": {
+      "type": "number"
+    },
+    "price_fx": {
+      "type": "number",
+      "description": "Price or FX rate at time of transfer"
+    },
+    "usd_value": {
+      "type": "number"
+    },
+    "fee": {
+      "type": "number",
+      "default": 0
+    },
+    "net_quantity": {
+      "type": "number"
+    },
+    "purpose": {
+      "type": "string"
+    },
+    "linked_trade_id": {
+      "type": "string",
+      "description": "Reference to ArbTrade.trade_id"
+    },
+    "expected_arrival": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "actual_arrival": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "Planned",
+        "Pending",
+        "Completed",
+        "Failed"
+      ],
+      "default": "Planned"
+    },
+    "rebalance_impact_usd": {
+      "type": "number",
+      "description": "Net USD impact on overall book"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "transfer_id",
+    "type",
+    "asset",
+    "status"
+  ]
+}
