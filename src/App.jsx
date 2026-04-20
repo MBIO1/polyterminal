@@ -5,7 +5,7 @@ import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
-import AppLayout from '@/components/layout/AppLayout';
+import AppLayout from '@/components/layout/AppLayout.jsx';
 import ArbDashboard from '@/pages/ArbDashboard';
 import ArbConfig from '@/pages/ArbConfig';
 import ArbTrades from '@/pages/ArbTrades';
