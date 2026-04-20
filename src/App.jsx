@@ -14,6 +14,7 @@ import ArbLivePositions from '@/pages/ArbLivePositions';
 import ArbDailySummary from '@/pages/ArbDailySummary';
 import ArbExceptions from '@/pages/ArbExceptions';
 import ArbInstructions from '@/pages/ArbInstructions';
+import ArbBybit from '@/pages/ArbBybit';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -45,6 +46,7 @@ const AuthenticatedApp = () => {
         <Route path="/daily" element={<ArbDailySummary />} />
         <Route path="/exceptions" element={<ArbExceptions />} />
         <Route path="/instructions" element={<ArbInstructions />} />
+        <Route path="/bybit" element={<ArbBybit />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

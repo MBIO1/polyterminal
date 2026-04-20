@@ -9,6 +9,7 @@ import {
   CalendarDays,
   AlertTriangle,
   BookOpen,
+  Plug,
   Zap,
 } from 'lucide-react';
 
@@ -20,6 +21,7 @@ const navItems = [
   { path: '/positions', icon: Activity, label: 'Live Positions' },
   { path: '/daily', icon: CalendarDays, label: 'Daily Summary' },
   { path: '/exceptions', icon: AlertTriangle, label: 'Exceptions' },
+  { path: '/bybit', icon: Plug, label: 'Bybit' },
   { path: '/instructions', icon: BookOpen, label: 'Instructions' },
 ];
 
