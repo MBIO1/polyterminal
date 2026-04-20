@@ -174,6 +174,9 @@ export default function ArbMarketScan() {
                           {fmtBps(r.basis_bps)}
                         </span>
                       </td>
+                      <td className="text-right">
+                        <Sparkline values={sparks[r.asset] || []} />
+                      </td>
                       <td className={`text-right ${fundingPos ? 'text-accent' : 'text-destructive'}`}>
                         {fmtFundingPct(r.funding_rate)}
                       </td>
@@ -190,6 +193,13 @@ export default function ArbMarketScan() {
             </table>
           </div>
         )}
+      </Section>
+
+      <Section
+        title="Basis History"
+        subtitle={`Persisted snapshots · ${history.length} points loaded`}
+      >
+        <BasisHistoryChart snapshots={history} />
       </Section>
 
       <div className="text-[11px] font-mono text-muted-foreground leading-relaxed">
