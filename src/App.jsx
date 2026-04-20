@@ -7,7 +7,6 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
 import AppLayout from '@/components/layout/AppLayout';
 import BotDashboard from '@/pages/BotDashboard';
-import Markets from '@/pages/Markets';
 import Portfolio from '@/pages/Portfolio';
 import Trades from '@/pages/Trades';
 import Dashboard from '@/pages/Dashboard';
@@ -41,7 +40,6 @@ const AuthenticatedApp = () => {
       <Route element={<AppLayout />}>
         <Route path="/" element={<BotDashboard />} />
         <Route path="/overview" element={<Dashboard />} />
-        <Route path="/markets" element={<Markets />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/trades" element={<Trades />} />
         <Route path="/bot-manager" element={<BotManager />} />

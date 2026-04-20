@@ -20,7 +20,6 @@ import {
 const navItems = [
 { path: '/', icon: Bot, label: 'Arb Bot' },
 { path: '/overview', icon: LayoutDashboard, label: 'Overview' },
-{ path: '/markets', icon: TrendingUp, label: 'Markets' },
 { path: '/portfolio', icon: Briefcase, label: 'Portfolio' },
 { path: '/bot-manager', icon: SlidersHorizontal, label: 'Bot Manager' },
 { path: '/trades', icon: History, label: 'Trade History' },
