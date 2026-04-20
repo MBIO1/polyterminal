@@ -7,6 +7,7 @@ import Section from '@/components/arb/Section';
 import StatTile from '@/components/arb/StatTile';
 import StatusBadge from '@/components/arb/StatusBadge';
 import EmptyState from '@/components/arb/EmptyState';
+import DailyPnlChart from '@/components/arb/DailyPnlChart';
 import { fmtUSD, fmtBps, sumBy, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDashboard() {
@@ -77,6 +78,10 @@ export default function ArbDashboard() {
           tone={Math.abs(netDelta) < (totalCapital * (config?.max_net_delta_drift_pct || 0.001)) ? 'positive' : 'negative'}
         />
       </div>
+
+      <Section title="Daily Profit Trend" subtitle="Cumulative realized PnL · last 30 days">
+        <DailyPnlChart trades={trades} days={30} />
+      </Section>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <Section

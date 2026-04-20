@@ -2,7 +2,7 @@ import React from 'react';
 
 export default function Section({ title, subtitle, action, children, className = '' }) {
   return (
-    <section className={`rounded-xl border border-border bg-card ${className}`}>
+    <section className={`rounded-2xl border border-border bg-card shadow-lg shadow-black/20 ${className}`}>
       {(title || action) && (
         <header className="flex items-start justify-between gap-4 px-5 py-4 border-b border-border">
           <div>
