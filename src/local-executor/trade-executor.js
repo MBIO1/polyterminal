@@ -22,21 +22,6 @@ import { ethers } from 'ethers';
 import crypto from 'node:crypto';
 import process from 'node:process';
 import { Buffer } from 'node:buffer';
-import { ProxyAgent } from 'undici';
-
-// ── Bright Data residential proxy (Polymarket geoblocks datacenter IPs) ───────
-const proxyHost = process.env.BRIGHT_DATA_SUPERPROXY_HOST;
-const proxyPort = process.env.BRIGHT_DATA_SUPERPROXY_PORT;
-const proxyUser = process.env.BRIGHT_DATA_SUPERPROXY_USER;
-const proxyPass = process.env.BRIGHT_DATA_SUPERPROXY_PASS;
-const proxyDispatcher = (proxyHost && proxyPort && proxyUser && proxyPass)
-  ? new ProxyAgent({ uri: `http://${proxyHost}:${proxyPort}`, token: `Basic ${Buffer.from(`${proxyUser}:${proxyPass}`).toString('base64')}` })
-  : null;
-if (proxyDispatcher) {
-  console.log(`🌐 Routing via Bright Data residential proxy (${proxyHost}:${proxyPort})`);
-} else {
-  console.log('⚠️  No Bright Data proxy configured — direct connection (likely geoblocked)');
-}
 
 // ── CLI args ──────────────────────────────────────────────────────────────────
 const args = Object.fromEntries(
@@ -112,7 +97,6 @@ async function deriveApiCreds(wallet) {
       'poly_timestamp': ts,
       'poly_nonce':     '0',
     },
-    ...(proxyDispatcher && { dispatcher: proxyDispatcher }),
   });
   if (!res.ok) throw new Error(`derive-api-key ${res.status}: ${await res.text()}`);
   const data = await res.json();
@@ -186,12 +170,11 @@ async function broadcastToCLOB(order, signature, apiKey, apiSecret, passphrase, 
     'poly_passphrase': passphrase,
   };
 
-  console.log(proxyDispatcher ? '[CLOB] POST /order (via Bright Data proxy)' : '[CLOB] POST /order (direct)');
+  console.log('[CLOB] POST /order (direct from droplet IP)');
   const res = await fetch('https://clob.polymarket.com/order', {
     method:  'POST',
     headers: reqHeaders,
     body:    bodyStr,
-    ...(proxyDispatcher && { dispatcher: proxyDispatcher }),
   });
 
   if (!res.ok) {
