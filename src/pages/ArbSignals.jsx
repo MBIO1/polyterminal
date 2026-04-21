@@ -8,6 +8,7 @@ import StatusBadge from '@/components/arb/StatusBadge';
 import EmptyState from '@/components/arb/EmptyState';
 import { fmtUSD, fmtBps } from '@/lib/arbMath';
 import SignalStatsPanel from '@/components/arb/SignalStatsPanel';
+import ExecuteSignalsButton from '@/components/arb/ExecuteSignalsButton';
 
 export default function ArbSignals() {
   const [minEdge, setMinEdge] = useState(0);
@@ -41,9 +42,12 @@ export default function ArbSignals() {
             Live ingestion from droplet WS bot · 4-exchange cross-venue · {total} signals logged
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-accent animate-pulse-glow" />
-          <span className="text-xs font-mono text-muted-foreground">auto-refresh 5s</span>
+        <div className="flex items-center gap-3 flex-wrap">
+          <ExecuteSignalsButton />
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent animate-pulse-glow" />
+            <span className="text-xs font-mono text-muted-foreground">auto-refresh 5s</span>
+          </div>
         </div>
       </header>
 
