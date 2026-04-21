@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import Section from '@/components/arb/Section';
 import CapitalBuckets from '@/components/arb/CapitalBuckets';
+import BreakevenPanel from '@/components/arb/BreakevenPanel';
 
 const GROUPS = [
   {
@@ -87,6 +88,13 @@ export default function ArbConfig() {
 
       <Section title="Capital Buckets" subtitle="Derived allocation preview">
         <CapitalBuckets config={f} />
+      </Section>
+
+      <Section
+        title="Breakeven Analysis"
+        subtitle="Minimum edge required before a basis-carry trade is profitable"
+      >
+        <BreakevenPanel config={f} />
       </Section>
 
       <Section title="Bot Controls">
