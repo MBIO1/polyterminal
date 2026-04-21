@@ -30,7 +30,7 @@ if (!INGEST_URL || !TOKEN) {
 const pairThresholds = Object.fromEntries(PAIRS.map(p => [p, MIN_NET_EDGE_BPS]));
 
 // Book state: books[exchange][pair] = { bid, ask, bidSize, askSize, ts }
-const books = { OKX: {}, Binance: {}, Coinbase: {}, Bybit: {} };
+const books = { OKX: {}, Binance: {}, Coinbase: {}, Bybit: {}, Kraken: {} };
 
 // Recently-posted signals for local dedupe (key = pair+buy+sell, value = ts)
 const recentlyPosted = new Map();
@@ -83,26 +83,49 @@ function connectOKX() {
   ws.on('error', e => console.error('OKX WS:', e.message));
 }
 
+let binanceFailCount = 0;
 function connectBinance() {
+  if (binanceFailCount >= 3) {
+    if (binanceFailCount === 3) console.log('Binance WS disabled after 3 failures (likely geo-blocked, HTTP 451). Remove Binance from venues.');
+    binanceFailCount++;
+    return;
+  }
   const streams = PAIRS.map(p => p.replace('-', '').toLowerCase() + '@bookTicker').join('/');
   const ws = new WebSocket(`wss://stream.binance.com:9443/stream?streams=${streams}`);
   ws.on('message', raw => {
+    binanceFailCount = 0;
     const msg = JSON.parse(raw);
     const d = msg.data;
     if (!d || !d.s) return;
-    // Reconstruct pair name BTCUSDT -> BTC-USDT
     const pair = PAIRS.find(p => p.replace('-', '') === d.s);
     if (!pair) return;
-    books.Binance[pair] = {
-      bid: Number(d.b), ask: Number(d.a),
-      bidSize: Number(d.B) * Number(d.b),
-      askSize: Number(d.A) * Number(d.a),
-      ts: Date.now(),
-    };
+    books.Binance[pair] = { bid: Number(d.b), ask: Number(d.a), bidSize: Number(d.B) * Number(d.b), askSize: Number(d.A) * Number(d.a), ts: Date.now() };
     evaluate(pair);
   });
-  ws.on('close', () => setTimeout(connectBinance, 2000));
-  ws.on('error', e => console.error('Binance WS:', e.message));
+  ws.on('close', () => { binanceFailCount++; setTimeout(connectBinance, Math.min(30000, 2000 * binanceFailCount)); });
+  ws.on('error', e => { if (binanceFailCount < 3) console.error('Binance WS:', e.message); });
+}
+
+// Kraken — US-friendly replacement/supplement for Binance
+function connectKraken() {
+  const ws = new WebSocket('wss://ws.kraken.com/v2');
+  // Kraken symbol format: BTC/USD, ETH/USD, SOL/USD (no USDT for most majors)
+  const krakenMap = { 'BTC-USDT': 'BTC/USD', 'ETH-USDT': 'ETH/USD', 'SOL-USDT': 'SOL/USD', 'AVAX-USDT': 'AVAX/USD', 'LINK-USDT': 'LINK/USD', 'DOGE-USDT': 'DOGE/USD', 'ADA-USDT': 'ADA/USD', 'MATIC-USDT': 'MATIC/USD' };
+  const symbols = PAIRS.map(p => krakenMap[p]).filter(Boolean);
+  ws.on('open', () => { ws.send(JSON.stringify({ method: 'subscribe', params: { channel: 'ticker', symbol: symbols } })); });
+  ws.on('message', raw => {
+    const msg = JSON.parse(raw);
+    if (msg.channel !== 'ticker' || !msg.data) return;
+    for (const d of msg.data) {
+      const pair = Object.entries(krakenMap).find(([, v]) => v === d.symbol)?.[0];
+      if (!pair) continue;
+      books.Kraken = books.Kraken || {};
+      books.Kraken[pair] = { bid: Number(d.bid), ask: Number(d.ask), bidSize: Number(d.bid_qty) * Number(d.bid), askSize: Number(d.ask_qty) * Number(d.ask), ts: Date.now() };
+      evaluate(pair);
+    }
+  });
+  ws.on('close', () => setTimeout(connectKraken, 2000));
+  ws.on('error', e => console.error('Kraken WS:', e.message));
 }
 
 function connectCoinbase() {
@@ -161,9 +184,9 @@ function connectBybit() {
 function evaluate(pair) {
   const now = Date.now();
   stats.evaluations++;
-  const venues = ['OKX', 'Binance', 'Coinbase', 'Bybit'];
+  const venues = ['OKX', 'Binance', 'Coinbase', 'Bybit', 'Kraken'];
   const fresh = venues
-    .map(v => ({ v, b: books[v][pair] }))
+    .map(v => ({ v, b: books[v] && books[v][pair] }))
     .filter(x => x.b && now - x.b.ts < MAX_SIGNAL_AGE_MS);
 
   if (fresh.length < 2) return;
@@ -303,4 +326,5 @@ connectOKX();
 connectBinance();
 connectCoinbase();
 connectBybit();
+connectKraken();
 refreshThresholds();
