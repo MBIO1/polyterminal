@@ -86,10 +86,22 @@ function connectBybitSpot() {
     const pair = PAIRS.find(p => p.replace('-', '') === sym);
     if (!pair) return;
     const d = msg.data;
+    // Bybit spot ticker also sends snapshot+delta with missing fields
+    const existing = books['Bybit-spot'][pair] || {};
+    const parseOr = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    const bid = parseOr(d.bid1Price, existing.bid);
+    const ask = parseOr(d.ask1Price, existing.ask);
+    if (!bid || !ask) return;
+    const bidSzQty = parseOr(d.bid1Size, existing.bid ? (existing.bidSize || 0) / existing.bid : 0);
+    const askSzQty = parseOr(d.ask1Size, existing.ask ? (existing.askSize || 0) / existing.ask : 0);
     books['Bybit-spot'][pair] = {
-      bid: Number(d.bid1Price), ask: Number(d.ask1Price),
-      bidSize: Number(d.bid1Size) * Number(d.bid1Price),
-      askSize: Number(d.ask1Size) * Number(d.ask1Price),
+      bid, ask,
+      bidSize: bidSzQty * bid,
+      askSize: askSzQty * ask,
       ts: Date.now(),
     };
     evaluate(pair);
