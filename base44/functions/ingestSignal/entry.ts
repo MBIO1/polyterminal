@@ -23,6 +23,50 @@
 // }
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
+// Minimum net edge (bps) that triggers a Telegram push. Matches the droplet's trading floor.
+const TELEGRAM_ALERT_MIN_BPS = 20;
+
+async function pushTelegramAlert(signal) {
+  const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
+  const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
+  if (!token || !chatId) return; // silently skip if not configured
+
+  const edge = Number(signal.net_edge_bps || 0);
+  const raw = Number(signal.raw_spread_bps || 0);
+  const fill = Math.round(Number(signal.fillable_size_usd || 0));
+  const ageMs = Number(signal.signal_age_ms || 0);
+  const emoji = edge >= 40 ? '🚨🚨' : edge >= 25 ? '🚨' : '⚡';
+
+  const text = [
+    `${emoji} <b>ARB SIGNAL · ${edge.toFixed(1)} bps</b>`,
+    '━━━━━━━━━━━━━━━━━━━━━',
+    `<b>Pair:</b> ${signal.pair}`,
+    `<b>Route:</b> ${signal.buy_exchange} → ${signal.sell_exchange}`,
+    `<b>Buy:</b> ${Number(signal.buy_price).toFixed(4)}`,
+    `<b>Sell:</b> ${Number(signal.sell_price).toFixed(4)}`,
+    `<b>Raw spread:</b> ${raw.toFixed(2)} bps`,
+    `<b>Net edge:</b> <code>${edge.toFixed(2)} bps</code>`,
+    `<b>Fillable:</b> $${fill.toLocaleString()}`,
+    `<b>Age:</b> ${ageMs} ms`,
+    signal.notes ? `<i>${signal.notes}</i>` : '',
+  ].filter(Boolean).join('\n');
+
+  try {
+    const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text, parse_mode: 'HTML', disable_web_page_preview: true }),
+      signal: AbortSignal.timeout(5000),
+    });
+    if (!res.ok) {
+      const err = await res.text();
+      console.error('Telegram push failed:', res.status, err);
+    }
+  } catch (e) {
+    console.error('Telegram push exception:', e.message);
+  }
+}
+
 Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') {
@@ -79,6 +123,11 @@ Deno.serve(async (req) => {
       status: body.alert ? 'alerted' : 'detected',
       notes: body.notes || '',
     });
+
+    // Telegram alert for any signal that crosses the 20 bps trading floor
+    if (Number(body.net_edge_bps) >= TELEGRAM_ALERT_MIN_BPS) {
+      await pushTelegramAlert({ ...body, ...signal });
+    }
 
     // Optional fan-out alert
     if (body.alert) {
