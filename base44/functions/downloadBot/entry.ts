@@ -76,12 +76,41 @@ function connectOKX() {
 }
 
 // Bybit spot (separate WS endpoint)
-function connectBybitSpot() { bybitTickerWS('spot', 'wss://stream.bybit.com/v5/public/spot'); }
-function connectBybitPerp_() { bybitTickerWS('perp', 'wss://stream.bybit.com/v5/public/linear'); }
+// Bybit spot uses orderbook.1 channel (tickers channel has no bid/ask fields)
+function connectBybitSpot() {
+  const venue = 'Bybit-spot';
+  const ws = new WebSocket('wss://stream.bybit.com/v5/public/spot');
+  ws.on('open', () => ws.send(JSON.stringify({ op: 'subscribe', args: PAIRS.map(p => 'orderbook.1.' + p.replace('-', '')) })));
+  ws.on('message', raw => {
+    const msg = JSON.parse(raw);
+    if (!msg.topic || !msg.data) return;
+    const sym = msg.topic.split('.')[2];
+    const pair = PAIRS.find(p => p.replace('-', '') === sym);
+    if (!pair) return;
+    const d = msg.data;
+    // orderbook.1 format: { b: [[price, size]], a: [[price, size]], s: symbol }
+    const bidLevel = d.b && d.b[0];
+    const askLevel = d.a && d.a[0];
+    const existing = books[venue][pair] || {};
+    const bid = bidLevel && bidLevel[0] ? Number(bidLevel[0]) : existing.bid;
+    const ask = askLevel && askLevel[0] ? Number(askLevel[0]) : existing.ask;
+    if (!bid || !ask) return;
+    const bidQty = bidLevel && bidLevel[1] ? Number(bidLevel[1]) : (existing.bid ? (existing.bidSize || 0) / existing.bid : 0);
+    const askQty = askLevel && askLevel[1] ? Number(askLevel[1]) : (existing.ask ? (existing.askSize || 0) / existing.ask : 0);
+    books[venue][pair] = {
+      bid, ask,
+      bidSize: bidQty * bid,
+      askSize: askQty * ask,
+      ts: Date.now(),
+    };
+    evaluate(pair);
+  });
+  ws.on('close', () => setTimeout(connectBybitSpot, 2000));
+  ws.on('error', e => console.error(venue + ' WS:', e.message));
+}
 
 function bybitTickerWS(kind, url) {
   const venue = 'Bybit-' + kind;
-  let logged = 0;
   const ws = new WebSocket(url);
   ws.on('open', () => ws.send(JSON.stringify({ op: 'subscribe', args: PAIRS.map(p => 'tickers.' + p.replace('-', '')) })));
   ws.on('message', raw => {
@@ -92,11 +121,6 @@ function bybitTickerWS(kind, url) {
     if (!pair) return;
     const d = msg.data;
     const existing = books[venue][pair] || {};
-    // Log first raw message per pair to see what Bybit actually sends
-    if (logged < PAIRS.length) {
-      logged++;
-      console.log('[' + venue + ' first] ' + pair + ' type=' + msg.type + ' bid=' + d.bid1Price + ' ask=' + d.ask1Price + ' bidSz=' + d.bid1Size + ' askSz=' + d.ask1Size);
-    }
     const parseOr = (v, fallback) => {
       if (v === undefined || v === null || v === '') return fallback;
       const n = Number(v);
