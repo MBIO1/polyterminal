@@ -17,7 +17,7 @@ const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 3);
 const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1000);
 const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 2000);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
-const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 5); // ~5 bps per leg on OKX/Bybit perp
+const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 2); // ~2 bps per leg (maker execution on OKX/Bybit)
 const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 60000);
 
 if (!INGEST_URL || !TOKEN) {
