@@ -243,8 +243,10 @@ async function refreshThresholds() {
     for (const s of data.pairs) {
       if (s.recommended_min_bps && PAIRS.includes(s.pair)) {
         const old = pairThresholds[s.pair];
-        pairThresholds[s.pair] = s.recommended_min_bps;
-        if (old !== s.recommended_min_bps) console.log('[threshold] ' + s.pair + ': ' + old + ' -> ' + s.recommended_min_bps + ' bps');
+        // Respect the env floor: stats can only RAISE the threshold, never lower it below MIN_NET_EDGE_BPS
+        const next = Math.max(s.recommended_min_bps, MIN_NET_EDGE_BPS);
+        pairThresholds[s.pair] = next;
+        if (old !== next) console.log('[threshold] ' + s.pair + ': ' + old + ' -> ' + next + ' bps (floor=' + MIN_NET_EDGE_BPS + ', rec=' + s.recommended_min_bps + ')');
       }
     }
   } catch (e) { console.error('refreshThresholds:', e.message); }
