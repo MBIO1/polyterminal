@@ -1,9 +1,12 @@
 // Serves the current droplet bot.mjs as plain text.
-// PUBLIC endpoint — no auth required, so you can `curl` it onto your VPS in one command.
+// PUBLIC endpoint — no auth required.
 // Usage from droplet:
-//   curl -s https://app.base44.com/api/apps/69de980e2c81059956bab1fb/functions/downloadBot > /root/arb-ws-bot/bot.mjs
+//   curl -s https://polytrade.base44.app/functions/downloadBot -o /root/arb-ws-bot/bot.mjs
+//
+// NOTE: because BOT_SOURCE is a JS template literal, every ${...} inside bot code
+// is escaped as \${...} so Deno doesn't interpolate it when serving.
 
-const BOT_SOURCE = String.raw`import 'dotenv/config';
+const BOT_SOURCE = `import 'dotenv/config';
 import WebSocket from 'ws';
 
 const INGEST_URL = process.env.BASE44_INGEST_URL;
@@ -54,12 +57,12 @@ function connectOKX() {
 let binanceFailCount = 0;
 function connectBinance() {
   if (binanceFailCount >= 3) {
-    if (binanceFailCount === 3) console.log('Binance WS disabled after 3 failures (likely geo-blocked, HTTP 451).');
+    if (binanceFailCount === 3) console.log('Binance WS disabled after 3 failures (likely geo-blocked).');
     binanceFailCount++;
     return;
   }
   const streams = PAIRS.map(p => p.replace('-', '').toLowerCase() + '@bookTicker').join('/');
-  const ws = new WebSocket(\`wss://stream.binance.com:9443/stream?streams=\${streams}\`);
+  const ws = new WebSocket('wss://stream.binance.com:9443/stream?streams=' + streams);
   ws.on('message', raw => {
     binanceFailCount = 0;
     const msg = JSON.parse(raw);
@@ -91,7 +94,7 @@ function connectCoinbase() {
 
 function connectBybit() {
   const ws = new WebSocket('wss://stream.bybit.com/v5/public/spot');
-  ws.on('open', () => ws.send(JSON.stringify({ op: 'subscribe', args: PAIRS.map(p => \`tickers.\${p.replace('-', '')}\`) })));
+  ws.on('open', () => ws.send(JSON.stringify({ op: 'subscribe', args: PAIRS.map(p => 'tickers.' + p.replace('-', '')) })));
   ws.on('message', raw => {
     const msg = JSON.parse(raw);
     if (msg.topic && msg.data) {
@@ -116,7 +119,8 @@ function connectKraken() {
     const msg = JSON.parse(raw);
     if (msg.channel !== 'ticker' || !msg.data) return;
     for (const d of msg.data) {
-      const pair = Object.entries(krakenMap).find(([, v]) => v === d.symbol)?.[0];
+      const entry = Object.entries(krakenMap).find(([, v]) => v === d.symbol);
+      const pair = entry ? entry[0] : null;
       if (!pair) continue;
       books.Kraken[pair] = { bid: Number(d.bid), ask: Number(d.ask), bidSize: Number(d.bid_qty)*Number(d.bid), askSize: Number(d.ask_qty)*Number(d.ask), ts: Date.now() };
       evaluate(pair);
@@ -143,7 +147,7 @@ function evaluate(pair) {
   if (netEdgeBps > stats.best_edge_seen_bps) {
     stats.best_edge_seen_bps = netEdgeBps;
     stats.best_edge_pair = pair;
-    stats.best_edge_route = \`\${bestAsk.v}->\${bestBid.v}\`;
+    stats.best_edge_route = bestAsk.v + '->' + bestBid.v;
   }
   const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
   if (netEdgeBps < threshold) { stats.rejected_edge++; return; }
@@ -151,7 +155,7 @@ function evaluate(pair) {
   if (fillable < MIN_FILLABLE_USD) { stats.rejected_fillable++; return; }
   const signalAgeMs = now - Math.min(bestAsk.ts, bestBid.ts);
   if (signalAgeMs > MAX_SIGNAL_AGE_MS) { stats.rejected_stale++; return; }
-  const key = \`\${pair}|\${bestAsk.v}|\${bestBid.v}\`;
+  const key = pair + '|' + bestAsk.v + '|' + bestBid.v;
   const last = recentlyPosted.get(key);
   if (last && now - last < 20000) { stats.rejected_dedupe++; return; }
   recentlyPosted.set(key, now);
@@ -173,11 +177,12 @@ async function post(payload) {
   try {
     const res = await fetch(INGEST_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${TOKEN}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
       body: JSON.stringify(payload),
     });
     const body = await res.json();
-    console.log(\`[\${payload.pair}] \${payload.buy_exchange}->\${payload.sell_exchange} \${payload.net_edge_bps.toFixed(2)}bps fillable=$\${Math.round(payload.fillable_size_usd)} -> \${res.status} \${body.duplicate ? '(dup)' : body.signal_id || ''}\`);
+    const dupFlag = body.duplicate ? '(dup)' : (body.signal_id || '');
+    console.log('[' + payload.pair + '] ' + payload.buy_exchange + '->' + payload.sell_exchange + ' ' + payload.net_edge_bps.toFixed(2) + 'bps fillable=$' + Math.round(payload.fillable_size_usd) + ' -> ' + res.status + ' ' + dupFlag);
   } catch (e) { console.error('POST failed:', e.message); }
 }
 
@@ -186,16 +191,16 @@ async function refreshThresholds() {
   try {
     const res = await fetch(STATS_URL, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': \`Bearer \${TOKEN}\` },
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
       body: JSON.stringify({ window_hours: 24 }),
     });
     const data = await res.json();
-    if (!data?.pairs) return;
+    if (!data || !data.pairs) return;
     for (const s of data.pairs) {
       if (s.recommended_min_bps && PAIRS.includes(s.pair)) {
         const old = pairThresholds[s.pair];
         pairThresholds[s.pair] = s.recommended_min_bps;
-        if (old !== s.recommended_min_bps) console.log(\`[threshold] \${s.pair}: \${old} -> \${s.recommended_min_bps} bps\`);
+        if (old !== s.recommended_min_bps) console.log('[threshold] ' + s.pair + ': ' + old + ' -> ' + s.recommended_min_bps + ' bps');
       }
     }
   } catch (e) { console.error('refreshThresholds:', e.message); }
@@ -207,16 +212,16 @@ setInterval(() => {
   const now = Date.now();
   const conns = Object.entries(books).map(([v, pairs]) => {
     const freshCount = Object.values(pairs).filter(b => now - b.ts < MAX_SIGNAL_AGE_MS * 5).length;
-    return \`\${v}:\${freshCount}/\${PAIRS.length}\`;
+    return v + ':' + freshCount + '/' + PAIRS.length;
   }).join(' ');
   const best = stats.best_edge_seen_bps > -Infinity
-    ? \`best=\${stats.best_edge_seen_bps.toFixed(2)}bps \${stats.best_edge_pair} \${stats.best_edge_route}\`
+    ? 'best=' + stats.best_edge_seen_bps.toFixed(2) + 'bps ' + stats.best_edge_pair + ' ' + stats.best_edge_route
     : 'best=none';
-  console.log(\`[heartbeat] evals=\${stats.evaluations} posted=\${stats.posted} rej(edge=\${stats.rejected_edge} fill=\${stats.rejected_fillable} stale=\${stats.rejected_stale} dup=\${stats.rejected_dedupe} same=\${stats.rejected_same_venue}) \${best} | \${conns}\`);
+  console.log('[heartbeat] evals=' + stats.evaluations + ' posted=' + stats.posted + ' rej(edge=' + stats.rejected_edge + ' fill=' + stats.rejected_fillable + ' stale=' + stats.rejected_stale + ' dup=' + stats.rejected_dedupe + ' same=' + stats.rejected_same_venue + ') ' + best + ' | ' + conns);
   resetStats();
 }, HEARTBEAT_MS);
 
-console.log(\`Arb WS bot starting - pairs: \${PAIRS.join(', ')} - min edge: \${MIN_NET_EDGE_BPS}bps - min fillable: $\${MIN_FILLABLE_USD} - max age: \${MAX_SIGNAL_AGE_MS}ms\`);
+console.log('Arb WS bot starting - pairs: ' + PAIRS.join(', ') + ' - min edge: ' + MIN_NET_EDGE_BPS + 'bps - min fillable: $' + MIN_FILLABLE_USD + ' - max age: ' + MAX_SIGNAL_AGE_MS + 'ms');
 connectOKX(); connectBinance(); connectCoinbase(); connectBybit(); connectKraken(); refreshThresholds();
 `;
 
