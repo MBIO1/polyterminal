@@ -109,17 +109,22 @@ function connectBybitPerp() {
     const pair = PAIRS.find(p => p.replace('-', '') === sym);
     if (!pair) return;
     const d = msg.data;
-    // Bybit linear ticker sends snapshot+delta — prices may be missing on deltas
+    // Bybit linear ticker sends snapshot+delta — fields may be missing/empty on deltas
     const existing = books['Bybit-perp'][pair] || {};
-    const bid = d.bid1Price !== undefined ? Number(d.bid1Price) : existing.bid;
-    const ask = d.ask1Price !== undefined ? Number(d.ask1Price) : existing.ask;
-    const bidSz = d.bid1Size !== undefined ? Number(d.bid1Size) : (existing.bidSize && existing.bid ? existing.bidSize / existing.bid : 0);
-    const askSz = d.ask1Size !== undefined ? Number(d.ask1Size) : (existing.askSize && existing.ask ? existing.askSize / existing.ask : 0);
+    const parseOr = (v, fallback) => {
+      if (v === undefined || v === null || v === '') return fallback;
+      const n = Number(v);
+      return Number.isFinite(n) && n > 0 ? n : fallback;
+    };
+    const bid = parseOr(d.bid1Price, existing.bid);
+    const ask = parseOr(d.ask1Price, existing.ask);
     if (!bid || !ask) return;
+    const bidSzQty = parseOr(d.bid1Size, existing.bid ? (existing.bidSize || 0) / existing.bid : 0);
+    const askSzQty = parseOr(d.ask1Size, existing.ask ? (existing.askSize || 0) / existing.ask : 0);
     books['Bybit-perp'][pair] = {
       bid, ask,
-      bidSize: bidSz * bid,
-      askSize: askSz * ask,
+      bidSize: bidSzQty * bid,
+      askSize: askSzQty * ask,
       ts: Date.now(),
     };
     evaluate(pair);
