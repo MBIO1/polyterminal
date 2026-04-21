@@ -76,12 +76,16 @@ function checkGates({ signal, config, todayPnl, openPositions }) {
   const now = Date.now();
   if (config.halt_until_ts && config.halt_until_ts > now) reasons.push('halt_active');
 
-  // Edge threshold per asset
+  // Edge threshold: hard-coded 20 bps absolute floor applied to ALL assets.
+  // Config per-asset gates can only RAISE the floor, never lower it below 20.
+  // This matches the droplet's MIN_NET_EDGE_BPS and the Telegram alert threshold.
+  const HARD_FLOOR_BPS = 20;
   const asset = signal.asset || 'Other';
-  const minEdge =
+  const assetGate =
     asset === 'BTC' ? Number(config.btc_min_edge_bps || 0) :
     asset === 'ETH' ? Number(config.eth_min_edge_bps || 0) :
     Math.max(Number(config.btc_min_edge_bps || 0), Number(config.eth_min_edge_bps || 0));
+  const minEdge = Math.max(HARD_FLOOR_BPS, assetGate);
   if (Number(signal.net_edge_bps || 0) < minEdge) {
     reasons.push(`edge_below_min(${signal.net_edge_bps}<${minEdge})`);
   }
