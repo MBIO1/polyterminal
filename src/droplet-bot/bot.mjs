@@ -13,12 +13,13 @@ import WebSocket from 'ws';
 const INGEST_URL = process.env.BASE44_INGEST_URL;
 const STATS_URL = process.env.BASE44_STATS_URL;
 const TOKEN = process.env.BASE44_USER_TOKEN;
-const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT').split(',');
-const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 5);
-const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 200);
-const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 10_000);
-const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
+const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,MATIC-USDT,DOGE-USDT,ADA-USDT').split(',');
+const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 2);
+const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 500);
+const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 2_000);
+const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 10);
 const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 10);
+const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 60_000);
 
 if (!INGEST_URL || !TOKEN) {
   console.error('Missing BASE44_INGEST_URL or BASE44_USER_TOKEN');
@@ -33,6 +34,26 @@ const books = { OKX: {}, Binance: {}, Coinbase: {}, Bybit: {} };
 
 // Recently-posted signals for local dedupe (key = pair+buy+sell, value = ts)
 const recentlyPosted = new Map();
+
+// Diagnostic counters (reset each heartbeat)
+const stats = {
+  evaluations: 0,
+  rejected_same_venue: 0,
+  rejected_edge: 0,
+  rejected_fillable: 0,
+  rejected_stale: 0,
+  rejected_dedupe: 0,
+  posted: 0,
+  best_edge_seen_bps: -Infinity,
+  best_edge_pair: '',
+  best_edge_route: '',
+};
+function resetStats() {
+  for (const k of Object.keys(stats)) {
+    if (typeof stats[k] === 'number') stats[k] = k === 'best_edge_seen_bps' ? -Infinity : 0;
+    else stats[k] = '';
+  }
+}
 
 // ───────────────────────────────────────────────────────────────
 // WebSocket subscribers
@@ -139,6 +160,7 @@ function connectBybit() {
 // ───────────────────────────────────────────────────────────────
 function evaluate(pair) {
   const now = Date.now();
+  stats.evaluations++;
   const venues = ['OKX', 'Binance', 'Coinbase', 'Bybit'];
   const fresh = venues
     .map(v => ({ v, b: books[v][pair] }))
@@ -153,25 +175,33 @@ function evaluate(pair) {
     if (b.ask < bestAsk.price) bestAsk = { v, price: b.ask, size: b.askSize, ts: b.ts };
     if (b.bid > bestBid.price) bestBid = { v, price: b.bid, size: b.bidSize, ts: b.ts };
   }
-  if (bestAsk.v === bestBid.v) return; // same venue, no arb
+  if (bestAsk.v === bestBid.v) { stats.rejected_same_venue++; return; }
 
   const rawSpreadBps = ((bestBid.price - bestAsk.price) / bestAsk.price) * 10_000;
   const netEdgeBps = rawSpreadBps - 2 * TAKER_FEE_BPS;
 
+  // Track best edge seen regardless of thresholds (for diagnostics)
+  if (netEdgeBps > stats.best_edge_seen_bps) {
+    stats.best_edge_seen_bps = netEdgeBps;
+    stats.best_edge_pair = pair;
+    stats.best_edge_route = `${bestAsk.v}→${bestBid.v}`;
+  }
+
   const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
-  if (netEdgeBps < threshold) return;
+  if (netEdgeBps < threshold) { stats.rejected_edge++; return; }
 
   const fillable = Math.min(bestAsk.size, bestBid.size);
-  if (fillable < MIN_FILLABLE_USD) return;
+  if (fillable < MIN_FILLABLE_USD) { stats.rejected_fillable++; return; }
 
   const signalAgeMs = now - Math.min(bestAsk.ts, bestBid.ts);
-  if (signalAgeMs > MAX_SIGNAL_AGE_MS) return;
+  if (signalAgeMs > MAX_SIGNAL_AGE_MS) { stats.rejected_stale++; return; }
 
   // Local dedupe: 20s per (pair, buy, sell)
   const key = `${pair}|${bestAsk.v}|${bestBid.v}`;
   const last = recentlyPosted.get(key);
-  if (last && now - last < 20_000) return;
+  if (last && now - last < 20_000) { stats.rejected_dedupe++; return; }
   recentlyPosted.set(key, now);
+  stats.posted++;
 
   post({
     pair,
@@ -246,9 +276,29 @@ setInterval(() => {
 setInterval(refreshThresholds, 15 * 60_000);
 
 // ───────────────────────────────────────────────────────────────
+// Heartbeat — logs connection status + scan stats every minute
+// ───────────────────────────────────────────────────────────────
+setInterval(() => {
+  const now = Date.now();
+  const conns = Object.entries(books).map(([v, pairs]) => {
+    const freshCount = Object.values(pairs).filter(b => now - b.ts < MAX_SIGNAL_AGE_MS * 5).length;
+    return `${v}:${freshCount}/${PAIRS.length}`;
+  }).join(' ');
+  const best = stats.best_edge_seen_bps > -Infinity
+    ? `best=${stats.best_edge_seen_bps.toFixed(2)}bps ${stats.best_edge_pair} ${stats.best_edge_route}`
+    : 'best=none';
+  console.log(
+    `[heartbeat] evals=${stats.evaluations} posted=${stats.posted} ` +
+    `rej(edge=${stats.rejected_edge} fill=${stats.rejected_fillable} stale=${stats.rejected_stale} dup=${stats.rejected_dedupe} same=${stats.rejected_same_venue}) ` +
+    `${best} | ${conns}`
+  );
+  resetStats();
+}, HEARTBEAT_MS);
+
+// ───────────────────────────────────────────────────────────────
 // Boot
 // ───────────────────────────────────────────────────────────────
-console.log(`Arb WS bot starting · pairs: ${PAIRS.join(', ')} · min edge: ${MIN_NET_EDGE_BPS}bps`);
+console.log(`Arb WS bot starting · pairs: ${PAIRS.join(', ')} · min edge: ${MIN_NET_EDGE_BPS}bps · min fillable: $${MIN_FILLABLE_USD} · max age: ${MAX_SIGNAL_AGE_MS}ms`);
 connectOKX();
 connectBinance();
 connectCoinbase();
