@@ -292,7 +292,11 @@ Deno.serve(async (req) => {
       const qty = buyFill?.qty || sellFill?.qty || 0;
       const grossSpread = (sellFill?.px || 0) - (buyFill?.px || 0);
       const notional = (buyFill?.notional_usd || 0);
-      const feeEst = notional * Number(config.spot_taker_fee || 0) * 2;
+      // Round-trip fees: entry (2 legs) + exit (2 legs) = 4 × taker fee
+      const takerFee = Number(config.spot_taker_fee || 0);
+      const entryFees = notional * takerFee * 2;     // spot entry + perp entry
+      const exitFees = notional * takerFee * 2;      // spot exit + perp exit (modeled)
+      const feeEst = entryFees + exitFees;           // total round-trip
       const basisPnl = qty * grossSpread;
       const netPnl = basisPnl - feeEst;
 
@@ -317,8 +321,10 @@ Deno.serve(async (req) => {
       let spotExitPx = sellFill?.px;
       let perpEntryPx = null;
       let perpExitPx = null;
-      let spotEntryFee = feeEst / 2;
-      let spotExitFee = feeEst / 2;
+      // Per-leg fee = notional × taker (quarter of total round-trip)
+      const perLegFee = notional * takerFee;
+      let spotEntryFee = perLegFee;
+      let spotExitFee = perLegFee;
       let perpEntryFee = null;
       let perpExitFee = null;
 
@@ -330,15 +336,15 @@ Deno.serve(async (req) => {
         if (buyIsSpot && sellIsPerp) {
           // Long spot / short perp (contango)
           spotEntryPx = buyFill?.px; perpEntryPx = sellFill?.px;
-          spotEntryFee = feeEst / 2; perpEntryFee = feeEst / 2;
-          spotExitPx = null; spotExitFee = null;
-          perpExitPx = null; perpExitFee = null;
+          spotEntryFee = perLegFee; perpEntryFee = perLegFee;
+          spotExitFee = perLegFee;  perpExitFee = perLegFee;
+          spotExitPx = null; perpExitPx = null;
         } else if (buyIsPerp && sellIsSpot) {
           // Long perp / short spot (backwardation)
           perpEntryPx = buyFill?.px; spotEntryPx = sellFill?.px;
-          perpEntryFee = feeEst / 2; spotEntryFee = feeEst / 2;
-          spotExitPx = null; spotExitFee = null;
-          perpExitPx = null; perpExitFee = null;
+          perpEntryFee = perLegFee; spotEntryFee = perLegFee;
+          spotExitFee = perLegFee;  perpExitFee = perLegFee;
+          spotExitPx = null; perpExitPx = null;
         }
       } else if (buyIsPerp && sellIsPerp) {
         strategy = 'Cross-venue Perp/Perp';
@@ -346,8 +352,8 @@ Deno.serve(async (req) => {
         spotExchange = null;
         perpEntryPx = buyFill?.px;
         perpExitPx = sellFill?.px;
-        perpEntryFee = feeEst / 2;
-        perpExitFee = feeEst / 2;
+        perpEntryFee = perLegFee;
+        perpExitFee = perLegFee;
         spotEntryPx = null; spotExitPx = null; spotEntryFee = null; spotExitFee = null;
       } else {
         strategy = 'Cross-venue Spot Spread';

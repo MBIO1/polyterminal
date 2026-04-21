@@ -178,7 +178,8 @@ function evaluate(pair) {
       notes = 'reverse basis: long perp / short spot (backwardation)';
     }
 
-    const netEdgeBps = rawSpreadBps - 2 * TAKER_FEE_BPS;
+    // Round-trip cost: 4 legs (spot entry + perp entry + spot exit + perp exit)
+    const netEdgeBps = rawSpreadBps - 4 * TAKER_FEE_BPS;
 
     if (netEdgeBps > stats.best_edge_seen_bps) {
       stats.best_edge_seen_bps = netEdgeBps;
