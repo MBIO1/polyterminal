@@ -18,6 +18,7 @@ import ArbBybit from '@/pages/ArbBybit';
 import ArbMarketScan from '@/pages/ArbMarketScan';
 import ArbSop100 from '@/pages/ArbSop100';
 import ArbSignals from '@/pages/ArbSignals';
+import ArbBotAnalytics from '@/pages/ArbBotAnalytics';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -53,6 +54,7 @@ const AuthenticatedApp = () => {
         <Route path="/scan" element={<ArbMarketScan />} />
         <Route path="/sop100" element={<ArbSop100 />} />
         <Route path="/signals" element={<ArbSignals />} />
+        <Route path="/bot-analytics" element={<ArbBotAnalytics />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

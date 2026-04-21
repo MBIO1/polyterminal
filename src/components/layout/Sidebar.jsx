@@ -14,6 +14,7 @@ import {
   Radar,
   ClipboardCheck,
   Radio,
+  LineChart,
 } from 'lucide-react';
 
 const navItems = [
@@ -21,6 +22,7 @@ const navItems = [
   { path: '/config', icon: SlidersHorizontal, label: 'Config' },
   { path: '/scan', icon: Radar, label: 'Market Scan' },
   { path: '/signals', icon: Radio, label: 'Signal Feed' },
+  { path: '/bot-analytics', icon: LineChart, label: 'Bot Analytics' },
   { path: '/trades', icon: History, label: 'Trades' },
   { path: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
   { path: '/positions', icon: Activity, label: 'Live Positions' },
