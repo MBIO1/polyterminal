@@ -30,7 +30,7 @@ Deno.serve(async (req) => {
       // Recommend threshold: if win rate < 60%, bump floor by 1 bp of avg slippage
       let recommendedMinBps = null;
       if (winRate !== null && winRate < 0.6 && avgSlippageBps !== null) {
-        recommendedMinBps = Math.max(5, Math.round(avgEdge + Math.abs(avgSlippageBps)));
+        recommendedMinBps = Math.max(2, Math.round(avgEdge + Math.abs(avgSlippageBps)));
       }
 
       return {

@@ -26,11 +26,13 @@ export default function ArbSignals() {
 
   const total = signals.length;
   const executed = signals.filter(s => s.status === 'executed').length;
-  const avgEdge = signals.length
-    ? signals.reduce((a, s) => a + (s.net_edge_bps || 0), 0) / signals.length
+  // Only average live opportunities (exclude rejected/expired legacy noise)
+  const liveSignals = signals.filter(s => s.status !== 'rejected' && s.status !== 'expired');
+  const avgEdge = liveSignals.length
+    ? liveSignals.reduce((a, s) => a + (s.net_edge_bps || 0), 0) / liveSignals.length
     : 0;
-  const avgLatency = signals.length
-    ? signals.reduce((a, s) => a + (s.signal_age_ms || 0), 0) / signals.length
+  const avgLatency = liveSignals.length
+    ? liveSignals.reduce((a, s) => a + (s.signal_age_ms || 0), 0) / liveSignals.length
     : 0;
 
   return (
@@ -39,7 +41,7 @@ export default function ArbSignals() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Signal Feed</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">
-            Live ingestion from droplet WS bot · 4-exchange cross-venue · {total} signals logged
+            Live ingestion from droplet WS bot · OKX + Bybit basis carry · {total} signals logged
           </p>
         </div>
         <div className="flex items-center gap-3 flex-wrap">
@@ -120,7 +122,7 @@ export default function ArbSignals() {
                     <td className={`py-2 px-2 text-right ${(s.signal_age_ms || 0) > 200 ? 'text-chart-4' : 'text-muted-foreground'}`}>
                       {s.signal_age_ms || 0}ms
                     </td>
-                    <td className="py-2 px-2 text-center text-muted-foreground">{s.confirmed_exchanges || 1}/4</td>
+                    <td className="py-2 px-2 text-center text-muted-foreground">{s.confirmed_exchanges || 1}/2</td>
                     <td className="py-2 px-2"><StatusBadge status={s.status === 'alerted' ? 'High' : s.status === 'executed' ? 'Completed' : s.status === 'expired' ? 'Failed' : 'Monitoring'} /></td>
                   </tr>
                 ))}
