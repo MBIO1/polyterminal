@@ -296,26 +296,96 @@ Deno.serve(async (req) => {
       const basisPnl = qty * grossSpread;
       const netPnl = basisPnl - feeEst;
 
+      // Map buy/sell venues (e.g. "OKX-perp", "Bybit-spot") → proper spot/perp slots + strategy.
+      const buyVenueRaw = String(sig.buy_exchange || '');
+      const sellVenueRaw = String(sig.sell_exchange || '');
+      const buyIsSpot = /spot/i.test(buyVenueRaw);
+      const buyIsPerp = /perp|swap|futures/i.test(buyVenueRaw);
+      const sellIsSpot = /spot/i.test(sellVenueRaw);
+      const sellIsPerp = /perp|swap|futures/i.test(sellVenueRaw);
+
+      // Venue root ("OKX", "Bybit", "Binance"...) stripped of -spot / -perp suffix.
+      const rootOf = (v) => v.replace(/-(spot|perp|swap|futures)$/i, '').trim();
+      const buyRoot = rootOf(buyVenueRaw);
+      const sellRoot = rootOf(sellVenueRaw);
+
+      // Determine strategy and which leg is spot vs perp.
+      let strategy;
+      let spotExchange = buyRoot || sellRoot;
+      let perpExchange = sellRoot || buyRoot;
+      let spotEntryPx = buyFill?.px;
+      let spotExitPx = sellFill?.px;
+      let perpEntryPx = null;
+      let perpExitPx = null;
+      let spotEntryFee = feeEst / 2;
+      let spotExitFee = feeEst / 2;
+      let perpEntryFee = null;
+      let perpExitFee = null;
+
+      if ((buyIsSpot || buyIsPerp) && (sellIsSpot || sellIsPerp) && buyRoot === sellRoot) {
+        // Same-venue spot↔perp basis carry
+        strategy = 'Same-venue Spot/Perp Carry';
+        spotExchange = buyRoot;
+        perpExchange = buyRoot;
+        if (buyIsSpot && sellIsPerp) {
+          // Long spot / short perp (contango)
+          spotEntryPx = buyFill?.px; perpEntryPx = sellFill?.px;
+          spotEntryFee = feeEst / 2; perpEntryFee = feeEst / 2;
+          spotExitPx = null; spotExitFee = null;
+          perpExitPx = null; perpExitFee = null;
+        } else if (buyIsPerp && sellIsSpot) {
+          // Long perp / short spot (backwardation)
+          perpEntryPx = buyFill?.px; spotEntryPx = sellFill?.px;
+          perpEntryFee = feeEst / 2; spotEntryFee = feeEst / 2;
+          spotExitPx = null; spotExitFee = null;
+          perpExitPx = null; perpExitFee = null;
+        }
+      } else if (buyIsPerp && sellIsPerp) {
+        strategy = 'Cross-venue Perp/Perp';
+        perpExchange = `${buyRoot}/${sellRoot}`;
+        spotExchange = null;
+        perpEntryPx = buyFill?.px;
+        perpExitPx = sellFill?.px;
+        perpEntryFee = feeEst / 2;
+        perpExitFee = feeEst / 2;
+        spotEntryPx = null; spotExitPx = null; spotEntryFee = null; spotExitFee = null;
+      } else {
+        strategy = 'Cross-venue Spot Spread';
+        spotExchange = `${buyRoot}/${sellRoot}`;
+        perpExchange = null;
+      }
+
       const tradeIdSuffix = `${Date.now().toString(36)}-${tradeCounter++}`;
+      const directionLabel = strategy === 'Same-venue Spot/Perp Carry'
+        ? (buyIsSpot
+            ? `Long ${buyRoot} spot / Short ${buyRoot} perp`
+            : `Long ${buyRoot} perp / Short ${buyRoot} spot`)
+        : `Buy ${buyVenueRaw} / Sell ${sellVenueRaw}`;
+
       const trade = await base44.asServiceRole.entities.ArbTrade.create({
         trade_id: `AUTO-${tradeIdSuffix}`,
         trade_date: todayStr,
         entry_timestamp: new Date().toISOString(),
         exit_timestamp: new Date().toISOString(),
         status: 'Closed',
-        strategy: 'Cross-venue Spot Spread',
+        strategy,
         asset: sig.asset || 'Other',
-        spot_exchange: sig.buy_exchange,
-        perp_exchange: sig.sell_exchange,
-        direction: `Buy ${sig.buy_exchange} / Sell ${sig.sell_exchange}`,
-        spot_entry_px: buyFill?.px,
-        spot_exit_px: sellFill?.px,
+        spot_exchange: spotExchange,
+        perp_exchange: perpExchange,
+        direction: directionLabel,
+        spot_entry_px: spotEntryPx,
+        spot_exit_px: spotExitPx,
+        perp_entry_px: perpEntryPx,
+        perp_exit_px: perpExitPx,
         spot_qty: qty,
+        perp_qty: perpEntryPx ? qty : null,
         gross_spread_entry: grossSpread,
         entry_spread_bps: Number(sig.raw_spread_bps || 0),
         exit_spread_bps: 0,
-        spot_entry_fee: feeEst / 2,
-        spot_exit_fee: feeEst / 2,
+        spot_entry_fee: spotEntryFee,
+        spot_exit_fee: spotExitFee,
+        perp_entry_fee: perpEntryFee,
+        perp_exit_fee: perpExitFee,
         total_realized_fees: feeEst,
         basis_pnl: basisPnl,
         net_pnl: netPnl,
@@ -325,7 +395,7 @@ Deno.serve(async (req) => {
         exit_order_type: 'Market',
         entry_fee_type: 'Taker',
         exit_fee_type: 'Taker',
-        entry_thesis: `Auto-executed from signal ${sig.id} (${sig.net_edge_bps} bps)`,
+        entry_thesis: `Auto-executed from signal ${sig.id} (${Number(sig.net_edge_bps || 0).toFixed(2)} bps ${sig.notes || ''})`.trim(),
         mode: execResult.mode === 'paper' ? 'paper' : 'live',
       });
 
