@@ -13,7 +13,7 @@ const INGEST_URL = process.env.BASE44_INGEST_URL;
 const STATS_URL = process.env.BASE44_STATS_URL;
 const TOKEN = process.env.BASE44_USER_TOKEN;
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT').split(',');
-const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 5);
+const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 3);
 const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1000);
 const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 2000);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
@@ -145,9 +145,9 @@ function bybitTickerWS(kind, url) {
 
 function connectBybitPerp() { bybitTickerWS('perp', 'wss://stream.bybit.com/v5/public/linear'); }
 
-// Basis evaluation: for each venue (OKX, Bybit), compare spot vs perp.
-// Strategy: if perp > spot by enough → short perp / long spot (buy spot, sell perp).
-//           if spot > perp by enough → long perp / short spot (but short spot is hard, skip for now).
+// Bidirectional basis evaluation (contango + backwardation).
+// CONTANGO (perp > spot): long spot / short perp  -> buy spot.ask, sell perp.bid
+// BACKWARDATION (spot > perp): short spot / long perp -> buy perp.ask, sell spot.bid (margin-short the spot leg)
 function evaluate(pair) {
   const now = Date.now();
   stats.evaluations++;
@@ -158,26 +158,44 @@ function evaluate(pair) {
     if (!spot || !perp) continue;
     if (now - spot.ts > MAX_SIGNAL_AGE_MS || now - perp.ts > MAX_SIGNAL_AGE_MS) continue;
 
-    // Buy spot at spot.ask, sell perp at perp.bid
-    const rawSpreadBps = ((perp.bid - spot.ask) / spot.ask) * 10000;
+    // Two candidate legs
+    const contangoBps = ((perp.bid - spot.ask) / spot.ask) * 10000;
+    const backwardBps = ((spot.bid - perp.ask) / perp.ask) * 10000;
+
+    // Pick the larger of the two opportunities
+    let rawSpreadBps, buyVenue, sellVenue, buyPx, sellPx, buyDepth, sellDepth, notes;
+    if (contangoBps >= backwardBps) {
+      rawSpreadBps = contangoBps;
+      buyVenue = venue + '-spot'; sellVenue = venue + '-perp';
+      buyPx = spot.ask; sellPx = perp.bid;
+      buyDepth = spot.askSize; sellDepth = perp.bidSize;
+      notes = 'basis carry: long spot / short perp (contango)';
+    } else {
+      rawSpreadBps = backwardBps;
+      buyVenue = venue + '-perp'; sellVenue = venue + '-spot';
+      buyPx = perp.ask; sellPx = spot.bid;
+      buyDepth = perp.askSize; sellDepth = spot.bidSize;
+      notes = 'reverse basis: long perp / short spot (backwardation)';
+    }
+
     const netEdgeBps = rawSpreadBps - 2 * TAKER_FEE_BPS;
 
     if (netEdgeBps > stats.best_edge_seen_bps) {
       stats.best_edge_seen_bps = netEdgeBps;
       stats.best_edge_pair = pair;
-      stats.best_edge_route = venue + '-spot->' + venue + '-perp';
+      stats.best_edge_route = buyVenue + '->' + sellVenue;
     }
 
     const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
     if (netEdgeBps < threshold) { stats.rejected_edge++; continue; }
 
-    const fillable = Math.min(spot.askSize, perp.bidSize);
+    const fillable = Math.min(buyDepth, sellDepth);
     if (fillable < MIN_FILLABLE_USD) { stats.rejected_fillable++; continue; }
 
     const signalAgeMs = now - Math.min(spot.ts, perp.ts);
     if (signalAgeMs > MAX_SIGNAL_AGE_MS) { stats.rejected_stale++; continue; }
 
-    const key = pair + '|' + venue + '-spot|' + venue + '-perp';
+    const key = pair + '|' + buyVenue + '|' + sellVenue;
     const last = recentlyPosted.get(key);
     if (last && now - last < 20000) { stats.rejected_dedupe++; continue; }
     recentlyPosted.set(key, now);
@@ -185,15 +203,15 @@ function evaluate(pair) {
 
     post({
       pair, asset: pair.split('-')[0],
-      buy_exchange: venue + '-spot', sell_exchange: venue + '-perp',
-      buy_price: spot.ask, sell_price: perp.bid,
+      buy_exchange: buyVenue, sell_exchange: sellVenue,
+      buy_price: buyPx, sell_price: sellPx,
       raw_spread_bps: rawSpreadBps, net_edge_bps: netEdgeBps,
-      buy_depth_usd: spot.askSize, sell_depth_usd: perp.bidSize,
+      buy_depth_usd: buyDepth, sell_depth_usd: sellDepth,
       fillable_size_usd: fillable, signal_age_ms: signalAgeMs,
       exchange_latency_ms: 0, confirmed_exchanges: 2,
       signal_time: new Date().toISOString(),
       alert: netEdgeBps >= ALERT_EDGE_BPS,
-      notes: 'basis carry: long spot / short perp',
+      notes: notes,
     });
   }
 }
@@ -246,7 +264,7 @@ setInterval(() => {
   resetStats();
 }, HEARTBEAT_MS);
 
-console.log('Arb BASIS-CARRY bot starting - pairs: ' + PAIRS.join(', ') + ' - min edge: ' + MIN_NET_EDGE_BPS + 'bps - min fillable: $' + MIN_FILLABLE_USD + ' - max age: ' + MAX_SIGNAL_AGE_MS + 'ms');
+console.log('Arb BASIS-CARRY bot v2 (BIDIRECTIONAL) starting - pairs: ' + PAIRS.join(', ') + ' - min edge: ' + MIN_NET_EDGE_BPS + 'bps - min fillable: $' + MIN_FILLABLE_USD + ' - max age: ' + MAX_SIGNAL_AGE_MS + 'ms');
 connectOKX(); connectBybitSpot(); connectBybitPerp(); refreshThresholds();
 `;
 
