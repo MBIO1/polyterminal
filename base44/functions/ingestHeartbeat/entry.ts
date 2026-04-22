@@ -49,6 +49,16 @@ Deno.serve(async (req) => {
       bucket_20_plus: Number(body.bucket_20_plus) || 0,
       fresh_books: body.fresh_books || '',
       min_edge_floor_bps: Number(body.min_edge_floor_bps) || 0,
+      venue_pair_checks: Number(body.venue_pair_checks) || 0,
+      venue_no_book: Number(body.venue_no_book) || 0,
+      venue_stale_book: Number(body.venue_stale_book) || 0,
+      passed_edge_gate: Number(body.passed_edge_gate) || 0,
+      passed_fillable_gate: Number(body.passed_fillable_gate) || 0,
+      passed_stale_gate: Number(body.passed_stale_gate) || 0,
+      passed_dedupe_gate: Number(body.passed_dedupe_gate) || 0,
+      post_attempts: Number(body.post_attempts) || 0,
+      post_errors: Number(body.post_errors) || 0,
+      post_non_2xx: Number(body.post_non_2xx) || 0,
     });
 
     return Response.json({ ok: true, heartbeat_id: heartbeat.id });

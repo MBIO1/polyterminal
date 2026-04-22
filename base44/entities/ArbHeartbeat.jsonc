@@ -76,6 +76,46 @@
     "min_edge_floor_bps": {
       "type": "number",
       "description": "Active execution floor at time of heartbeat"
+    },
+    "venue_pair_checks": {
+      "type": "number",
+      "description": "DIAG: inner-loop iterations (venue \u00d7 pair) \u2014 total candidate evaluations"
+    },
+    "venue_no_book": {
+      "type": "number",
+      "description": "DIAG: skipped because spot OR perp book missing for that venue"
+    },
+    "venue_stale_book": {
+      "type": "number",
+      "description": "DIAG: skipped because book older than MAX_SIGNAL_AGE_MS"
+    },
+    "passed_edge_gate": {
+      "type": "number",
+      "description": "DIAG: candidates that passed net-edge floor"
+    },
+    "passed_fillable_gate": {
+      "type": "number",
+      "description": "DIAG: candidates that ALSO passed fillable liquidity check"
+    },
+    "passed_stale_gate": {
+      "type": "number",
+      "description": "DIAG: candidates that ALSO passed signal-age check"
+    },
+    "passed_dedupe_gate": {
+      "type": "number",
+      "description": "DIAG: candidates that ALSO passed dedupe \u2014 should equal posted"
+    },
+    "post_attempts": {
+      "type": "number",
+      "description": "DIAG: times post() fetch was invoked"
+    },
+    "post_errors": {
+      "type": "number",
+      "description": "DIAG: fetch threw (network/DNS/timeout) \u2014 CRITICAL when >0"
+    },
+    "post_non_2xx": {
+      "type": "number",
+      "description": "DIAG: ingestSignal returned non-2xx status \u2014 CRITICAL when >0"
     }
   },
   "required": [

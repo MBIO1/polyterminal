@@ -48,6 +48,10 @@ const stats = {
   best_edge_seen_bps: -Infinity, best_edge_pair: '', best_edge_route: '',
   // Opportunity distribution buckets (counts every evaluation by net edge tier)
   bucket_0_5: 0, bucket_5_10: 0, bucket_10_15: 0, bucket_15_20: 0, bucket_20_plus: 0,
+  // Granular funnel counters — tell us EXACTLY where signals die between evaluation and post.
+  venue_pair_checks: 0, venue_no_book: 0, venue_stale_book: 0,
+  passed_edge_gate: 0, passed_fillable_gate: 0, passed_stale_gate: 0, passed_dedupe_gate: 0,
+  post_attempts: 0, post_errors: 0, post_non_2xx: 0,
 };
 function resetStats() {
   for (const k of Object.keys(stats)) {
@@ -247,10 +251,11 @@ function evaluate(pair) {
   stats.evaluations++;
   const venues = ['OKX', 'Bybit', 'Binance'];
   for (const venue of venues) {
+    stats.venue_pair_checks++;
     const spot = books[venue + '-spot'][pair];
     const perp = books[venue + '-perp'][pair];
-    if (!spot || !perp) continue;
-    if (now - spot.ts > MAX_SIGNAL_AGE_MS || now - perp.ts > MAX_SIGNAL_AGE_MS) continue;
+    if (!spot || !perp) { stats.venue_no_book++; continue; }
+    if (now - spot.ts > MAX_SIGNAL_AGE_MS || now - perp.ts > MAX_SIGNAL_AGE_MS) { stats.venue_stale_book++; continue; }
 
     // Two candidate legs
     const contangoBps = ((perp.bid - spot.ask) / spot.ask) * 10000;
@@ -309,16 +314,20 @@ function evaluate(pair) {
 
     const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
     if (netEdgeBps < threshold) { stats.rejected_edge++; continue; }
+    stats.passed_edge_gate++;
 
     const fillable = Math.min(buyDepth, sellDepth);
     if (fillable < MIN_FILLABLE_USD) { stats.rejected_fillable++; continue; }
+    stats.passed_fillable_gate++;
 
     const signalAgeMs = now - Math.min(spot.ts, perp.ts);
     if (signalAgeMs > MAX_SIGNAL_AGE_MS) { stats.rejected_stale++; continue; }
+    stats.passed_stale_gate++;
 
     const key = pair + '|' + buyVenue + '|' + sellVenue;
     const last = recentlyPosted.get(key);
     if (last && now - last < 5000) { stats.rejected_dedupe++; continue; }
+    stats.passed_dedupe_gate++;
     recentlyPosted.set(key, now);
     stats.posted++;
 
@@ -400,16 +409,26 @@ function evaluate(pair) {
 }
 
 async function post(payload) {
+  stats.post_attempts++;
   try {
     const res = await fetch(INGEST_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
       body: JSON.stringify(payload),
     });
+    if (res.status < 200 || res.status >= 300) {
+      stats.post_non_2xx++;
+      const errText = await res.text().catch(() => '');
+      console.error('POST non-2xx ' + res.status + ' for [' + payload.pair + ']: ' + errText.slice(0, 200));
+      return;
+    }
     const body = await res.json();
     const dupFlag = body.duplicate ? '(dup)' : (body.signal_id || '');
     console.log('[' + payload.pair + '] ' + payload.buy_exchange + '->' + payload.sell_exchange + ' ' + payload.net_edge_bps.toFixed(2) + 'bps fillable=$' + Math.round(payload.fillable_size_usd) + ' -> ' + res.status + ' ' + dupFlag);
-  } catch (e) { console.error('POST failed:', e.message); }
+  } catch (e) {
+    stats.post_errors++;
+    console.error('POST failed:', e.message);
+  }
 }
 
 async function refreshThresholds() {
@@ -451,6 +470,16 @@ async function postHeartbeat(freshBooks) {
       bucket_10_15: stats.bucket_10_15, bucket_15_20: stats.bucket_15_20,
       bucket_20_plus: stats.bucket_20_plus,
       fresh_books: freshBooks, min_edge_floor_bps: MIN_NET_EDGE_BPS,
+      venue_pair_checks: stats.venue_pair_checks,
+      venue_no_book: stats.venue_no_book,
+      venue_stale_book: stats.venue_stale_book,
+      passed_edge_gate: stats.passed_edge_gate,
+      passed_fillable_gate: stats.passed_fillable_gate,
+      passed_stale_gate: stats.passed_stale_gate,
+      passed_dedupe_gate: stats.passed_dedupe_gate,
+      post_attempts: stats.post_attempts,
+      post_errors: stats.post_errors,
+      post_non_2xx: stats.post_non_2xx,
     };
     await fetch(HEARTBEAT_URL, {
       method: 'POST',
@@ -470,7 +499,8 @@ setInterval(() => {
     ? 'best=' + stats.best_edge_seen_bps.toFixed(2) + 'bps ' + stats.best_edge_pair + ' ' + stats.best_edge_route
     : 'best=none';
   const dist = 'dist[<5=' + stats.bucket_0_5 + ' 5-10=' + stats.bucket_5_10 + ' 10-15=' + stats.bucket_10_15 + ' 15-20=' + stats.bucket_15_20 + ' 20+=' + stats.bucket_20_plus + ']';
-  console.log('[heartbeat] evals=' + stats.evaluations + ' posted=' + stats.posted + ' rej(edge=' + stats.rejected_edge + ' fill=' + stats.rejected_fillable + ' stale=' + stats.rejected_stale + ' dup=' + stats.rejected_dedupe + ') ' + best + ' ' + dist + ' | ' + conns);
+  const funnel = 'funnel[checks=' + stats.venue_pair_checks + ' nobook=' + stats.venue_no_book + ' stalebook=' + stats.venue_stale_book + ' edge✓=' + stats.passed_edge_gate + ' fill✓=' + stats.passed_fillable_gate + ' age✓=' + stats.passed_stale_gate + ' dedup✓=' + stats.passed_dedupe_gate + ' post=' + stats.post_attempts + ' err=' + stats.post_errors + ' non2xx=' + stats.post_non_2xx + ']';
+  console.log('[heartbeat] evals=' + stats.evaluations + ' posted=' + stats.posted + ' rej(edge=' + stats.rejected_edge + ' fill=' + stats.rejected_fillable + ' stale=' + stats.rejected_stale + ' dup=' + stats.rejected_dedupe + ') ' + best + ' ' + dist + ' ' + funnel + ' | ' + conns);
   postHeartbeat(conns);
   resetStats();
 }, HEARTBEAT_MS);
