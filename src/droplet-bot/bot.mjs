@@ -13,10 +13,10 @@ import WebSocket from 'ws';
 const INGEST_URL = process.env.BASE44_INGEST_URL;
 const STATS_URL = process.env.BASE44_STATS_URL;
 const TOKEN = process.env.BASE44_USER_TOKEN;
-const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,MATIC-USDT,DOGE-USDT,ADA-USDT').split(',');
-const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 2);
-const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 500);
-const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 2_000);
+const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,MATIC-USDT,DOGE-USDT,ADA-USDT,XRP-USDT,DOT-USDT,LTC-USDT,BCH-USDT,ATOM-USDT,UNI-USDT,NEAR-USDT').split(',');
+const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 1);
+const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1500);
+const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 200);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 10);
 const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 10);
 const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 60_000);
@@ -110,7 +110,7 @@ function connectBinance() {
 function connectKraken() {
   const ws = new WebSocket('wss://ws.kraken.com/v2');
   // Kraken symbol format: BTC/USD, ETH/USD, SOL/USD (no USDT for most majors)
-  const krakenMap = { 'BTC-USDT': 'BTC/USD', 'ETH-USDT': 'ETH/USD', 'SOL-USDT': 'SOL/USD', 'AVAX-USDT': 'AVAX/USD', 'LINK-USDT': 'LINK/USD', 'DOGE-USDT': 'DOGE/USD', 'ADA-USDT': 'ADA/USD', 'MATIC-USDT': 'MATIC/USD' };
+  const krakenMap = { 'BTC-USDT': 'BTC/USD', 'ETH-USDT': 'ETH/USD', 'SOL-USDT': 'SOL/USD', 'AVAX-USDT': 'AVAX/USD', 'LINK-USDT': 'LINK/USD', 'DOGE-USDT': 'DOGE/USD', 'ADA-USDT': 'ADA/USD', 'MATIC-USDT': 'MATIC/USD', 'XRP-USDT': 'XRP/USD', 'DOT-USDT': 'DOT/USD', 'LTC-USDT': 'LTC/USD', 'BCH-USDT': 'BCH/USD', 'ATOM-USDT': 'ATOM/USD', 'UNI-USDT': 'UNI/USD', 'NEAR-USDT': 'NEAR/USD' };
   const symbols = PAIRS.map(p => krakenMap[p]).filter(Boolean);
   ws.on('open', () => { ws.send(JSON.stringify({ method: 'subscribe', params: { channel: 'ticker', symbol: symbols } })); });
   ws.on('message', raw => {
@@ -219,10 +219,10 @@ function evaluate(pair) {
   const signalAgeMs = now - Math.min(bestAsk.ts, bestBid.ts);
   if (signalAgeMs > MAX_SIGNAL_AGE_MS) { stats.rejected_stale++; return; }
 
-  // Local dedupe: 20s per (pair, buy, sell)
+  // Local dedupe: 5s per (pair, buy, sell) — keeps signal flow dense
   const key = `${pair}|${bestAsk.v}|${bestBid.v}`;
   const last = recentlyPosted.get(key);
-  if (last && now - last < 20_000) { stats.rejected_dedupe++; return; }
+  if (last && now - last < 5_000) { stats.rejected_dedupe++; return; }
   recentlyPosted.set(key, now);
   stats.posted++;
 

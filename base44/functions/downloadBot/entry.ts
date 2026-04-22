@@ -14,9 +14,11 @@ const STATS_URL = process.env.BASE44_STATS_URL;
 const HEARTBEAT_URL = process.env.BASE44_HEARTBEAT_URL;
 const TOKEN = process.env.BASE44_USER_TOKEN;
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT,ATOM-USDT,APT-USDT,SUI-USDT,ARB-USDT,OP-USDT,INJ-USDT,SEI-USDT,TIA-USDT').split(',');
-const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 4);
-const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1000);
-const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 250);
+// Tuned for dense signal flow + $1k capital. Executor (Base44) still gates on ArbConfig
+// thresholds, so a permissive bot floor = more visibility, not more risk.
+const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 2);
+const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1500);
+const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 100);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
 // CRITICAL: must equal ArbConfig.taker_fee_bps_per_leg in Base44. Default 5 bps = realistic
 // retail taker rate on OKX/Bybit spot+perp. Signals assume 4-leg round-trip cost = 4×this.
@@ -316,7 +318,7 @@ function evaluate(pair) {
 
     const key = pair + '|' + buyVenue + '|' + sellVenue;
     const last = recentlyPosted.get(key);
-    if (last && now - last < 20000) { stats.rejected_dedupe++; continue; }
+    if (last && now - last < 5000) { stats.rejected_dedupe++; continue; }
     recentlyPosted.set(key, now);
     stats.posted++;
 
@@ -370,7 +372,7 @@ function evaluate(pair) {
         const signalAgeMs = now - Math.min(cheapest.book.ts, richest.book.ts);
         const key = pair + '|' + buyVenue + '|' + sellVenue;
         const last = recentlyPosted.get(key);
-        const isDupe = last && now - last < 20000;
+        const isDupe = last && now - last < 5000;
         if (fillable >= MIN_FILLABLE_USD && signalAgeMs <= MAX_SIGNAL_AGE_MS && !isDupe) {
           recentlyPosted.set(key, now);
           stats.posted++;
