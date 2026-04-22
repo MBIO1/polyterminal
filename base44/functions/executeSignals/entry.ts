@@ -108,8 +108,11 @@ function checkGates({ signal, config, todayPnl, openPositions }) {
     reasons.push(`delta_drift_breach(${netDelta.toFixed(2)})`);
   }
 
-  // Liquidity check
-  const minFill = 1000; // below $1k fillable is not worth the transaction cost
+  // Liquidity check — matched to droplet MIN_FILLABLE_USD (default 500).
+  // Small altcoin pairs (APT, ATOM, SEI) often have $400-900 top-of-book. Executor
+  // sizes trades down to whatever fillable allows, so a $600 fill is fine if the
+  // edge covers fees. Rejecting at $1000 was throwing away real signals.
+  const minFill = Number(config.min_fillable_usd || 500);
   if (Number(signal.fillable_size_usd || 0) < minFill) {
     reasons.push(`insufficient_liquidity(${signal.fillable_size_usd})`);
   }
