@@ -11,6 +11,7 @@ import WebSocket from 'ws';
 
 const INGEST_URL = process.env.BASE44_INGEST_URL;
 const STATS_URL = process.env.BASE44_STATS_URL;
+const HEARTBEAT_URL = process.env.BASE44_HEARTBEAT_URL;
 const TOKEN = process.env.BASE44_USER_TOKEN;
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT').split(',');
 const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 3);
@@ -39,12 +40,22 @@ const stats = {
   evaluations: 0, rejected_edge: 0, rejected_fillable: 0,
   rejected_stale: 0, rejected_dedupe: 0, posted: 0,
   best_edge_seen_bps: -Infinity, best_edge_pair: '', best_edge_route: '',
+  // Opportunity distribution buckets (counts every evaluation by net edge tier)
+  bucket_0_5: 0, bucket_5_10: 0, bucket_10_15: 0, bucket_15_20: 0, bucket_20_plus: 0,
 };
 function resetStats() {
   for (const k of Object.keys(stats)) {
     if (typeof stats[k] === 'number') stats[k] = k === 'best_edge_seen_bps' ? -Infinity : 0;
     else stats[k] = '';
   }
+}
+function recordBucket(edgeBps) {
+  if (edgeBps < 0) return;
+  if (edgeBps < 5) stats.bucket_0_5++;
+  else if (edgeBps < 10) stats.bucket_5_10++;
+  else if (edgeBps < 15) stats.bucket_10_15++;
+  else if (edgeBps < 20) stats.bucket_15_20++;
+  else stats.bucket_20_plus++;
 }
 
 // OKX spot + perp (swap) on the same WS
@@ -222,6 +233,7 @@ function evaluate(pair) {
       stats.best_edge_pair = pair;
       stats.best_edge_route = buyVenue + '->' + sellVenue;
     }
+    recordBucket(netEdgeBps);
 
     const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
     if (netEdgeBps < threshold) { stats.rejected_edge++; continue; }
@@ -290,6 +302,30 @@ async function refreshThresholds() {
 
 setInterval(() => { const cutoff = Date.now() - 60000; for (const [k, v] of recentlyPosted) if (v < cutoff) recentlyPosted.delete(k); }, 30000);
 setInterval(refreshThresholds, 15 * 60000);
+
+async function postHeartbeat(freshBooks) {
+  if (!HEARTBEAT_URL) return;
+  try {
+    const payload = {
+      snapshot_time: new Date().toISOString(),
+      evaluations: stats.evaluations, posted: stats.posted,
+      rejected_edge: stats.rejected_edge, rejected_fillable: stats.rejected_fillable,
+      rejected_stale: stats.rejected_stale, rejected_dedupe: stats.rejected_dedupe,
+      best_edge_bps: stats.best_edge_seen_bps > -Infinity ? stats.best_edge_seen_bps : 0,
+      best_edge_pair: stats.best_edge_pair, best_edge_route: stats.best_edge_route,
+      bucket_0_5: stats.bucket_0_5, bucket_5_10: stats.bucket_5_10,
+      bucket_10_15: stats.bucket_10_15, bucket_15_20: stats.bucket_15_20,
+      bucket_20_plus: stats.bucket_20_plus,
+      fresh_books: freshBooks, min_edge_floor_bps: MIN_NET_EDGE_BPS,
+    };
+    await fetch(HEARTBEAT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) { console.error('heartbeat POST failed:', e.message); }
+}
+
 setInterval(() => {
   const now = Date.now();
   const conns = Object.entries(books).map(([v, pairs]) => {
@@ -299,7 +335,9 @@ setInterval(() => {
   const best = stats.best_edge_seen_bps > -Infinity
     ? 'best=' + stats.best_edge_seen_bps.toFixed(2) + 'bps ' + stats.best_edge_pair + ' ' + stats.best_edge_route
     : 'best=none';
-  console.log('[heartbeat] evals=' + stats.evaluations + ' posted=' + stats.posted + ' rej(edge=' + stats.rejected_edge + ' fill=' + stats.rejected_fillable + ' stale=' + stats.rejected_stale + ' dup=' + stats.rejected_dedupe + ') ' + best + ' | ' + conns);
+  const dist = 'dist[<5=' + stats.bucket_0_5 + ' 5-10=' + stats.bucket_5_10 + ' 10-15=' + stats.bucket_10_15 + ' 15-20=' + stats.bucket_15_20 + ' 20+=' + stats.bucket_20_plus + ']';
+  console.log('[heartbeat] evals=' + stats.evaluations + ' posted=' + stats.posted + ' rej(edge=' + stats.rejected_edge + ' fill=' + stats.rejected_fillable + ' stale=' + stats.rejected_stale + ' dup=' + stats.rejected_dedupe + ') ' + best + ' ' + dist + ' | ' + conns);
+  postHeartbeat(conns);
   resetStats();
 }, HEARTBEAT_MS);
 

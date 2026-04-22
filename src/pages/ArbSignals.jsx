@@ -9,6 +9,7 @@ import EmptyState from '@/components/arb/EmptyState';
 import { fmtUSD, fmtBps } from '@/lib/arbMath';
 import SignalStatsPanel from '@/components/arb/SignalStatsPanel';
 import ExecuteSignalsButton from '@/components/arb/ExecuteSignalsButton';
+import BotProductivityPanel from '@/components/arb/BotProductivityPanel';
 
 export default function ArbSignals() {
   const [minEdge, setMinEdge] = useState(0);
@@ -69,6 +70,8 @@ export default function ArbSignals() {
         <StatTile label="Avg Net Edge" value={fmtBps(avgEdge)} sub="Post-fees" tone={avgEdge >= 0 ? 'positive' : 'negative'} />
         <StatTile label="Avg Signal Age" value={`${avgLatency.toFixed(0)} ms`} sub="At ingest" tone={avgLatency < 200 ? 'positive' : 'warn'} />
       </div>
+
+      <BotProductivityPanel />
 
       <SignalStatsPanel />
 

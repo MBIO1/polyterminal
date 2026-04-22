@@ -1,0 +1,84 @@
+{
+  "name": "ArbHeartbeat",
+  "type": "object",
+  "description": "Minute-level snapshot from the droplet bot: best edges seen, opportunity distribution, connectivity. Enables productivity analysis independent of executed signals.",
+  "properties": {
+    "snapshot_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the heartbeat was captured on the droplet"
+    },
+    "received_time": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When Base44 ingested the heartbeat"
+    },
+    "evaluations": {
+      "type": "number",
+      "description": "Number of basis evaluations in the window"
+    },
+    "posted": {
+      "type": "number",
+      "description": "Number of signals actually posted (crossed 20 bps floor)"
+    },
+    "rejected_edge": {
+      "type": "number",
+      "description": "Rejections due to edge below floor"
+    },
+    "rejected_fillable": {
+      "type": "number",
+      "description": "Rejections due to insufficient liquidity"
+    },
+    "rejected_stale": {
+      "type": "number",
+      "description": "Rejections due to stale book data"
+    },
+    "rejected_dedupe": {
+      "type": "number",
+      "description": "Rejections due to recent duplicate signal"
+    },
+    "best_edge_bps": {
+      "type": "number",
+      "description": "Best net edge seen in the window (post-fees)"
+    },
+    "best_edge_pair": {
+      "type": "string",
+      "description": "Pair that produced the best edge"
+    },
+    "best_edge_route": {
+      "type": "string",
+      "description": "Buy\u2192Sell venues for best edge"
+    },
+    "bucket_0_5": {
+      "type": "number",
+      "description": "Count of opportunities with net edge in [0, 5) bps"
+    },
+    "bucket_5_10": {
+      "type": "number",
+      "description": "Count with net edge in [5, 10) bps"
+    },
+    "bucket_10_15": {
+      "type": "number",
+      "description": "Count with net edge in [10, 15) bps"
+    },
+    "bucket_15_20": {
+      "type": "number",
+      "description": "Count with net edge in [15, 20) bps \u2014 near-miss band"
+    },
+    "bucket_20_plus": {
+      "type": "number",
+      "description": "Count with net edge \u2265 20 bps (fired)"
+    },
+    "fresh_books": {
+      "type": "string",
+      "description": "Compact connectivity string, e.g. OKX-spot:7/7 OKX-perp:7/7"
+    },
+    "min_edge_floor_bps": {
+      "type": "number",
+      "description": "Active execution floor at time of heartbeat"
+    }
+  },
+  "required": [
+    "snapshot_time"
+  ]
+}
