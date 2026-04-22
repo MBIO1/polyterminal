@@ -35,6 +35,15 @@ export default function ArbSignals() {
     ? liveSignals.reduce((a, s) => a + (s.signal_age_ms || 0), 0) / liveSignals.length
     : 0;
 
+  // Near-miss: signals that landed between 10 and 20 bps in the last 24h.
+  // Useful to see opportunity flow on calm days when the 20 bps floor blocks execution.
+  const since24h = Date.now() - 24 * 3600 * 1000;
+  const nearMiss = signals.filter(s => {
+    const edge = Number(s.net_edge_bps || 0);
+    const ts = new Date(s.received_time || s.created_date).getTime();
+    return ts >= since24h && edge >= 10 && edge < 20;
+  }).length;
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto space-y-6">
       <header className="flex items-center justify-between gap-4 flex-wrap">
@@ -53,9 +62,10 @@ export default function ArbSignals() {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <StatTile label="Total Signals" value={total} sub="All time" tone="primary" />
         <StatTile label="Executed" value={executed} sub={total ? `${((executed / total) * 100).toFixed(1)}%` : '—'} tone="positive" />
+        <StatTile label="Near-miss (24h)" value={nearMiss} sub="10–20 bps · blocked by floor" tone="warn" />
         <StatTile label="Avg Net Edge" value={fmtBps(avgEdge)} sub="Post-fees" tone={avgEdge >= 0 ? 'positive' : 'negative'} />
         <StatTile label="Avg Signal Age" value={`${avgLatency.toFixed(0)} ms`} sub="At ingest" tone={avgLatency < 200 ? 'positive' : 'warn'} />
       </div>

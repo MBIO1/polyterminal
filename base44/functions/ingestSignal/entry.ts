@@ -23,10 +23,15 @@
 // }
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-// Minimum net edge (bps) that triggers a Telegram push. Matches the droplet's trading floor.
+// Trading floor — full alert fires above this.
 const TELEGRAM_ALERT_MIN_BPS = 20;
+// Near-miss floor — info-only alert for visibility into the signal stream on calm days.
+const TELEGRAM_NEAR_MISS_MIN_BPS = 12;
+// Rate limit for near-miss pushes: one per pair per window (ms) to avoid spam.
+const NEAR_MISS_COOLDOWN_MS = 15 * 60 * 1000;
+const lastNearMissByPair = new Map();
 
-async function pushTelegramAlert(signal) {
+async function pushTelegramAlert(signal, kind = 'full') {
   const token = Deno.env.get('TELEGRAM_BOT_TOKEN');
   const chatId = Deno.env.get('TELEGRAM_CHAT_ID');
   if (!token || !chatId) return; // silently skip if not configured
@@ -35,10 +40,14 @@ async function pushTelegramAlert(signal) {
   const raw = Number(signal.raw_spread_bps || 0);
   const fill = Math.round(Number(signal.fillable_size_usd || 0));
   const ageMs = Number(signal.signal_age_ms || 0);
-  const emoji = edge >= 40 ? '🚨🚨' : edge >= 25 ? '🚨' : '⚡';
+
+  const isNearMiss = kind === 'near_miss';
+  const header = isNearMiss
+    ? `👀 <b>NEAR-MISS · ${edge.toFixed(1)} bps</b> <i>(below 20 bps floor — no trade)</i>`
+    : `${edge >= 40 ? '🚨🚨' : edge >= 25 ? '🚨' : '⚡'} <b>ARB SIGNAL · ${edge.toFixed(1)} bps</b>`;
 
   const text = [
-    `${emoji} <b>ARB SIGNAL · ${edge.toFixed(1)} bps</b>`,
+    header,
     '━━━━━━━━━━━━━━━━━━━━━',
     `<b>Pair:</b> ${signal.pair}`,
     `<b>Route:</b> ${signal.buy_exchange} → ${signal.sell_exchange}`,
@@ -125,8 +134,16 @@ Deno.serve(async (req) => {
     });
 
     // Telegram alert for any signal that crosses the 20 bps trading floor
-    if (Number(body.net_edge_bps) >= TELEGRAM_ALERT_MIN_BPS) {
-      await pushTelegramAlert({ ...body, ...signal });
+    const edgeBps = Number(body.net_edge_bps);
+    if (edgeBps >= TELEGRAM_ALERT_MIN_BPS) {
+      await pushTelegramAlert({ ...body, ...signal }, 'full');
+    } else if (edgeBps >= TELEGRAM_NEAR_MISS_MIN_BPS) {
+      // Info-only near-miss push, rate-limited per pair to avoid spam
+      const last = lastNearMissByPair.get(body.pair) || 0;
+      if (Date.now() - last >= NEAR_MISS_COOLDOWN_MS) {
+        lastNearMissByPair.set(body.pair, Date.now());
+        await pushTelegramAlert({ ...body, ...signal }, 'near_miss');
+      }
     }
 
     // Optional fan-out alert
