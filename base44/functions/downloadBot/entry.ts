@@ -286,6 +286,71 @@ function evaluate(pair) {
       notes: notes,
     });
   }
+
+  // ---------- Cross-venue SPOT/SPOT scanner (SGP1) ----------
+  // Buy on the cheaper venue's ask, sell on the richer venue's bid (both SPOT).
+  // Uses the same fee model (4 legs: buy + sell + eventual unwind x2). Signals are
+  // tagged with strategy note so executeSignals still routes them as "Cross-venue Spot Spread".
+  const okxSpot = books['OKX-spot'][pair];
+  const bybitSpot = books['Bybit-spot'][pair];
+  if (okxSpot && bybitSpot) {
+    const stale = now - okxSpot.ts > MAX_SIGNAL_AGE_MS || now - bybitSpot.ts > MAX_SIGNAL_AGE_MS;
+    if (!stale) {
+      // Two directions
+      const dir1Bps = ((bybitSpot.bid - okxSpot.ask) / okxSpot.ask) * 10000; // buy OKX, sell Bybit
+      const dir2Bps = ((okxSpot.bid - bybitSpot.ask) / bybitSpot.ask) * 10000; // buy Bybit, sell OKX
+
+      let rawBps, buyVenue, sellVenue, buyPx, sellPx, buyDepth, sellDepth;
+      if (dir1Bps >= dir2Bps) {
+        rawBps = dir1Bps;
+        buyVenue = 'OKX-spot'; sellVenue = 'Bybit-spot';
+        buyPx = okxSpot.ask; sellPx = bybitSpot.bid;
+        buyDepth = okxSpot.askSize; sellDepth = bybitSpot.bidSize;
+      } else {
+        rawBps = dir2Bps;
+        buyVenue = 'Bybit-spot'; sellVenue = 'OKX-spot';
+        buyPx = bybitSpot.ask; sellPx = okxSpot.bid;
+        buyDepth = bybitSpot.askSize; sellDepth = okxSpot.bidSize;
+      }
+      const netBps = rawBps - 4 * TAKER_FEE_BPS;
+
+      if (netBps > stats.best_edge_seen_bps) {
+        stats.best_edge_seen_bps = netBps;
+        stats.best_edge_pair = pair;
+        stats.best_edge_route = buyVenue + '->' + sellVenue;
+      }
+      recordBucket(netBps);
+
+      const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
+      if (netBps >= threshold) {
+        const fillable = Math.min(buyDepth, sellDepth);
+        const signalAgeMs = now - Math.min(okxSpot.ts, bybitSpot.ts);
+        const key = pair + '|' + buyVenue + '|' + sellVenue;
+        const last = recentlyPosted.get(key);
+        const isDupe = last && now - last < 20000;
+        if (fillable >= MIN_FILLABLE_USD && signalAgeMs <= MAX_SIGNAL_AGE_MS && !isDupe) {
+          recentlyPosted.set(key, now);
+          stats.posted++;
+          post({
+            pair, asset: pair.split('-')[0],
+            buy_exchange: buyVenue, sell_exchange: sellVenue,
+            buy_price: buyPx, sell_price: sellPx,
+            raw_spread_bps: rawBps, net_edge_bps: netBps,
+            buy_depth_usd: buyDepth, sell_depth_usd: sellDepth,
+            fillable_size_usd: fillable, signal_age_ms: signalAgeMs,
+            exchange_latency_ms: 0, confirmed_exchanges: 2, // both venues directly observed
+            signal_time: new Date().toISOString(),
+            alert: netBps >= ALERT_EDGE_BPS,
+            notes: 'cross-venue spot/spot (SGP1 bidirectional)',
+          });
+        } else if (isDupe) stats.rejected_dedupe++;
+        else if (fillable < MIN_FILLABLE_USD) stats.rejected_fillable++;
+        else stats.rejected_stale++;
+      } else {
+        stats.rejected_edge++;
+      }
+    }
+  }
 }
 
 async function post(payload) {
