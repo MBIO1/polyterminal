@@ -78,6 +78,11 @@
       "type": "number",
       "default": 0.0004
     },
+    "taker_fee_bps_per_leg": {
+      "type": "number",
+      "default": 2,
+      "description": "Per-leg taker fee in bps for basis arbitrage (droplet TAKER_FEE_BPS)"
+    },
     "stress_slippage_multiplier": {
       "type": "number",
       "default": 2,

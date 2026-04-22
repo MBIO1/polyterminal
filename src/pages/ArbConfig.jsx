@@ -46,6 +46,17 @@ const GROUPS = [
       { key: 'spot_taker_fee', label: 'Spot Taker Fee', step: 0.0001 },
       { key: 'perp_maker_fee', label: 'Perp Maker Fee', step: 0.0001 },
       { key: 'perp_taker_fee', label: 'Perp Taker Fee', step: 0.0001 },
+      { key: 'taker_fee_bps_per_leg', label: 'Basis Arb Taker Fee (bps/leg)', step: 0.1 },
+    ],
+  },
+  {
+    title: 'Funding Capture Strategy',
+    fields: [
+      { key: 'funding_enabled', label: 'Funding Capture Enabled', step: 1, isSwitch: true },
+      { key: 'funding_min_apr_bps', label: 'Min APR to Enter (bps)', step: 100 },
+      { key: 'funding_exit_apr_bps', label: 'Exit APR Threshold (bps)', step: 100 },
+      { key: 'funding_exit_on_flip', label: 'Exit on Sign Flip', step: 1, isSwitch: true },
+      { key: 'funding_max_position_usd', label: 'Max Position Size (USD)', step: 50 },
     ],
   },
 ];
@@ -118,16 +129,20 @@ export default function ArbConfig() {
       {GROUPS.map(g => (
         <Section key={g.title} title={g.title}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {g.fields.map(({ key, label, step }) => (
+            {g.fields.map(({ key, label, step, isSwitch }) => (
               <div key={key}>
                 <Label className="text-xs font-mono text-muted-foreground">{label}</Label>
-                <Input
-                  type="number"
-                  step={step}
-                  value={f[key] ?? ''}
-                  onChange={(e) => set(key, e.target.value === '' ? '' : Number(e.target.value))}
-                  className="font-mono mt-1"
-                />
+                {isSwitch ? (
+                  <Switch checked={!!f[key]} onCheckedChange={(v) => set(key, v)} className="mt-1" />
+                ) : (
+                  <Input
+                    type="number"
+                    step={step}
+                    value={f[key] ?? ''}
+                    onChange={(e) => set(key, e.target.value === '' ? '' : Number(e.target.value))}
+                    className="font-mono mt-1"
+                  />
+                )}
               </div>
             ))}
           </div>
