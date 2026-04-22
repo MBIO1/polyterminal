@@ -11,6 +11,7 @@ import DailyPnlChart from '@/components/arb/DailyPnlChart';
 import CapitalBuckets from '@/components/arb/CapitalBuckets';
 import TradeLifecycleTile from '@/components/arb/TradeLifecycleTile';
 import LiveTicker from '@/components/arb/LiveTicker';
+import SystemAuditPanel from '@/components/arb/SystemAuditPanel';
 import { fmtUSD, fmtBps, sumBy, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDashboard() {
@@ -69,6 +70,8 @@ export default function ArbDashboard() {
       </header>
 
       <LiveTicker />
+
+      <SystemAuditPanel />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
         <StatTile label="Capital" value={fmtUSD(totalCapital, 0)} sub="Starting book" />
