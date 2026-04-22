@@ -226,24 +226,36 @@ Deno.serve(async (req) => {
     // Confirmation policy: cross-venue trades need 2, same-venue carries need only 1
     // (a same-venue spot/perp basis trade is structurally complete on one exchange).
     const minConfirmedCross = Number(body.min_confirmed || 2);
+    // Optional: force execute a specific signal by ID (bypasses status+confirmation filters,
+    // but still runs checkGates). Useful for the Live Signal Monitor "Force Execute" button.
+    const forceSignalId = body.signal_id || null;
 
     // Load config
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
     const config = configs?.[0]?.data ? configs[0].data : configs?.[0];
     if (!config) return Response.json({ error: 'No ArbConfig found' }, { status: 400 });
 
-    // Load candidate signals: recent, detected/alerted, not yet executed
-    const recentAll = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 50);
-    // Strip "-spot"/"-perp" suffix to compare venue roots (e.g. "OKX-spot" vs "OKX-perp" = same root "OKX")
-    const venueRoot = (v) => String(v || '').replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();
-    const candidates = recentAll
-      .filter(s => ['detected', 'alerted'].includes(s.status))
-      .filter(s => {
-        const sameVenue = venueRoot(s.buy_exchange) === venueRoot(s.sell_exchange) && venueRoot(s.buy_exchange) !== '';
-        const required = sameVenue ? 1 : minConfirmedCross;
-        return Number(s.confirmed_exchanges || 0) >= required;
-      })
-      .slice(0, maxSignals);
+    let candidates;
+    if (forceSignalId) {
+      const one = await base44.asServiceRole.entities.ArbSignal.filter({ id: forceSignalId }, '-received_time', 1);
+      if (!one || one.length === 0) {
+        return Response.json({ error: `Signal ${forceSignalId} not found` }, { status: 404 });
+      }
+      candidates = one;
+    } else {
+      // Load candidate signals: recent, detected/alerted, not yet executed
+      const recentAll = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 50);
+      // Strip "-spot"/"-perp" suffix to compare venue roots (e.g. "OKX-spot" vs "OKX-perp" = same root "OKX")
+      const venueRoot = (v) => String(v || '').replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();
+      candidates = recentAll
+        .filter(s => ['detected', 'alerted'].includes(s.status))
+        .filter(s => {
+          const sameVenue = venueRoot(s.buy_exchange) === venueRoot(s.sell_exchange) && venueRoot(s.buy_exchange) !== '';
+          const required = sameVenue ? 1 : minConfirmedCross;
+          return Number(s.confirmed_exchanges || 0) >= required;
+        })
+        .slice(0, maxSignals);
+    }
 
     // Today's realized PnL from closed trades
     const todayStr = new Date().toISOString().slice(0, 10);

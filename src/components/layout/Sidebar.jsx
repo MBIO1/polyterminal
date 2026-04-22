@@ -22,6 +22,7 @@ const navItems = [
   { path: '/config', icon: SlidersHorizontal, label: 'Config' },
   { path: '/scan', icon: Radar, label: 'Market Scan' },
   { path: '/signals', icon: Radio, label: 'Signal Feed' },
+  { path: '/monitor', icon: Zap, label: 'Live Monitor' },
   { path: '/bot-analytics', icon: LineChart, label: 'Bot Analytics' },
   { path: '/trades', icon: History, label: 'Trades' },
   { path: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
