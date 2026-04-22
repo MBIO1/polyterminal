@@ -49,12 +49,12 @@
     },
     "btc_min_edge_bps": {
       "type": "number",
-      "default": 30,
+      "default": 3,
       "description": "Minimum expected net edge BTC (bps)"
     },
     "eth_min_edge_bps": {
       "type": "number",
-      "default": 40,
+      "default": 3,
       "description": "Minimum expected net edge ETH (bps)"
     },
     "min_fillable_usd": {
