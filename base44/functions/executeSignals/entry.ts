@@ -117,6 +117,22 @@ function checkGates({ signal, config, todayPnl, openPositions }) {
     reasons.push(`insufficient_liquidity(${signal.fillable_size_usd})`);
   }
 
+  console.log('DEBUG checkGates:', {
+    signal_id: signal.id,
+    pair: signal.pair,
+    asset,
+    net_edge_bps: signal.net_edge_bps,
+    minEdge_used: minEdge,
+    fillable_size_usd: signal.fillable_size_usd,
+    minFill_used: minFill,
+    config_btc_min_edge_bps: config.btc_min_edge_bps,
+    config_eth_min_edge_bps: config.eth_min_edge_bps,
+    config_min_fillable_usd: config.min_fillable_usd,
+    bot_running: config.bot_running,
+    kill_switch_active: config.kill_switch_active,
+    paper_trading: config.paper_trading,
+    reasons,
+  });
   return { allowed: reasons.length === 0, reasons };
 }
 

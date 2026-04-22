@@ -57,6 +57,11 @@
       "default": 40,
       "description": "Minimum expected net edge ETH (bps)"
     },
+    "min_fillable_usd": {
+      "type": "number",
+      "default": 500,
+      "description": "Minimum fillable liquidity in USD for executor gate"
+    },
     "spot_maker_fee": {
       "type": "number",
       "default": 0.0002
@@ -95,5 +100,23 @@
       "default": 0
     }
   },
-  "required": []
+  "required": [],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {},
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
 }
