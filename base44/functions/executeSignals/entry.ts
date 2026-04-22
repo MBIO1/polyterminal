@@ -226,9 +226,12 @@ Deno.serve(async (req) => {
     // Confirmation policy: cross-venue trades need 2, same-venue carries need only 1
     // (a same-venue spot/perp basis trade is structurally complete on one exchange).
     const minConfirmedCross = Number(body.min_confirmed || 2);
-    // Optional: force execute a specific signal by ID (bypasses status+confirmation filters,
+    // Optional: force execute a specific signal by ID (bypasses status+confirmation+TTL filters,
     // but still runs checkGates). Useful for the Live Signal Monitor "Force Execute" button.
     const forceSignalId = body.signal_id || null;
+    // Signal TTL: any signal older than this at execution time is auto-expired.
+    // Prevents executing on stale prices (arb edges decay within seconds).
+    const signalTtlMs = Number(body.signal_ttl_ms || 30_000);
 
     // Load config
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
@@ -236,6 +239,9 @@ Deno.serve(async (req) => {
     if (!config) return Response.json({ error: 'No ArbConfig found' }, { status: 400 });
 
     let candidates;
+    const nowTs = Date.now();
+    const expiredIds = [];
+
     if (forceSignalId) {
       const one = await base44.asServiceRole.entities.ArbSignal.filter({ id: forceSignalId }, '-received_time', 1);
       if (!one || one.length === 0) {
@@ -243,12 +249,35 @@ Deno.serve(async (req) => {
       }
       candidates = one;
     } else {
-      // Load candidate signals: recent, detected/alerted, not yet executed
-      const recentAll = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 50);
-      // Strip "-spot"/"-perp" suffix to compare venue roots (e.g. "OKX-spot" vs "OKX-perp" = same root "OKX")
+      // Load recent pending signals (grab more than we need so TTL pruning still leaves a full batch)
+      const recentAll = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 200);
       const venueRoot = (v) => String(v || '').replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();
-      candidates = recentAll
-        .filter(s => ['detected', 'alerted'].includes(s.status))
+
+      const pending = recentAll.filter(s => ['detected', 'alerted'].includes(s.status));
+
+      // TTL check: anything older than signalTtlMs since received_time is expired
+      const fresh = [];
+      for (const s of pending) {
+        const refTs = new Date(s.received_time || s.created_date).getTime();
+        const ageMs = nowTs - refTs;
+        if (ageMs > signalTtlMs) {
+          expiredIds.push({ id: s.id, age_ms: ageMs, pair: s.pair });
+        } else {
+          fresh.push(s);
+        }
+      }
+
+      // Mark expired signals so they don't linger or get executed on stale prices
+      if (!dryRun && expiredIds.length > 0) {
+        await Promise.all(expiredIds.map(e =>
+          base44.asServiceRole.entities.ArbSignal.update(e.id, {
+            status: 'expired',
+            rejection_reason: `ttl_exceeded(${Math.round(e.age_ms / 1000)}s>${signalTtlMs / 1000}s)`,
+          }).catch(err => console.error('expire failed', e.id, err.message))
+        ));
+      }
+
+      candidates = fresh
         .filter(s => {
           const sameVenue = venueRoot(s.buy_exchange) === venueRoot(s.sell_exchange) && venueRoot(s.buy_exchange) !== '';
           const required = sameVenue ? 1 : minConfirmedCross;
@@ -333,11 +362,16 @@ Deno.serve(async (req) => {
       const qty = buyFill?.qty || sellFill?.qty || 0;
       const grossSpread = (sellFill?.px || 0) - (buyFill?.px || 0);
       const notional = (buyFill?.notional_usd || 0);
-      // Round-trip fees: entry (2 legs) + exit (2 legs) = 4 × taker fee
-      const takerFee = Number(config.spot_taker_fee || 0);
-      const entryFees = notional * takerFee * 2;     // spot entry + perp entry
-      const exitFees = notional * takerFee * 2;      // spot exit + perp exit (modeled)
-      const feeEst = entryFees + exitFees;           // total round-trip
+
+      // FEE MODEL — MUST match the droplet's TAKER_FEE_BPS exactly.
+      // Droplet computes net_edge_bps = raw_spread_bps - 4 × TAKER_FEE_BPS (2 bps/leg default).
+      // Executor must apply the SAME 4 × per-leg fee model, otherwise a 10 bps signal
+      // turns into a losing trade because executor double-counts fees.
+      // Source of truth: config.taker_fee_bps_per_leg (new field) → fallback to 2 bps.
+      const perLegBps = Number(config.taker_fee_bps_per_leg ?? 2);  // must equal droplet TAKER_FEE_BPS
+      const perLegFeeRate = perLegBps / 10000;                      // decimal
+      const perLegFee = notional * perLegFeeRate;                   // USD per leg
+      const feeEst = perLegFee * 4;                                 // 4 legs (entry×2 + exit×2)
       const basisPnl = qty * grossSpread;
       const netPnl = basisPnl - feeEst;
 
@@ -362,8 +396,7 @@ Deno.serve(async (req) => {
       let spotExitPx = sellFill?.px;
       let perpEntryPx = null;
       let perpExitPx = null;
-      // Per-leg fee = notional × taker (quarter of total round-trip)
-      const perLegFee = notional * takerFee;
+      // Per-leg fee already computed above (perLegFee = notional × perLegFeeRate)
       let spotEntryFee = perLegFee;
       let spotExitFee = perLegFee;
       let perpEntryFee = null;
@@ -469,6 +502,8 @@ Deno.serve(async (req) => {
       processed: results.length,
       executed: results.filter(r => r.decision === 'executed').length,
       rejected: results.filter(r => r.decision === 'rejected').length,
+      expired: expiredIds.length,
+      expired_signals: expiredIds.slice(0, 10),
       results,
     });
   } catch (error) {
