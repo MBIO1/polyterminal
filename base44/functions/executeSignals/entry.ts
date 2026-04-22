@@ -206,7 +206,9 @@ Deno.serve(async (req) => {
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const dryRun = body.dry_run === true;
     const maxSignals = Math.min(Number(body.max_signals || 5), 20);
-    const minConfirmed = Number(body.min_confirmed || 3);
+    // Confirmation policy: cross-venue trades need 2, same-venue carries need only 1
+    // (a same-venue spot/perp basis trade is structurally complete on one exchange).
+    const minConfirmedCross = Number(body.min_confirmed || 2);
 
     // Load config
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
@@ -215,9 +217,15 @@ Deno.serve(async (req) => {
 
     // Load candidate signals: recent, detected/alerted, not yet executed
     const recentAll = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 50);
+    // Strip "-spot"/"-perp" suffix to compare venue roots (e.g. "OKX-spot" vs "OKX-perp" = same root "OKX")
+    const venueRoot = (v) => String(v || '').replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();
     const candidates = recentAll
       .filter(s => ['detected', 'alerted'].includes(s.status))
-      .filter(s => Number(s.confirmed_exchanges || 0) >= minConfirmed)
+      .filter(s => {
+        const sameVenue = venueRoot(s.buy_exchange) === venueRoot(s.sell_exchange) && venueRoot(s.buy_exchange) !== '';
+        const required = sameVenue ? 1 : minConfirmedCross;
+        return Number(s.confirmed_exchanges || 0) >= required;
+      })
       .slice(0, maxSignals);
 
     // Today's realized PnL from closed trades
