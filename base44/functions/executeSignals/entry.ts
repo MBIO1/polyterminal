@@ -76,16 +76,20 @@ function checkGates({ signal, config, todayPnl, openPositions }) {
   const now = Date.now();
   if (config.halt_until_ts && config.halt_until_ts > now) reasons.push('halt_active');
 
-  // Edge threshold: signal.net_edge_bps is ALREADY fee-adjusted by the droplet
-  // (raw_spread minus 4 × taker_fee_bps). So the executor gate is the pure
-  // profit floor we require above zero. Use per-asset config values directly.
+  // Edge threshold: RECOMPUTE net edge using the live config fee model, so the
+  // executor is the source of truth (droplet may have used a different fee constant).
+  // recomputed_net_edge_bps = raw_spread_bps - 4 × taker_fee_bps_per_leg
+  // Then we require this to exceed a per-asset minimum PROFIT FLOOR above zero.
   const asset = signal.asset || 'Other';
+  const perLegBps = Number(config.taker_fee_bps_per_leg ?? 2);
+  const rawBps = Number(signal.raw_spread_bps || 0);
+  const recomputedNetBps = rawBps - 4 * perLegBps;
   const minEdge =
     asset === 'BTC' ? Number(config.btc_min_edge_bps || 5) :
     asset === 'ETH' ? Number(config.eth_min_edge_bps || 5) :
     Math.min(Number(config.btc_min_edge_bps || 5), Number(config.eth_min_edge_bps || 5));
-  if (Number(signal.net_edge_bps || 0) < minEdge) {
-    reasons.push(`edge_below_min(${signal.net_edge_bps}<${minEdge})`);
+  if (recomputedNetBps < minEdge) {
+    reasons.push(`edge_below_min(raw=${rawBps.toFixed(1)},net=${recomputedNetBps.toFixed(1)}<${minEdge})`);
   }
 
   // Daily drawdown cap
@@ -121,16 +125,13 @@ function checkGates({ signal, config, todayPnl, openPositions }) {
     signal_id: signal.id,
     pair: signal.pair,
     asset,
-    net_edge_bps: signal.net_edge_bps,
+    raw_spread_bps: rawBps,
+    droplet_net_edge_bps: signal.net_edge_bps,
+    recomputed_net_edge_bps: recomputedNetBps.toFixed(2),
+    perLegBps_used: perLegBps,
     minEdge_used: minEdge,
     fillable_size_usd: signal.fillable_size_usd,
     minFill_used: minFill,
-    config_btc_min_edge_bps: config.btc_min_edge_bps,
-    config_eth_min_edge_bps: config.eth_min_edge_bps,
-    config_min_fillable_usd: config.min_fillable_usd,
-    bot_running: config.bot_running,
-    kill_switch_active: config.kill_switch_active,
-    paper_trading: config.paper_trading,
     reasons,
   });
   return { allowed: reasons.length === 0, reasons };
