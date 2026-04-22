@@ -15,6 +15,7 @@ import {
   ClipboardCheck,
   Radio,
   LineChart,
+  Scale,
 } from 'lucide-react';
 
 const navItems = [
@@ -27,6 +28,7 @@ const navItems = [
   { path: '/trades', icon: History, label: 'Trades' },
   { path: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
   { path: '/positions', icon: Activity, label: 'Live Positions' },
+  { path: '/rebalance', icon: Scale, label: 'Rebalance' },
   { path: '/daily', icon: CalendarDays, label: 'Daily Summary' },
   { path: '/exceptions', icon: AlertTriangle, label: 'Exceptions' },
   { path: '/bybit', icon: Plug, label: 'Bybit' },

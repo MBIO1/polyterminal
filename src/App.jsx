@@ -20,6 +20,7 @@ import ArbSop100 from '@/pages/ArbSop100';
 import ArbSignals from '@/pages/ArbSignals';
 import ArbBotAnalytics from '@/pages/ArbBotAnalytics';
 import ArbSignalMonitor from '@/pages/ArbSignalMonitor';
+import ArbRebalance from '@/pages/ArbRebalance';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -56,6 +57,7 @@ const AuthenticatedApp = () => {
         <Route path="/sop100" element={<ArbSop100 />} />
         <Route path="/signals" element={<ArbSignals />} />
         <Route path="/monitor" element={<ArbSignalMonitor />} />
+        <Route path="/rebalance" element={<ArbRebalance />} />
         <Route path="/bot-analytics" element={<ArbBotAnalytics />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
