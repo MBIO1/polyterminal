@@ -7,6 +7,7 @@ import Section from '@/components/arb/Section';
 import StatTile from '@/components/arb/StatTile';
 import StatusBadge from '@/components/arb/StatusBadge';
 import EmptyState from '@/components/arb/EmptyState';
+import RecentSignalsStream from '@/components/arb/RecentSignalsStream';
 import { fmtUSD } from '@/lib/arbMath';
 
 function timeAgo(ts) {
@@ -164,6 +165,13 @@ export default function ArbSignalMonitor() {
             </table>
           </div>
         )}
+      </Section>
+
+      <Section
+        title="Recent Signals (all statuses)"
+        subtitle="Live stream of the last 30 signals — executed, rejected, and pending — refreshed every 2s"
+      >
+        <RecentSignalsStream />
       </Section>
     </div>
   );
