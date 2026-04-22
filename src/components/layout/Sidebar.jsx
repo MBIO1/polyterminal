@@ -16,6 +16,7 @@ import {
   Radio,
   LineChart,
   Scale,
+  Percent,
 } from 'lucide-react';
 
 const navItems = [
@@ -23,6 +24,7 @@ const navItems = [
   { path: '/config', icon: SlidersHorizontal, label: 'Config' },
   { path: '/scan', icon: Radar, label: 'Market Scan' },
   { path: '/signals', icon: Radio, label: 'Signal Feed' },
+  { path: '/funding', icon: Percent, label: 'Funding Capture' },
   { path: '/monitor', icon: Zap, label: 'Live Monitor' },
   { path: '/bot-analytics', icon: LineChart, label: 'Bot Analytics' },
   { path: '/trades', icon: History, label: 'Trades' },

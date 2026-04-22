@@ -62,11 +62,6 @@
       "default": 500,
       "description": "Minimum fillable liquidity in USD for executor gate"
     },
-    "taker_fee_bps_per_leg": {
-      "type": "number",
-      "default": 5,
-      "description": "Taker fee in BPS per leg. MUST match droplet TAKER_FEE_BPS. Round-trip cost = 4 \u00d7 this value (entry+exit on both legs). Realistic retail: OKX 5-8 bps, Bybit 5.5-10 bps. VIP0: 8 bps. VIP3+: 3-4 bps."
-    },
     "spot_maker_fee": {
       "type": "number",
       "default": 0.0002
@@ -103,6 +98,31 @@
     "halt_until_ts": {
       "type": "number",
       "default": 0
+    },
+    "funding_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Enable funding-rate capture strategy"
+    },
+    "funding_min_apr_bps": {
+      "type": "number",
+      "default": 1000,
+      "description": "Minimum annualized funding rate to enter (bps, 1000 = 10% APR)"
+    },
+    "funding_exit_apr_bps": {
+      "type": "number",
+      "default": 500,
+      "description": "Exit when funding drops below this APR (bps, 500 = 5% APR)"
+    },
+    "funding_exit_on_flip": {
+      "type": "boolean",
+      "default": true,
+      "description": "Exit immediately if funding sign flips against us"
+    },
+    "funding_max_position_usd": {
+      "type": "number",
+      "default": 200,
+      "description": "Max USD per funding position (small capital safety)"
     }
   },
   "required": [],

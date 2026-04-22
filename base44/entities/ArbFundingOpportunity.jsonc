@@ -1,0 +1,61 @@
+{
+  "name": "ArbFundingOpportunity",
+  "type": "object",
+  "description": "Snapshot of funding rates across venues + pairs. Written by scanFunding every 5 min. Positive annualized_apr_bps = short perp earns funding; negative = long perp earns.",
+  "properties": {
+    "snapshot_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "venue": {
+      "type": "string",
+      "description": "OKX | Bybit"
+    },
+    "pair": {
+      "type": "string",
+      "description": "e.g. BTC-USDT"
+    },
+    "asset": {
+      "type": "string"
+    },
+    "funding_rate": {
+      "type": "number",
+      "description": "Raw funding rate (decimal, per interval)"
+    },
+    "funding_interval_hours": {
+      "type": "number",
+      "default": 8,
+      "description": "Hours per funding cycle (8 for OKX/Bybit)"
+    },
+    "annualized_apr_bps": {
+      "type": "number",
+      "description": "Annualized funding rate in bps (positive = short perp earns)"
+    },
+    "next_funding_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "mark_price": {
+      "type": "number"
+    },
+    "qualifies": {
+      "type": "boolean",
+      "description": "True if |apr| >= funding_min_apr_bps in config"
+    },
+    "direction": {
+      "type": "string",
+      "enum": [
+        "short_perp",
+        "long_perp"
+      ],
+      "description": "Which side earns the funding"
+    }
+  },
+  "required": [
+    "snapshot_time",
+    "venue",
+    "pair",
+    "funding_rate",
+    "annualized_apr_bps"
+  ]
+}
