@@ -14,7 +14,7 @@ const STATS_URL = process.env.BASE44_STATS_URL;
 const HEARTBEAT_URL = process.env.BASE44_HEARTBEAT_URL;
 const TOKEN = process.env.BASE44_USER_TOKEN;
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT,ATOM-USDT,APT-USDT,SUI-USDT,ARB-USDT,OP-USDT,INJ-USDT,SEI-USDT,TIA-USDT').split(',');
-const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 3);
+const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 6);
 const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1000);
 const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 2000);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
@@ -92,12 +92,25 @@ function connectOKX() {
 
 // Bybit spot (separate WS endpoint)
 // Bybit spot uses orderbook.1 channel (tickers channel has no bid/ask fields)
+// Subscribes to pairs ONE AT A TIME so that a pair that doesn't exist on Bybit spot
+// (e.g. SEI, TIA, INJ listed on derivatives only) does NOT kill the batch subscription
+// and leave Bybit-spot feeds empty. Also logs topic-level errors from Bybit.
 function connectBybitSpot() {
   const venue = 'Bybit-spot';
   const ws = new WebSocket('wss://stream.bybit.com/v5/public/spot');
-  ws.on('open', () => ws.send(JSON.stringify({ op: 'subscribe', args: PAIRS.map(p => 'orderbook.1.' + p.replace('-', '')) })));
+  ws.on('open', () => {
+    for (const p of PAIRS) {
+      const topic = 'orderbook.1.' + p.replace('-', '');
+      ws.send(JSON.stringify({ op: 'subscribe', args: [topic] }));
+    }
+  });
   ws.on('message', raw => {
     const msg = JSON.parse(raw);
+    // Log subscription failures per-topic so we can see which pairs are not on Bybit spot
+    if (msg.op === 'subscribe' && msg.success === false) {
+      console.error(venue + ' subscribe failed:', msg.ret_msg || msg.retMsg || JSON.stringify(msg));
+      return;
+    }
     if (!msg.topic || !msg.data) return;
     const sym = msg.topic.split('.')[2];
     const pair = PAIRS.find(p => p.replace('-', '') === sym);
@@ -127,9 +140,19 @@ function connectBybitSpot() {
 function bybitTickerWS(kind, url) {
   const venue = 'Bybit-' + kind;
   const ws = new WebSocket(url);
-  ws.on('open', () => ws.send(JSON.stringify({ op: 'subscribe', args: PAIRS.map(p => 'tickers.' + p.replace('-', '')) })));
+  // Subscribe per-topic to survive individual pair errors (same as Bybit spot).
+  ws.on('open', () => {
+    for (const p of PAIRS) {
+      const topic = 'tickers.' + p.replace('-', '');
+      ws.send(JSON.stringify({ op: 'subscribe', args: [topic] }));
+    }
+  });
   ws.on('message', raw => {
     const msg = JSON.parse(raw);
+    if (msg.op === 'subscribe' && msg.success === false) {
+      console.error(venue + ' subscribe failed:', msg.ret_msg || msg.retMsg || JSON.stringify(msg));
+      return;
+    }
     if (!msg.topic || !msg.data) return;
     const sym = msg.topic.split('.')[1];
     const pair = PAIRS.find(p => p.replace('-', '') === sym);
