@@ -64,8 +64,8 @@
     },
     "taker_fee_bps_per_leg": {
       "type": "number",
-      "default": 2,
-      "description": "Per-leg taker fee in bps. MUST match the droplet's TAKER_FEE_BPS env var. 4 legs per round-trip (entry spot + entry perp + exit spot + exit perp)."
+      "default": 5,
+      "description": "Taker fee in BPS per leg. MUST match droplet TAKER_FEE_BPS. Round-trip cost = 4 \u00d7 this value (entry+exit on both legs). Realistic retail: OKX 5-8 bps, Bybit 5.5-10 bps. VIP0: 8 bps. VIP3+: 3-4 bps."
     },
     "spot_maker_fee": {
       "type": "number",

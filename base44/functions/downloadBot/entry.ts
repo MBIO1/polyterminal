@@ -18,7 +18,11 @@ const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 4);
 const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1000);
 const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 250);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
-const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 2); // ~2 bps per leg (maker execution on OKX/Bybit)
+// CRITICAL: must equal ArbConfig.taker_fee_bps_per_leg in Base44. Default 5 bps = realistic
+// retail taker rate on OKX/Bybit spot+perp. Signals assume 4-leg round-trip cost = 4×this.
+// A 10 bps raw spread only yields net edge of 10 - 4×5 = -10 bps (i.e. loss) — so bot will
+// correctly reject it. Only true opportunities (> 20 bps raw) survive.
+const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 5);
 const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 60000);
 // Cross-venue confirmation: the OTHER venue's basis must be in the SAME direction
 // and at least this fraction of the primary venue's basis to earn confirmed_exchanges=2.
