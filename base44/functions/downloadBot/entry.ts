@@ -19,6 +19,10 @@ const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 2000);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
 const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 2); // ~2 bps per leg (maker execution on OKX/Bybit)
 const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 60000);
+// Cross-venue confirmation: the OTHER venue's basis must be in the SAME direction
+// and at least this fraction of the primary venue's basis to earn confirmed_exchanges=2.
+// Without confirmation the signal is stamped 1 (and the executor will reject it).
+const CONFIRM_MIN_RATIO = Number(process.env.CONFIRM_MIN_RATIO || 0.5);
 
 if (!INGEST_URL || !TOKEN) {
   console.error('Missing BASE44_INGEST_URL or BASE44_USER_TOKEN in .env');
@@ -145,6 +149,19 @@ function bybitTickerWS(kind, url) {
 
 function connectBybitPerp() { bybitTickerWS('perp', 'wss://stream.bybit.com/v5/public/linear'); }
 
+// Compute mid-based basis for a venue: (perp_mid - spot_mid) / spot_mid, in bps.
+// Positive = contango, negative = backwardation. Returns null if books are missing/stale.
+function venueBasisBps(venue, pair, now) {
+  const spot = books[venue + '-spot'][pair];
+  const perp = books[venue + '-perp'][pair];
+  if (!spot || !perp) return null;
+  if (now - spot.ts > MAX_SIGNAL_AGE_MS || now - perp.ts > MAX_SIGNAL_AGE_MS) return null;
+  const spotMid = (spot.bid + spot.ask) / 2;
+  const perpMid = (perp.bid + perp.ask) / 2;
+  if (!spotMid) return null;
+  return ((perpMid - spotMid) / spotMid) * 10000;
+}
+
 // Bidirectional basis evaluation (contango + backwardation).
 // CONTANGO (perp > spot): long spot / short perp  -> buy spot.ask, sell perp.bid
 // BACKWARDATION (spot > perp): short spot / long perp -> buy perp.ask, sell spot.bid (margin-short the spot leg)
@@ -163,20 +180,39 @@ function evaluate(pair) {
     const backwardBps = ((spot.bid - perp.ask) / perp.ask) * 10000;
 
     // Pick the larger of the two opportunities
-    let rawSpreadBps, buyVenue, sellVenue, buyPx, sellPx, buyDepth, sellDepth, notes;
+    let rawSpreadBps, buyVenue, sellVenue, buyPx, sellPx, buyDepth, sellDepth, notes, direction;
     if (contangoBps >= backwardBps) {
       rawSpreadBps = contangoBps;
       buyVenue = venue + '-spot'; sellVenue = venue + '-perp';
       buyPx = spot.ask; sellPx = perp.bid;
       buyDepth = spot.askSize; sellDepth = perp.bidSize;
       notes = 'basis carry: long spot / short perp (contango)';
+      direction = 'contango';
     } else {
       rawSpreadBps = backwardBps;
       buyVenue = venue + '-perp'; sellVenue = venue + '-spot';
       buyPx = perp.ask; sellPx = spot.bid;
       buyDepth = perp.askSize; sellDepth = spot.bidSize;
       notes = 'reverse basis: long perp / short spot (backwardation)';
+      direction = 'backwardation';
     }
+
+    // Cross-venue confirmation: compare this venue's basis to the OTHER venue's basis.
+    // Confirmed iff the other venue's basis is in the SAME direction (sign) AND
+    // its magnitude is >= CONFIRM_MIN_RATIO × this venue's magnitude.
+    const otherVenue = venue === 'OKX' ? 'Bybit' : 'OKX';
+    const thisBasis = direction === 'contango' ? contangoBps : -backwardBps; // signed
+    const otherBasis = venueBasisBps(otherVenue, pair, now);
+    let confirmedExchanges = 1;
+    let confirmNote = otherBasis === null
+      ? 'unconfirmed (' + otherVenue + ' book stale/missing)'
+      : 'unconfirmed (' + otherVenue + '=' + otherBasis.toFixed(2) + 'bps)';
+    if (otherBasis !== null && Math.sign(otherBasis) === Math.sign(thisBasis) &&
+        Math.abs(otherBasis) >= CONFIRM_MIN_RATIO * Math.abs(thisBasis)) {
+      confirmedExchanges = 2;
+      confirmNote = 'confirmed by ' + otherVenue + ' (' + otherBasis.toFixed(2) + 'bps vs ' + thisBasis.toFixed(2) + 'bps)';
+    }
+    notes = notes + ' | ' + confirmNote;
 
     // Round-trip cost: 4 legs (spot entry + perp entry + spot exit + perp exit)
     const netEdgeBps = rawSpreadBps - 4 * TAKER_FEE_BPS;
@@ -209,9 +245,9 @@ function evaluate(pair) {
       raw_spread_bps: rawSpreadBps, net_edge_bps: netEdgeBps,
       buy_depth_usd: buyDepth, sell_depth_usd: sellDepth,
       fillable_size_usd: fillable, signal_age_ms: signalAgeMs,
-      exchange_latency_ms: 0, confirmed_exchanges: 2,
+      exchange_latency_ms: 0, confirmed_exchanges: confirmedExchanges,
       signal_time: new Date().toISOString(),
-      alert: netEdgeBps >= ALERT_EDGE_BPS,
+      alert: netEdgeBps >= ALERT_EDGE_BPS && confirmedExchanges === 2,
       notes: notes,
     });
   }
@@ -267,7 +303,7 @@ setInterval(() => {
   resetStats();
 }, HEARTBEAT_MS);
 
-console.log('Arb BASIS-CARRY bot v2 (BIDIRECTIONAL) starting - pairs: ' + PAIRS.join(', ') + ' - min edge: ' + MIN_NET_EDGE_BPS + 'bps - min fillable: $' + MIN_FILLABLE_USD + ' - max age: ' + MAX_SIGNAL_AGE_MS + 'ms');
+console.log('Arb BASIS-CARRY bot v3 (BIDIRECTIONAL + CROSS-VENUE CONFIRMATION) starting - pairs: ' + PAIRS.join(', ') + ' - min edge: ' + MIN_NET_EDGE_BPS + 'bps - confirm ratio: ' + CONFIRM_MIN_RATIO + ' - min fillable: $' + MIN_FILLABLE_USD + ' - max age: ' + MAX_SIGNAL_AGE_MS + 'ms');
 connectOKX(); connectBybitSpot(); connectBybitPerp(); refreshThresholds();
 `;
 
