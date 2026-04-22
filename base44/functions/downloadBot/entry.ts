@@ -14,9 +14,9 @@ const STATS_URL = process.env.BASE44_STATS_URL;
 const HEARTBEAT_URL = process.env.BASE44_HEARTBEAT_URL;
 const TOKEN = process.env.BASE44_USER_TOKEN;
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT,ATOM-USDT,APT-USDT,SUI-USDT,ARB-USDT,OP-USDT,INJ-USDT,SEI-USDT,TIA-USDT').split(',');
-const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 6);
+const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 4);
 const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1000);
-const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 500);
+const MIN_FILLABLE_USD = Number(process.env.MIN_FILLABLE_USD || 250);
 const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 15);
 const TAKER_FEE_BPS = Number(process.env.TAKER_FEE_BPS || 2); // ~2 bps per leg (maker execution on OKX/Bybit)
 const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 60000);
@@ -33,8 +33,8 @@ if (!INGEST_URL || !TOKEN) {
 const pairThresholds = Object.fromEntries(PAIRS.map(p => [p, MIN_NET_EDGE_BPS]));
 
 // books[venue][pair] = { bid, ask, bidSize, askSize, ts }
-// venues: OKX-spot, OKX-perp, Bybit-spot, Bybit-perp
-const books = { 'OKX-spot': {}, 'OKX-perp': {}, 'Bybit-spot': {}, 'Bybit-perp': {} };
+// venues: OKX-spot, OKX-perp, Bybit-spot, Bybit-perp, Binance-spot, Binance-perp
+const books = { 'OKX-spot': {}, 'OKX-perp': {}, 'Bybit-spot': {}, 'Bybit-perp': {}, 'Binance-spot': {}, 'Binance-perp': {} };
 const recentlyPosted = new Map();
 const stats = {
   evaluations: 0, rejected_edge: 0, rejected_fillable: 0,
@@ -183,6 +183,43 @@ function bybitTickerWS(kind, url) {
 
 function connectBybitPerp() { bybitTickerWS('perp', 'wss://stream.bybit.com/v5/public/linear'); }
 
+// Binance spot + perp (USD-M futures).
+// Uses the combined-stream endpoint with @bookTicker (pushes top-of-book on every change).
+// Spot:  wss://stream.binance.com:9443/stream?streams=btcusdt@bookTicker/ethusdt@bookTicker/...
+// Perp:  wss://fstream.binance.com/stream?streams=btcusdt@bookTicker/...
+function binanceWS(kind, baseUrl) {
+  const venue = 'Binance-' + kind;
+  const streams = PAIRS.map(p => p.replace('-', '').toLowerCase() + '@bookTicker').join('/');
+  const url = baseUrl + '/stream?streams=' + streams;
+  const ws = new WebSocket(url);
+  ws.on('open', () => console.log(venue + ' WS connected (' + PAIRS.length + ' pairs)'));
+  ws.on('message', raw => {
+    const msg = JSON.parse(raw);
+    const d = msg.data;
+    if (!d || !d.s) return;
+    const sym = d.s; // e.g. BTCUSDT
+    const pair = PAIRS.find(p => p.replace('-', '') === sym);
+    if (!pair) return;
+    const bid = Number(d.b);
+    const ask = Number(d.a);
+    const bidQty = Number(d.B);
+    const askQty = Number(d.A);
+    if (!bid || !ask) return;
+    books[venue][pair] = {
+      bid, ask,
+      bidSize: bidQty * bid,
+      askSize: askQty * ask,
+      ts: Date.now(),
+    };
+    evaluate(pair);
+  });
+  ws.on('close', () => setTimeout(() => binanceWS(kind, baseUrl), 2000));
+  ws.on('error', e => console.error(venue + ' WS:', e.message));
+}
+
+function connectBinanceSpot() { binanceWS('spot', 'wss://stream.binance.com:9443'); }
+function connectBinancePerp() { binanceWS('perp', 'wss://fstream.binance.com'); }
+
 // Compute mid-based basis for a venue: (perp_mid - spot_mid) / spot_mid, in bps.
 // Positive = contango, negative = backwardation. Returns null if books are missing/stale.
 function venueBasisBps(venue, pair, now) {
@@ -202,7 +239,7 @@ function venueBasisBps(venue, pair, now) {
 function evaluate(pair) {
   const now = Date.now();
   stats.evaluations++;
-  const venues = ['OKX', 'Bybit'];
+  const venues = ['OKX', 'Bybit', 'Binance'];
   for (const venue of venues) {
     const spot = books[venue + '-spot'][pair];
     const perp = books[venue + '-perp'][pair];
@@ -231,22 +268,28 @@ function evaluate(pair) {
       direction = 'backwardation';
     }
 
-    // Cross-venue confirmation: compare this venue's basis to the OTHER venue's basis.
-    // Confirmed iff the other venue's basis is in the SAME direction (sign) AND
-    // its magnitude is >= CONFIRM_MIN_RATIO × this venue's magnitude.
-    const otherVenue = venue === 'OKX' ? 'Bybit' : 'OKX';
+    // Cross-venue confirmation: compare this venue's basis against ALL other venues.
+    // Each other venue whose basis matches sign and magnitude adds to the count.
     const thisBasis = direction === 'contango' ? contangoBps : -backwardBps; // signed
-    const otherBasis = venueBasisBps(otherVenue, pair, now);
+    const otherVenues = venues.filter(v => v !== venue);
     let confirmedExchanges = 1;
-    let confirmNote = otherBasis === null
-      ? 'unconfirmed (' + otherVenue + ' book stale/missing)'
-      : 'unconfirmed (' + otherVenue + '=' + otherBasis.toFixed(2) + 'bps)';
-    if (otherBasis !== null && Math.sign(otherBasis) === Math.sign(thisBasis) &&
-        Math.abs(otherBasis) >= CONFIRM_MIN_RATIO * Math.abs(thisBasis)) {
-      confirmedExchanges = 2;
-      confirmNote = 'confirmed by ' + otherVenue + ' (' + otherBasis.toFixed(2) + 'bps vs ' + thisBasis.toFixed(2) + 'bps)';
+    const confirmParts = [];
+    for (const other of otherVenues) {
+      const otherBasis = venueBasisBps(other, pair, now);
+      if (otherBasis === null) {
+        confirmParts.push(other + '=stale');
+        continue;
+      }
+      const matches = Math.sign(otherBasis) === Math.sign(thisBasis) &&
+        Math.abs(otherBasis) >= CONFIRM_MIN_RATIO * Math.abs(thisBasis);
+      if (matches) {
+        confirmedExchanges++;
+        confirmParts.push(other + '✓' + otherBasis.toFixed(1));
+      } else {
+        confirmParts.push(other + '=' + otherBasis.toFixed(1));
+      }
     }
-    notes = notes + ' | ' + confirmNote;
+    notes = notes + ' | confirms=' + confirmedExchanges + ' [' + confirmParts.join(',') + ']';
 
     // Round-trip cost: 4 legs (spot entry + perp entry + spot exit + perp exit)
     const netEdgeBps = rawSpreadBps - 4 * TAKER_FEE_BPS;
@@ -287,31 +330,27 @@ function evaluate(pair) {
     });
   }
 
-  // ---------- Cross-venue SPOT/SPOT scanner (SGP1) ----------
-  // Buy on the cheaper venue's ask, sell on the richer venue's bid (both SPOT).
-  // Uses the same fee model (4 legs: buy + sell + eventual unwind x2). Signals are
-  // tagged with strategy note so executeSignals still routes them as "Cross-venue Spot Spread".
-  const okxSpot = books['OKX-spot'][pair];
-  const bybitSpot = books['Bybit-spot'][pair];
-  if (okxSpot && bybitSpot) {
-    const stale = now - okxSpot.ts > MAX_SIGNAL_AGE_MS || now - bybitSpot.ts > MAX_SIGNAL_AGE_MS;
-    if (!stale) {
-      // Two directions
-      const dir1Bps = ((bybitSpot.bid - okxSpot.ask) / okxSpot.ask) * 10000; // buy OKX, sell Bybit
-      const dir2Bps = ((okxSpot.bid - bybitSpot.ask) / bybitSpot.ask) * 10000; // buy Bybit, sell OKX
+  // ---------- Cross-venue SPOT/SPOT scanner ----------
+  // Scan ALL venue pairs (OKX/Bybit/Binance). For each pair, find the cheapest ask and
+  // richest bid. Buy on cheap venue, sell on rich venue. Signals are tagged "Cross-venue Spot Spread".
+  const spotVenues = [
+    { name: 'OKX-spot', book: books['OKX-spot'][pair] },
+    { name: 'Bybit-spot', book: books['Bybit-spot'][pair] },
+    { name: 'Binance-spot', book: books['Binance-spot'][pair] },
+  ].filter(v => v.book && now - v.book.ts <= MAX_SIGNAL_AGE_MS);
 
-      let rawBps, buyVenue, sellVenue, buyPx, sellPx, buyDepth, sellDepth;
-      if (dir1Bps >= dir2Bps) {
-        rawBps = dir1Bps;
-        buyVenue = 'OKX-spot'; sellVenue = 'Bybit-spot';
-        buyPx = okxSpot.ask; sellPx = bybitSpot.bid;
-        buyDepth = okxSpot.askSize; sellDepth = bybitSpot.bidSize;
-      } else {
-        rawBps = dir2Bps;
-        buyVenue = 'Bybit-spot'; sellVenue = 'OKX-spot';
-        buyPx = bybitSpot.ask; sellPx = okxSpot.bid;
-        buyDepth = bybitSpot.askSize; sellDepth = okxSpot.bidSize;
-      }
+  if (spotVenues.length >= 2) {
+    // Cheapest ask (where we'd buy) and richest bid (where we'd sell)
+    let cheapest = spotVenues[0], richest = spotVenues[0];
+    for (const v of spotVenues) {
+      if (v.book.ask < cheapest.book.ask) cheapest = v;
+      if (v.book.bid > richest.book.bid) richest = v;
+    }
+    if (cheapest.name !== richest.name) {
+      const rawBps = ((richest.book.bid - cheapest.book.ask) / cheapest.book.ask) * 10000;
+      const buyVenue = cheapest.name, sellVenue = richest.name;
+      const buyPx = cheapest.book.ask, sellPx = richest.book.bid;
+      const buyDepth = cheapest.book.askSize, sellDepth = richest.book.bidSize;
       const netBps = rawBps - 4 * TAKER_FEE_BPS;
 
       if (netBps > stats.best_edge_seen_bps) {
@@ -324,7 +363,7 @@ function evaluate(pair) {
       const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
       if (netBps >= threshold) {
         const fillable = Math.min(buyDepth, sellDepth);
-        const signalAgeMs = now - Math.min(okxSpot.ts, bybitSpot.ts);
+        const signalAgeMs = now - Math.min(cheapest.book.ts, richest.book.ts);
         const key = pair + '|' + buyVenue + '|' + sellVenue;
         const last = recentlyPosted.get(key);
         const isDupe = last && now - last < 20000;
@@ -338,10 +377,11 @@ function evaluate(pair) {
             raw_spread_bps: rawBps, net_edge_bps: netBps,
             buy_depth_usd: buyDepth, sell_depth_usd: sellDepth,
             fillable_size_usd: fillable, signal_age_ms: signalAgeMs,
-            exchange_latency_ms: 0, confirmed_exchanges: 2, // both venues directly observed
+            exchange_latency_ms: 0,
+            confirmed_exchanges: spotVenues.length, // how many spot venues were live
             signal_time: new Date().toISOString(),
             alert: netBps >= ALERT_EDGE_BPS,
-            notes: 'cross-venue spot/spot (SGP1 bidirectional)',
+            notes: 'cross-venue spot/spot (' + spotVenues.length + '-venue scan)',
           });
         } else if (isDupe) stats.rejected_dedupe++;
         else if (fillable < MIN_FILLABLE_USD) stats.rejected_fillable++;
@@ -430,7 +470,7 @@ setInterval(() => {
 }, HEARTBEAT_MS);
 
 console.log('Arb BASIS-CARRY bot v3 (BIDIRECTIONAL + CROSS-VENUE CONFIRMATION) starting - pairs: ' + PAIRS.join(', ') + ' - min edge: ' + MIN_NET_EDGE_BPS + 'bps - confirm ratio: ' + CONFIRM_MIN_RATIO + ' - min fillable: $' + MIN_FILLABLE_USD + ' - max age: ' + MAX_SIGNAL_AGE_MS + 'ms');
-connectOKX(); connectBybitSpot(); connectBybitPerp(); refreshThresholds();
+connectOKX(); connectBybitSpot(); connectBybitPerp(); connectBinanceSpot(); connectBinancePerp(); refreshThresholds();
 `;
 
 Deno.serve(() => {
