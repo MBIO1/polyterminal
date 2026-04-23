@@ -23,6 +23,7 @@ import ArbSignalMonitor from '@/pages/ArbSignalMonitor';
 import ArbRebalance from '@/pages/ArbRebalance';
 import ArbFunding from '@/pages/ArbFunding';
 import TradeMonitor from '@/pages/TradeMonitor';
+import DropletHealthCheck from '@/pages/DropletHealthCheck';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -63,6 +64,7 @@ const AuthenticatedApp = () => {
         <Route path="/funding" element={<ArbFunding />} />
         <Route path="/bot-analytics" element={<ArbBotAnalytics />} />
         <Route path="/trade-monitor" element={<TradeMonitor />} />
+        <Route path="/droplet-health" element={<DropletHealthCheck />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

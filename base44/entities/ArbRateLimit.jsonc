@@ -1,0 +1,27 @@
+{
+  "name": "ArbRateLimit",
+  "fields": {
+    "limit_key": {
+      "type": "string",
+      "required": true,
+      "description": "Unique key for rate limit (e.g., 'ip:1.2.3.4:executeSignals')"
+    },
+    "request_count": {
+      "type": "number",
+      "required": true,
+      "default": 0,
+      "description": "Number of requests in current window"
+    },
+    "window_start": {
+      "type": "date",
+      "required": true,
+      "description": "Start of current rate limit window"
+    },
+    "last_request": {
+      "type": "date",
+      "required": true,
+      "description": "Timestamp of last request"
+    }
+  },
+  "indexes": ["limit_key", "window_start"]
+}

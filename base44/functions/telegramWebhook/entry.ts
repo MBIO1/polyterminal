@@ -31,21 +31,19 @@ async function sendReply(chatId, text) {
 }
 
 async function handleStatus(base44, chatId) {
-  const configs = await base44.asServiceRole.entities.BotConfig.list();
+  const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
   const config = configs[0] || {};
-  const trades = await base44.asServiceRole.entities.BotTrade.list('-created_date', 500);
+  const trades = await base44.asServiceRole.entities.ArbTrade.list('-created_date', 500);
 
-  const startBal = config.starting_balance || 1000;
-  const totalPnl = trades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-  const portfolio = startBal + totalPnl;
-  const wins = trades.filter(t => t.outcome === 'win').length;
-  const losses = trades.filter(t => t.outcome === 'loss').length;
-  const pending = trades.filter(t => t.outcome === 'pending').length;
+  const totalCap = Number(config.total_capital || 0);
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const todayTrades = trades.filter(t => t.trade_date === todayStr);
+  const todayPnl = todayTrades.reduce((s, t) => s + Number(t.net_pnl || 0), 0);
+  const totalPnl = trades.reduce((s, t) => s + Number(t.net_pnl || 0), 0);
+  
+  const wins = trades.filter(t => Number(t.net_pnl || 0) > 0).length;
+  const losses = trades.filter(t => Number(t.net_pnl || 0) < 0).length;
   const winRate = (wins + losses) > 0 ? ((wins / (wins + losses)) * 100).toFixed(1) : '0.0';
-
-  const todayUTC = new Date(); todayUTC.setUTCHours(0, 0, 0, 0);
-  const todayTrades = trades.filter(t => new Date(t.created_date).getTime() >= todayUTC.getTime());
-  const todayPnl = todayTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
 
   const haltUntil = config.halt_until_ts || 0;
   const isHalted = config.kill_switch_active || haltUntil > Date.now();
@@ -57,11 +55,10 @@ async function handleStatus(base44, chatId) {
 ${stateEmoji} <b>Bot Status: ${stateLabel}</b>
 ━━━━━━━━━━━━━━━━━━━━━━━━
 <b>Mode:</b> ${modeLabel}
-<b>Portfolio:</b> $${portfolio.toFixed(2)}
-<b>Total P&L:</b> ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)} (${((totalPnl/startBal)*100).toFixed(1)}%)
+<b>Total Capital:</b> $${totalCap.toLocaleString()}
+<b>Total P&L:</b> ${totalPnl >= 0 ? '+' : ''}$${totalPnl.toFixed(2)}
 <b>Today's P&L:</b> ${todayPnl >= 0 ? '+' : ''}$${todayPnl.toFixed(2)}
 <b>Win Rate:</b> ${winRate}% (${wins}W / ${losses}L)
-<b>Pending:</b> ${pending} trades
 <b>Total Trades:</b> ${trades.length}
 ${isHalted && haltUntil > Date.now() ? `<b>Halted Until:</b> ${new Date(haltUntil).toLocaleString()}` : ''}
 ━━━━━━━━━━━━━━━━━━━━━━━━
@@ -72,16 +69,16 @@ Use /pause, /resume, /stats, /help
 }
 
 async function handlePause(base44, chatId) {
-  const configs = await base44.asServiceRole.entities.BotConfig.list();
-  if (!configs[0]) return sendReply(chatId, '❌ BotConfig not found');
-  await base44.asServiceRole.entities.BotConfig.update(configs[0].id, { bot_running: false });
+  const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
+  if (!configs[0]) return sendReply(chatId, '❌ ArbConfig not found');
+  await base44.asServiceRole.entities.ArbConfig.update(configs[0].id, { bot_running: false });
   await sendReply(chatId, '⏸ <b>Bot paused</b>\nNo new trades will be executed. Use /resume to restart.');
 }
 
 async function handleResume(base44, chatId) {
-  const configs = await base44.asServiceRole.entities.BotConfig.list();
-  if (!configs[0]) return sendReply(chatId, '❌ BotConfig not found');
-  await base44.asServiceRole.entities.BotConfig.update(configs[0].id, {
+  const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
+  if (!configs[0]) return sendReply(chatId, '❌ ArbConfig not found');
+  await base44.asServiceRole.entities.ArbConfig.update(configs[0].id, {
     bot_running: true,
     kill_switch_active: false,
     halt_until_ts: 0,
@@ -90,19 +87,19 @@ async function handleResume(base44, chatId) {
 }
 
 async function handleStats(base44, chatId) {
-  const trades = await base44.asServiceRole.entities.BotTrade.list('-created_date', 50);
+  const trades = await base44.asServiceRole.entities.ArbTrade.list('-created_date', 50);
   const last10 = trades.slice(0, 10);
-  const wins = trades.filter(t => t.outcome === 'win').length;
-  const losses = trades.filter(t => t.outcome === 'loss').length;
+  const wins = trades.filter(t => Number(t.net_pnl || 0) > 0).length;
+  const losses = trades.filter(t => Number(t.net_pnl || 0) < 0).length;
   const winRate = (wins + losses) > 0 ? ((wins / (wins + losses)) * 100).toFixed(1) : '0.0';
 
   const btcTrades = trades.filter(t => t.asset === 'BTC');
   const ethTrades = trades.filter(t => t.asset === 'ETH');
-  const btcPnl = btcTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
-  const ethPnl = ethTrades.reduce((s, t) => s + (t.pnl_usdc || 0), 0);
+  const btcPnl = btcTrades.reduce((s, t) => s + Number(t.net_pnl || 0), 0);
+  const ethPnl = ethTrades.reduce((s, t) => s + Number(t.net_pnl || 0), 0);
 
   const streakLine = last10.map(t =>
-    t.outcome === 'win' ? '🟢' : t.outcome === 'loss' ? '🔴' : '⚪'
+    Number(t.net_pnl || 0) > 0 ? '🟢' : Number(t.net_pnl || 0) < 0 ? '🔴' : '⚪'
   ).join('');
 
   const msg = `

@@ -1,0 +1,33 @@
+{
+  "name": "ArbFailure",
+  "fields": {
+    "failure_type": {
+      "type": "string",
+      "required": true,
+      "description": "Type of failure (execution_error, api_error, etc.)"
+    },
+    "details": {
+      "type": "string",
+      "description": "JSON details about the failure"
+    },
+    "timestamp": {
+      "type": "date",
+      "required": true,
+      "description": "When the failure occurred"
+    },
+    "resolved": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the failure has been resolved"
+    },
+    "resolved_at": {
+      "type": "date",
+      "description": "When the failure was resolved"
+    },
+    "resolved_by": {
+      "type": "string",
+      "description": "User who resolved the failure"
+    }
+  },
+  "indexes": ["failure_type", "timestamp", "resolved"]
+}

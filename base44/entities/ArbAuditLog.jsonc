@@ -1,0 +1,55 @@
+{
+  "name": "ArbAuditLog",
+  "fields": {
+    "event_type": {
+      "type": "string",
+      "required": true,
+      "description": "Type of event (TRADE_EXECUTED, SIGNAL_INGESTED, etc.)"
+    },
+    "severity": {
+      "type": "string",
+      "required": true,
+      "default": "INFO",
+      "description": "Severity level (DEBUG, INFO, WARN, ERROR, CRITICAL)"
+    },
+    "message": {
+      "type": "string",
+      "required": true,
+      "description": "Human-readable message"
+    },
+    "details": {
+      "type": "string",
+      "description": "JSON details about the event"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "User who triggered the event"
+    },
+    "ip_address": {
+      "type": "string",
+      "description": "IP address of the request"
+    },
+    "request_id": {
+      "type": "string",
+      "description": "Request correlation ID"
+    },
+    "entity_type": {
+      "type": "string",
+      "description": "Type of entity affected (ArbTrade, ArbSignal, etc.)"
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "ID of the affected entity"
+    },
+    "metadata": {
+      "type": "string",
+      "description": "Additional JSON metadata"
+    },
+    "timestamp": {
+      "type": "date",
+      "required": true,
+      "description": "When the event occurred"
+    }
+  },
+  "indexes": ["event_type", "severity", "timestamp", "user_id", "entity_type"]
+}

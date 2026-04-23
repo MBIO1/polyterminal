@@ -18,6 +18,7 @@ import {
   Scale,
   Percent,
   MonitorPlay,
+  HeartPulse,
 } from 'lucide-react';
 
 const navItems = [
@@ -29,6 +30,7 @@ const navItems = [
   { path: '/monitor', icon: Zap, label: 'Live Monitor' },
   { path: '/trade-monitor', icon: MonitorPlay, label: 'Trade Monitor' },
   { path: '/bot-analytics', icon: LineChart, label: 'Bot Analytics' },
+  { path: '/droplet-health', icon: HeartPulse, label: 'Droplet Health' },
   { path: '/trades', icon: History, label: 'Trades' },
   { path: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
   { path: '/positions', icon: Activity, label: 'Live Positions' },
