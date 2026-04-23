@@ -15,7 +15,7 @@ import SystemAuditPanel from '@/components/arb/SystemAuditPanel';
 import { fmtUSD, fmtBps, sumBy, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDashboard() {
-  const qOpts = { staleTime: 30_000, refetchOnWindowFocus: false };
+  const qOpts = { staleTime: 5_000, refetchOnWindowFocus: false };
   const { data: config } = useQuery({
     queryKey: ['arb-config'],
     queryFn: async () => (await base44.entities.ArbConfig.list('-created_date', 1))[0],
