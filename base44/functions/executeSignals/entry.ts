@@ -231,8 +231,8 @@ Deno.serve(async (req) => {
     // but still runs checkGates). Useful for the Live Signal Monitor "Force Execute" button.
     const forceSignalId = body.signal_id || null;
     // Signal TTL: any signal older than this at execution time is auto-expired.
-    // Prevents executing on stale prices (arb edges decay within seconds).
-    const signalTtlMs = Number(body.signal_ttl_ms || 30_000);
+    // 5 minutes default — signals arrive every few minutes so 30s was too tight.
+    const signalTtlMs = Number(body.signal_ttl_ms || 300_000);
 
     // Load config
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);

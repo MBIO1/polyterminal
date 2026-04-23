@@ -26,7 +26,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 // Trading floor — full alert fires above this.
 const TELEGRAM_ALERT_MIN_BPS = 20;
 // Near-miss floor — info-only alert for visibility into the signal stream on calm days.
-const TELEGRAM_NEAR_MISS_MIN_BPS = 12;
+const TELEGRAM_NEAR_MISS_MIN_BPS = 6;
 // Rate limit for near-miss pushes: one per pair per window (ms) to avoid spam.
 const NEAR_MISS_COOLDOWN_MS = 15 * 60 * 1000;
 const lastNearMissByPair = new Map();
@@ -42,21 +42,28 @@ async function pushTelegramAlert(signal, kind = 'full') {
   const ageMs = Number(signal.signal_age_ms || 0);
 
   const isNearMiss = kind === 'near_miss';
+  // Profit/loss context: edge > 0 after fees = potential profit. We mark each tier clearly.
+  const profitLabel = edge >= 20 ? '✅ TRADEABLE' : edge >= 10 ? '⚠️ NEAR-MISS' : '📊 MONITORING';
   const header = isNearMiss
-    ? `👀 <b>NEAR-MISS · ${edge.toFixed(1)} bps</b> <i>(below 20 bps floor — no trade)</i>`
-    : `${edge >= 40 ? '🚨🚨' : edge >= 25 ? '🚨' : '⚡'} <b>ARB SIGNAL · ${edge.toFixed(1)} bps</b>`;
+    ? `👀 <b>NEAR-MISS · ${edge.toFixed(1)} bps</b> <i>(below 20 bps floor — watching only)</i>\n${profitLabel}`
+    : `${edge >= 40 ? '🚨🚨' : edge >= 25 ? '🚨' : '⚡'} <b>ARB SIGNAL · ${edge.toFixed(1)} bps</b>\n${profitLabel}`;
+
+  // Fee model: net_edge = raw_spread - 4 legs × 2 bps taker fee
+  // Profitable if net_edge > 0 (already accounts for all trading fees)
+  const feesCost = 4 * 2; // 4 legs × 2 bps = 8 bps total fees
+  const profitExplain = edge >= 20
+    ? `💰 Est. profit: ~${(edge - feesCost).toFixed(1)} bps after fees on $${fill.toLocaleString()}`
+    : `⚠️ Edge ${edge.toFixed(1)} bps < 20 bps floor — NOT executed (fees = ${feesCost} bps)`;
 
   const text = [
     header,
     '━━━━━━━━━━━━━━━━━━━━━',
     `<b>Pair:</b> ${signal.pair}`,
     `<b>Route:</b> ${signal.buy_exchange} → ${signal.sell_exchange}`,
-    `<b>Buy:</b> ${Number(signal.buy_price).toFixed(4)}`,
-    `<b>Sell:</b> ${Number(signal.sell_price).toFixed(4)}`,
-    `<b>Raw spread:</b> ${raw.toFixed(2)} bps`,
-    `<b>Net edge:</b> <code>${edge.toFixed(2)} bps</code>`,
-    `<b>Fillable:</b> $${fill.toLocaleString()}`,
-    `<b>Age:</b> ${ageMs} ms`,
+    `<b>Buy @ </b><code>${Number(signal.buy_price).toFixed(4)}</code>  <b>Sell @ </b><code>${Number(signal.sell_price).toFixed(4)}</code>`,
+    `<b>Raw spread:</b> ${raw.toFixed(2)} bps  |  <b>Net edge:</b> <code>${edge.toFixed(2)} bps</code>`,
+    `<b>Fillable:</b> $${fill.toLocaleString()}  |  <b>Age:</b> ${ageMs} ms`,
+    profitExplain,
     signal.notes ? `<i>${signal.notes}</i>` : '',
   ].filter(Boolean).join('\n');
 
