@@ -238,14 +238,17 @@ export default function ArbDashboard() {
               { k: 'Max margin utilization', v: `${((config?.max_margin_utilization_pct || 0) * 100).toFixed(1)}%`, icon: TrendingUp },
               { k: 'BTC min edge', v: `${config?.btc_min_edge_bps || 0} bps`, icon: ArrowLeftRight },
               { k: 'ETH min edge', v: `${config?.eth_min_edge_bps || 0} bps`, icon: ArrowLeftRight },
-            ].map(({ k, v, icon: RiskIcon }) => (
+            ].map(({ k, v, icon }) => {
+              const Icon = icon;
+              return (
               <div key={k} className="flex items-center justify-between py-2 border-b border-border last:border-0">
                 <span className="flex items-center gap-2 text-muted-foreground">
-                  <RiskIcon className="w-3 h-3" /> {k}
+                  <Icon className="w-3 h-3" /> {k}
                 </span>
                 <span className="text-foreground font-semibold">{v}</span>
               </div>
-            ))}
+            );
+            })}
           </div>
         </Section>
       </div>
