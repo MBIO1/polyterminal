@@ -1,9 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
-import { TrendingUp, AlertTriangle, Activity, ArrowLeftRight, DollarSign, Percent, Camera, Download } from 'lucide-react';
-import html2canvas from 'html2canvas';
+import { TrendingUp, AlertTriangle, Activity, ArrowLeftRight, DollarSign, Percent } from 'lucide-react';
 import Section from '@/components/arb/Section';
 import StatTile from '@/components/arb/StatTile';
 import StatusBadge from '@/components/arb/StatusBadge';
@@ -16,34 +15,6 @@ import SystemAuditPanel from '@/components/arb/SystemAuditPanel';
 import { fmtUSD, fmtBps, sumBy, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDashboard() {
-  const dashboardRef = useRef(null);
-  const [isCapturing, setIsCapturing] = useState(false);
-
-  const handleCapture = async () => {
-    if (!dashboardRef.current) return;
-    setIsCapturing(true);
-    try {
-      const canvas = await html2canvas(dashboardRef.current, {
-        backgroundColor: '#0a0e18',
-        scale: 1.5,
-        useCORS: true,
-        allowTaint: true,
-        logging: false,
-      });
-      const link = document.createElement('a');
-      link.href = canvas.toDataURL('image/png');
-      link.download = `arb-dashboard-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-    } catch (e) {
-      console.error('Screenshot failed:', e);
-      alert('Failed to capture screenshot');
-    } finally {
-      setIsCapturing(false);
-    }
-  };
-
   // PERF: cap each query at a reasonable window and cache for 30s.
   // Previous: 500 trades + 500 transfers + 200 positions + 200 exceptions = 1400 rows,
   // re-fetched on every mount. Now we cap rows and cache — dashboard loads ~10× faster.
@@ -90,7 +61,7 @@ export default function ArbDashboard() {
   const netTransferImpact = sumBy(transfers, 'rebalance_impact_usd');
 
   return (
-    <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto space-y-6" ref={dashboardRef}>
+    <div className="p-4 md:p-6 lg:p-8 max-w-[1600px] mx-auto space-y-6">
       <header className="flex items-center justify-between gap-4 flex-wrap">
         <div>
           <h1 className="text-2xl font-bold text-foreground">Arbitrage Dashboard</h1>
@@ -98,32 +69,12 @@ export default function ArbDashboard() {
             {config?.paper_trading ? 'Paper Mode' : 'Live Mode'} · {trades.length} trades logged · {openPositions.length} open positions
           </p>
         </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={handleCapture}
-            disabled={isCapturing}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-lg border border-border bg-secondary/50 hover:bg-secondary disabled:opacity-50 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors"
-            title="Capture dashboard screenshot"
-          >
-            {isCapturing ? (
-              <>
-                <div className="w-3 h-3 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
-                Capturing...
-              </>
-            ) : (
-              <>
-                <Camera className="w-3.5 h-3.5" />
-                Screenshot
-              </>
-            )}
-          </button>
-          <div className="flex items-center gap-2">
-            <span className={`w-2 h-2 rounded-full ${config?.bot_running ? 'bg-accent animate-pulse-glow' : 'bg-muted-foreground'}`} />
-            <span className="text-xs font-mono text-muted-foreground">
-              {config?.bot_running ? 'Bot Running' : 'Bot Idle'}
-              {config?.kill_switch_active && ' · KILL SWITCH'}
-            </span>
-          </div>
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${config?.bot_running ? 'bg-accent animate-pulse-glow' : 'bg-muted-foreground'}`} />
+          <span className="text-xs font-mono text-muted-foreground">
+            {config?.bot_running ? 'Bot Running' : 'Bot Idle'}
+            {config?.kill_switch_active && ' · KILL SWITCH'}
+          </span>
         </div>
       </header>
 
