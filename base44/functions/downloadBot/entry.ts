@@ -6,7 +6,8 @@
 // This is the BASIS-CARRY bot: monitors spot vs perp on OKX and Bybit,
 // posts signals when basis_bps exceeds threshold (after fees).
 
-const BOT_SOURCE = `import 'dotenv/config';
+const BOT_SOURCE = `// Arb BASIS-CARRY bot v3 — auto-downloaded from Base44
+import 'dotenv/config';
 import WebSocket from 'ws';
 
 const INGEST_URL = process.env.BASE44_INGEST_URL;
