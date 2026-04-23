@@ -25,15 +25,20 @@ export default function ArbDashboard() {
     try {
       const canvas = await html2canvas(dashboardRef.current, {
         backgroundColor: '#0a0e18',
-        scale: 2,
+        scale: 1.5,
         useCORS: true,
+        allowTaint: true,
+        logging: false,
       });
       const link = document.createElement('a');
       link.href = canvas.toDataURL('image/png');
       link.download = `arb-dashboard-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.png`;
+      document.body.appendChild(link);
       link.click();
+      document.body.removeChild(link);
     } catch (e) {
       console.error('Screenshot failed:', e);
+      alert('Failed to capture screenshot');
     } finally {
       setIsCapturing(false);
     }
