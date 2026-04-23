@@ -28,6 +28,7 @@ export default function DropletHealthCheck() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastCheck, setLastCheck] = useState(null);
+  const [pollTimer, setPollTimer] = useState(null);
 
   const checkHealth = async () => {
     setLoading(true);
@@ -43,10 +44,30 @@ export default function DropletHealthCheck() {
     }
   };
 
+  const handleRefresh = async () => {
+    await checkHealth();
+    // Poll for 10 seconds after manual refresh to catch status updates
+    if (pollTimer) clearInterval(pollTimer);
+    let count = 0;
+    const timer = setInterval(async () => {
+      count++;
+      if (count >= 10) {
+        clearInterval(timer);
+        setPollTimer(null);
+        return;
+      }
+      await checkHealth();
+    }, 1000);
+    setPollTimer(timer);
+  };
+
   useEffect(() => {
     checkHealth();
     const interval = setInterval(checkHealth, 60000); // Auto-refresh every minute
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (pollTimer) clearInterval(pollTimer);
+    };
   }, []);
 
   const getStatusConfig = (status) => STATUS_CONFIG[status] || STATUS_CONFIG.unknown;
@@ -60,7 +81,7 @@ export default function DropletHealthCheck() {
             Monitor the arbitrage bot droplet status and connectivity
           </p>
         </div>
-        <Button onClick={checkHealth} disabled={loading} variant="outline">
+        <Button onClick={handleRefresh} disabled={loading} variant="outline">
           <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           {loading ? 'Checking...' : 'Refresh'}
         </Button>
