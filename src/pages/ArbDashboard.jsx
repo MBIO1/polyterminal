@@ -241,13 +241,13 @@ export default function ArbDashboard() {
             ].map(({ k, v, icon }) => {
               const Icon = icon;
               return (
-              <div key={k} className="flex items-center justify-between py-2 border-b border-border last:border-0">
-                <span className="flex items-center gap-2 text-muted-foreground">
-                  <Icon className="w-3 h-3" /> {k}
-                </span>
-                <span className="text-foreground font-semibold">{v}</span>
-              </div>
-            );
+                <div key={k} className="flex items-center justify-between py-2 border-b border-border last:border-0">
+                  <span className="flex items-center gap-2 text-muted-foreground">
+                    <Icon className="w-3 h-3" /> {k}
+                  </span>
+                  <span className="text-foreground font-semibold">{v}</span>
+                </div>
+              );
             })}
           </div>
         </Section>
