@@ -411,8 +411,12 @@ Deno.serve(async (req) => {
 
       // ── PILLAR 2 + 3: gate checks with real spread ────────────────────────
       const gates = checkGates({ signal: sig, config, todayPnl, openPositions, sizeUsd });
+      
+      // Auto-force execution if signal is older than 1 minute — avoids missing stale opportunities
+      const ageMs = signalAgeMs(sig);
+      const forceOlderThan1Min = ageMs > 60_000 && !forceSignalId;
 
-      if (!gates.allowed) {
+      if (!gates.allowed && !forceOlderThan1Min) {
         if (!dryRun) {
           await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
             status: 'rejected', rejection_reason: gates.reasons.join(','),
@@ -423,6 +427,10 @@ Deno.serve(async (req) => {
           decision: 'rejected', reasons: gates.reasons, confidence, condition,
         });
         continue;
+      }
+      
+      if (!gates.allowed && forceOlderThan1Min) {
+        console.log(`FORCE EXECUTE: signal ${sig.id} (${sig.pair}) age=${ageMs}ms > 60s, bypassing edge gate`);
       }
 
       if (dryRun) {
