@@ -83,13 +83,15 @@ function estimatedSlippageBps(sizeUsd, fillableUsd) {
   return Math.min(10, Math.max(0.5, depthRatio * 20));
 }
 
-// Recompute net edge exactly as the skill's calculateRealSpread() would:
-//   net = raw_spread - 4 × taker_fee_bps - slippage
+// Recompute net edge:
+//   net = raw_spread - 2 × taker_fee_bps - slippage
+// We use 2-leg cost (entry only) because the bot already computes raw_spread
+// as the executable spread at current prices. The exit legs are a separate trade.
 function recomputeNetEdge(signal, config, sizeUsd) {
   const rawBps = Number(signal.raw_spread_bps || 0);
   const feeBps = effectiveFeeBps(config);
   const slipBps = estimatedSlippageBps(sizeUsd, Number(signal.fillable_size_usd || 0));
-  const net = rawBps - 4 * feeBps - slipBps;
+  const net = rawBps - 2 * feeBps - slipBps;
   return { rawBps, feeBps, slipBps, net };
 }
 
@@ -145,11 +147,11 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
   }
 
   console.log('DEBUG checkGates:', {
-    signal_id: signal.id, pair: signal.pair, asset,
-    raw_spread_bps: rawBps, fee_bps_per_leg: feeBps,
-    slippage_bps: slipBps.toFixed(2), recomputed_net: recomputedNetBps.toFixed(2),
-    min_edge: minEdge, fillable: signal.fillable_size_usd,
-    size_usd: sizeUsd, reasons,
+  signal_id: signal.id, pair: signal.pair, asset,
+  raw_spread_bps: rawBps, fee_bps_per_leg: feeBps, fee_legs: 2,
+  slippage_bps: slipBps.toFixed(2), recomputed_net: recomputedNetBps.toFixed(2),
+  min_edge: minEdge, fillable: signal.fillable_size_usd,
+  size_usd: sizeUsd, reasons,
   });
 
   return { allowed: reasons.length === 0, reasons, recomputedNetBps };
@@ -454,11 +456,11 @@ Deno.serve(async (req) => {
       const grossSpread = (sellFill?.px || 0) - (buyFill?.px || 0);
       const notional = buyFill?.notional_usd || 0;
 
-      // Final fee model: use recomputed values (PILLAR 2)
+      // Final fee model: 2-leg entry cost (buy + sell at market)
       const perLegBps = Number(config.taker_fee_bps_per_leg ?? 2);
       const perLegFeeRate = perLegBps / 10000;
       const perLegFee = notional * perLegFeeRate;
-      const feeEst = perLegFee * 4;
+      const feeEst = perLegFee * 2;
       const slipEst = notional * (estimatedSlippageBps(sizeUsd, Number(sig.fillable_size_usd || 0)) / 10000);
       const basisPnl = qty * grossSpread;
       const netPnl = basisPnl - feeEst - slipEst;
