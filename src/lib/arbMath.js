@@ -35,7 +35,7 @@ export const fmtPct = (n, d = 2) =>
 export const fmtBps = (n, d = 1) =>
   (n == null || isNaN(n)) ? '—' : `${Number(n).toFixed(d)} bps`;
 
-// Net PnL = basis + realized funding - all fees - borrow
+// Net PnL = basis + realized funding - all fees - borrow - realized slippage
 export const computeNetPnl = (t) => {
   const basis = Number(t.basis_pnl || 0);
   const funding = Number(t.realized_funding || 0);
@@ -43,7 +43,8 @@ export const computeNetPnl = (t) => {
     Number(t.spot_entry_fee || 0) + Number(t.perp_entry_fee || 0) +
     Number(t.spot_exit_fee || 0)  + Number(t.perp_exit_fee || 0)  +
     Number(t.borrow_conversion_cost || 0);
-  return basis + funding - fees;
+  const slip = Number(t.realized_slippage || 0);
+  return basis + funding - fees - slip;
 };
 
 export const computeSpreadBps = (spotPx, perpPx) => {

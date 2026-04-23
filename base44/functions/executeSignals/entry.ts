@@ -26,20 +26,24 @@ function signalAgeMs(signal) {
 
 // Signal confidence [0–100] based on: age, confirmed_exchanges, fillable depth.
 // Mirrors the skill's assessSignalHealth() scoring.
+// Scoring:
+//   Age:       0 pts (fresh) → -50 pts (at TTL boundary)
+//   Confirmed: 1 exchange = 15pts, 2 = 30pts, 3+ = 40pts
+//   Fillable:  0→$1k = 0→10pts linearly
+// Max = 100 (fresh, 3-exchange confirmed, deep book)
 function signalConfidence(signal, signalTtlMs) {
   const age = signalAgeMs(signal);
   const ttl = signalTtlMs || 300_000;
-  const ageFraction = Math.min(age / ttl, 1); // 0 = fresh, 1 = expired
-  const agePenalty = ageFraction * 40;         // up to -40 pts for age
+  const ageFraction = Math.min(age / ttl, 1);  // 0=fresh, 1=at TTL
+  const agePts = 50 * (1 - ageFraction);        // 50 → 0
 
   const confirmed = Number(signal.confirmed_exchanges || 1);
-  const confirmScore = Math.min(confirmed / 3, 1) * 30; // up to 30 pts
+  const confirmPts = confirmed >= 3 ? 40 : confirmed >= 2 ? 30 : 15;
 
   const fillable = Number(signal.fillable_size_usd || 0);
-  const fillScore = Math.min(fillable / 5000, 1) * 30;  // up to 30 pts
+  const fillPts = Math.min(fillable / 1000, 1) * 10;  // 0 → 10
 
-  return Math.max(0, Math.round(100 - agePenalty + confirmScore + fillScore - 30));
-  // baseline -30 so unconfirmed, thin signals start low
+  return Math.min(100, Math.max(0, Math.round(agePts + confirmPts + fillPts)));
 }
 
 // Market condition string driven by confidence
@@ -62,14 +66,12 @@ function sizeMultiplier(confidence) {
 // PILLAR 2 — Real spread / cost model
 // ─────────────────────────────────────────────────────────────────────────────
 
-// Dynamic fee tier (matches skill._getTieredFee logic).
-// We don't have 24h volume per venue in the signal, so we use the configured
-// per-leg fee from ArbConfig as the taker rate and apply VIP discount if the
-// configured rate is already low (< 2 bps → assume VIP).
+// Effective per-leg taker fee in bps.
+// Uses config.taker_fee_bps_per_leg. If ≤ 1.5 bps it's assumed VIP/maker rate (no discount applied —
+// user already entered the correct rate). Fallback: 2 bps (OKX/Bybit standard retail taker).
 function effectiveFeeBps(config) {
   const perLeg = Number(config.taker_fee_bps_per_leg ?? 2);
-  // If taker_fee_bps_per_leg is ≤ 1.5 we treat it as VIP (maker-level)
-  return perLeg <= 1.5 ? perLeg : perLeg;
+  return perLeg > 0 ? perLeg : 2;
 }
 
 // Slippage estimate: skill uses VWAP model; we approximate from fillable depth.
@@ -313,9 +315,9 @@ Deno.serve(async (req) => {
     const forceSignalId = body.signal_id || null;
     const signalTtlMs = Number(body.signal_ttl_ms || 600_000); // 10 min TTL
 
-    // Load config
+    // Load config — entity rows are plain objects (no .data wrapper)
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
-    const config = configs?.[0]?.data ? configs[0].data : configs?.[0];
+    const config = configs?.[0];
     if (!config) return Response.json({ error: 'No ArbConfig found' }, { status: 400 });
 
     let candidates;
@@ -323,9 +325,11 @@ Deno.serve(async (req) => {
     const expiredIds = [];
 
     if (forceSignalId) {
-      const one = await base44.asServiceRole.entities.ArbSignal.filter({ id: forceSignalId }, '-received_time', 1);
-      if (!one?.length) return Response.json({ error: `Signal ${forceSignalId} not found` }, { status: 404 });
-      candidates = one;
+      // SDK filter() does not support id lookup — use list then find
+      const recent = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 200);
+      const found = recent.find(s => s.id === forceSignalId);
+      if (!found) return Response.json({ error: `Signal ${forceSignalId} not found` }, { status: 404 });
+      candidates = [found];
     } else {
       const recentAll = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 200);
       const venueRoot = (v) => String(v || '').replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();

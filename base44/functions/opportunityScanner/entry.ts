@@ -119,6 +119,9 @@ Deno.serve(async (req) => {
         : Infinity;
 
       if (lastAge >= 30_000) {
+        // OKX scanner is same-venue (spot+perp on OKX) so confirmed_exchanges=1 is correct.
+        // The executor's sameVenue check (buy_root === sell_root) will require only 1 confirmation.
+        // net_edge_bps here uses 4×fee round-trip cost, consistent with executor's recomputeNetEdge.
         await base44.asServiceRole.entities.ArbSignal.create({
           signal_time: now,
           received_time: now,
@@ -128,14 +131,14 @@ Deno.serve(async (req) => {
           sell_exchange: h.sell_exchange,
           buy_price: h.buy_price,
           sell_price: h.sell_price,
-          raw_spread_bps: h.raw_spread_bps,
-          net_edge_bps,
+          raw_spread_bps: h.raw_spread_bps,  // ask-bid spread (what executor uses as raw)
+          net_edge_bps,                        // raw - 4×TAKER_FEE (no slippage yet — added at execution)
           buy_depth_usd: h.buy_depth_usd,
           sell_depth_usd: h.sell_depth_usd,
           fillable_size_usd: h.fillable_size_usd,
           signal_age_ms: 0,
           exchange_latency_ms: 0,
-          confirmed_exchanges: 1,
+          confirmed_exchanges: 1,  // OKX same-venue: only 1 venue needed, executor sameVenue path accepts this
           status: net_edge_bps >= 20 ? 'alerted' : 'detected',
           notes: `OKX scanner: ${direction} | basis=${h.basis_bps.toFixed(2)}bps | funding=${(h.funding_rate * 100).toFixed(4)}%`,
         });

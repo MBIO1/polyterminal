@@ -27,10 +27,12 @@ Deno.serve(async (req) => {
         ? executed.reduce((a, s) => a + ((s.net_edge_bps || 0) - (s.executed_pnl_bps || 0)), 0) / executed.length
         : null;
 
-      // Recommend threshold: if win rate < 60%, bump floor by 1 bp of avg slippage
+      // Recommend threshold: if win rate < 60% AND avg slippage is positive (execution worse than signal),
+      // raise the floor to account for it. Never lower the floor below 2 bps or below avgEdge.
+      // avgSlippageBps = avg(signal_net_edge - realized_pnl_bps); positive = execution drag.
       let recommendedMinBps = null;
-      if (winRate !== null && winRate < 0.6 && avgSlippageBps !== null) {
-        recommendedMinBps = Math.max(2, Math.round(avgEdge + Math.abs(avgSlippageBps)));
+      if (winRate !== null && winRate < 0.6 && avgSlippageBps !== null && avgSlippageBps > 0) {
+        recommendedMinBps = Math.max(2, Math.round(avgEdge + avgSlippageBps));
       }
 
       return {

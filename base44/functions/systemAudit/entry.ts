@@ -26,7 +26,7 @@ Deno.serve(async (req) => {
 
     // --- Config ---
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
-    const config = configs?.[0]?.data ? configs[0].data : configs?.[0];
+    const config = configs?.[0];
     if (!config) return Response.json({ error: 'No ArbConfig found' }, { status: 400 });
 
     // --- Signals (recent window) ---
@@ -45,9 +45,13 @@ Deno.serve(async (req) => {
         if (s.status === 'executed') executedLastHour++;
         if (s.status === 'rejected') {
           rejectedLastHour++;
-          const reasons = String(s.rejection_reason || 'unknown').split(',');
+          // rejection_reason can be a single reason like "edge_below_min(...)" or a
+          // comma-joined list of top-level reasons. We split only on commas that are NOT
+          // inside parentheses to avoid splitting the detail params inside each reason.
+          const raw = String(s.rejection_reason || 'unknown');
+          const reasons = raw.split(/,(?![^(]*\))/);
           for (const r of reasons) {
-            const key = r.trim().split('(')[0] || 'unknown';
+            const key = r.trim().split('(')[0].trim() || 'unknown';
             rejectReasonCounts[key] = (rejectReasonCounts[key] || 0) + 1;
           }
         }

@@ -12,14 +12,8 @@
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-async function getLatestFundingRates() {
-  // Fetch the most recent snapshot per venue+pair
-  const opps = await fetch('https://api.okx.com/api/v5/public/funding-rate-history?instId=BTC-USDT-SWAP&limit=1')
-    .then(r => r.json())
-    .then(j => j.data || [])
-    .catch(() => []);
-  return opps;
-}
+// NOTE: Removed stale getLatestFundingRates() — it used the wrong host (api.okx.com → 404).
+// Latest rates are loaded from ArbFundingOpportunity entity (written by scanFunding).
 
 Deno.serve(async (req) => {
   try {
