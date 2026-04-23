@@ -74,13 +74,13 @@ function effectiveFeeBps(config) {
   return perLeg > 0 ? perLeg : 2;
 }
 
-// Slippage estimate: skill uses VWAP model; we approximate from fillable depth.
-// A $200 trade in a $1 000 book = 20% of top-of-book → higher slippage.
-// Clamp between 0.5 bps and 10 bps.
+// Slippage estimate: proportional to how much of the book you consume.
+// A $200 trade in a $1 000 book = 20% of top-of-book → ~4 bps slippage.
+// No artificial minimum — tiny paper trades in deep books have near-zero slippage.
 function estimatedSlippageBps(sizeUsd, fillableUsd) {
-  if (!fillableUsd || fillableUsd <= 0) return 10;
+  if (!fillableUsd || fillableUsd <= 0) return 5;
   const depthRatio = sizeUsd / fillableUsd;
-  return Math.min(10, Math.max(0.5, depthRatio * 20));
+  return Math.min(10, depthRatio * 20);
 }
 
 // Recompute net edge:
