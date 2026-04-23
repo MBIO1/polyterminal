@@ -136,7 +136,7 @@ export default function ArbSignals() {
                       {s.signal_age_ms || 0}ms
                     </td>
                     <td className="py-2 px-2 text-center text-muted-foreground">{s.confirmed_exchanges || 1}/2</td>
-                    <td className="py-2 px-2"><StatusBadge status={s.status === 'alerted' ? 'High' : s.status === 'executed' ? 'Completed' : s.status === 'expired' ? 'Failed' : 'Monitoring'} /></td>
+                    <td className="py-2 px-2"><StatusBadge status={s.status === 'alerted' ? 'High' : s.status === 'executed' ? 'Completed' : s.status === 'rejected' ? 'Failed' : s.status === 'expired' ? 'Expired' : s.status === 'detected' ? 'Monitoring' : 'Monitoring'} /></td>
                   </tr>
                 ))}
               </tbody>

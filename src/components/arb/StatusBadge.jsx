@@ -9,6 +9,7 @@ const map = {
   Closing: 'bg-chart-4/10 text-chart-4 border-chart-4/30',
   Completed: 'bg-accent/10 text-accent border-accent/30',
   Cancelled: 'bg-muted text-muted-foreground border-border',
+  Expired: 'bg-muted text-muted-foreground border-border',
   Failed: 'bg-destructive/10 text-destructive border-destructive/30',
   Error: 'bg-destructive/10 text-destructive border-destructive/30',
   Monitoring: 'bg-chart-5/10 text-chart-5 border-chart-5/30',
