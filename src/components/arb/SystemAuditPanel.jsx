@@ -33,20 +33,37 @@ function Row({ icon: Icon, label, value, sub, tone = 'neutral' }) {
 }
 
 export default function SystemAuditPanel() {
-  const { data, isLoading } = useQuery({
+  const { data, isLoading, error } = useQuery({
     queryKey: ['system-audit'],
     queryFn: async () => {
-      const res = await base44.functions.invoke('systemAudit', {});
-      return res?.data;
+      try {
+        const res = await base44.functions.invoke('systemAudit', {});
+        return res?.data;
+      } catch (e) {
+        console.error('systemAudit error:', e);
+        throw e;
+      }
     },
     refetchInterval: 5_000, // continuous audit
+    retry: 2,
+    staleTime: 3_000,
   });
 
-  if (isLoading || !data) {
+  if (isLoading) {
     return (
       <Section title="System Audit" subtitle="Loading live state…">
         <div className="h-32 flex items-center justify-center text-xs font-mono text-muted-foreground">
           Running audit…
+        </div>
+      </Section>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <Section title="System Audit" subtitle="Error loading audit">
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/30 text-xs font-mono text-destructive">
+          {error?.message || 'Failed to load system audit'}
         </div>
       </Section>
     );
