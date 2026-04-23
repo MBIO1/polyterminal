@@ -17,10 +17,46 @@ import {
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
-  healthy: { icon: CheckCircle2, color: 'text-green-500', bg: 'bg-green-500/10', border: 'border-green-500/30' },
-  warning: { icon: AlertTriangle, color: 'text-yellow-500', bg: 'bg-yellow-500/10', border: 'border-yellow-500/30' },
-  critical: { icon: XCircle, color: 'text-red-500', bg: 'bg-red-500/10', border: 'border-red-500/30' },
-  unknown: { icon: Activity, color: 'text-gray-500', bg: 'bg-gray-500/10', border: 'border-gray-500/30' },
+  healthy: { 
+    icon: CheckCircle2, 
+    color: 'text-green-500', 
+    bg: 'bg-green-500/10', 
+    border: 'border-green-500/30',
+    pulse: false,
+    label: 'Healthy'
+  },
+  recovered: { 
+    icon: CheckCircle2, 
+    color: 'text-green-500', 
+    bg: 'bg-green-500/20', 
+    border: 'border-green-500/50',
+    pulse: true,
+    label: 'Recovered'
+  },
+  warning: { 
+    icon: AlertTriangle, 
+    color: 'text-yellow-500', 
+    bg: 'bg-yellow-500/10', 
+    border: 'border-yellow-500/30',
+    pulse: false,
+    label: 'Warning'
+  },
+  critical: { 
+    icon: XCircle, 
+    color: 'text-red-500', 
+    bg: 'bg-red-500/10', 
+    border: 'border-red-500/30',
+    pulse: true,
+    label: 'Critical'
+  },
+  unknown: { 
+    icon: Activity, 
+    color: 'text-gray-500', 
+    bg: 'bg-gray-500/10', 
+    border: 'border-gray-500/30',
+    pulse: false,
+    label: 'Unknown'
+  },
 };
 
 export default function DropletHealthCheck() {
@@ -28,13 +64,28 @@ export default function DropletHealthCheck() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastCheck, setLastCheck] = useState(null);
+  const [previousStatus, setPreviousStatus] = useState(null);
+  const [recoveryTime, setRecoveryTime] = useState(null);
+  const [downtimeDuration, setDowntimeDuration] = useState(null);
 
   const checkHealth = async () => {
     setLoading(true);
     setError(null);
     try {
       const res = await base44.functions.invoke('dropletHealth', {});
-      setHealth(res.data);
+      const newHealth = res.data;
+      
+      // Track status transitions
+      if (previousStatus && previousStatus !== 'healthy' && newHealth.overall_status === 'healthy') {
+        // Recovery detected!
+        setRecoveryTime(new Date());
+        if (lastCheck) {
+          setDowntimeDuration(Math.floor((new Date() - lastCheck) / 1000));
+        }
+      }
+      
+      setPreviousStatus(newHealth.overall_status);
+      setHealth(newHealth);
       setLastCheck(new Date());
     } catch (e) {
       setError(e?.response?.data?.error || e.message || 'Failed to check droplet health');
@@ -77,17 +128,25 @@ export default function DropletHealthCheck() {
       {health && (
         <>
           {/* Overall Status */}
-          <Card className={`${getStatusConfig(health.overall_status).bg} ${getStatusConfig(health.overall_status).border}`}>
+          <Card className={`${getStatusConfig(health.overall_status).bg} ${getStatusConfig(health.overall_status).border} ${getStatusConfig(health.overall_status).pulse ? 'animate-pulse' : ''}`}>
             <CardContent className="pt-6">
               <div className="flex items-center gap-4">
                 {React.createElement(getStatusConfig(health.overall_status).icon, {
-                  className: `w-12 h-12 ${getStatusConfig(health.overall_status).color}`
+                  className: `w-12 h-12 ${getStatusConfig(health.overall_status).color} ${getStatusConfig(health.overall_status).pulse ? 'animate-bounce' : ''}`
                 })}
                 <div>
-                  <h2 className="text-2xl font-bold capitalize">{health.overall_status}</h2>
+                  <h2 className="text-2xl font-bold capitalize">
+                    {getStatusConfig(health.overall_status).label}
+                  </h2>
                   <p className="text-muted-foreground">
                     Last checked: {lastCheck?.toLocaleTimeString()}
                   </p>
+                  {recoveryTime && health.overall_status === 'healthy' && (
+                    <p className="text-green-400 text-sm mt-1">
+                      ✓ Recovered at {recoveryTime.toLocaleTimeString()}
+                      {downtimeDuration && ` (downtime: ${Math.floor(downtimeDuration / 60)}m ${downtimeDuration % 60}s)`}
+                    </p>
+                  )}
                 </div>
               </div>
             </CardContent>
