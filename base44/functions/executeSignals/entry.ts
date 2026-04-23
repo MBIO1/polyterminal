@@ -94,29 +94,33 @@ function getExecutionProfile(asset, config) {
   return { name: profileName, max_notional_usd: assetConfig.max_notional_usd, ...profiles[profileName] };
 }
 
-// Recompute net edge WITH execution profile:
+// Recompute net edge WITH execution profile + batch-mode relaxation:
 //   required_edge = fees_bps + expected_slippage_bps + safety_buffer_bps
 //   net = raw_spread - required_edge
-function recomputeNetEdge(signal, config, sizeUsd) {
+function recomputeNetEdge(signal, config, sizeUsd, isBatchMode) {
   const rawBps = Number(signal.raw_spread_bps || 0);
   const asset = signal.asset || 'Other';
   const profile = getExecutionProfile(asset, config);
   
   const feeBps = effectiveFeeBps(config);
   const slipBps = estimatedSlippageBps(sizeUsd, Number(signal.fillable_size_usd || 0), profile.name);
-  const safetyBps = profile.safety_buffer_bps || 2;
+  
+  // Batch mode: relax safety & floor gates
+  const safetyBps = isBatchMode ? 1.0 : 2.0;
+  const floorBps = isBatchMode ? 2.0 : 3.0;
   
   const requiredEdge = 2 * feeBps + slipBps + safetyBps;
-  const net = rawBps - requiredEdge;
+  const gatedEdge = Math.max(requiredEdge, floorBps);
+  const net = rawBps - gatedEdge;
   
-  return { rawBps, feeBps, slipBps, safetyBps, requiredEdge, net, profile: profile.name, max_notional: profile.max_notional_usd };
+  return { rawBps, feeBps, slipBps, safetyBps, floorBps, requiredEdge, gatedEdge, net, profile: profile.name, max_notional: profile.max_notional_usd };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PILLAR 3 — Gate checks (circuit breakers)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
+function checkGates({ signal, config, todayPnl, openPositions, sizeUsd, isBatchMode }) {
   const reasons = [];
 
   if (config.kill_switch_active) reasons.push('kill_switch_active');
@@ -125,9 +129,9 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
   const now = Date.now();
   if (config.halt_until_ts && config.halt_until_ts > now) reasons.push('halt_active');
 
-  // Edge gate (PILLAR 2: real spread with slippage)
+  // Edge gate (PILLAR 2: real spread with slippage + batch relaxation)
   const asset = signal.asset || 'Other';
-  const { rawBps, feeBps, slipBps, safetyBps, requiredEdge, net: recomputedNetBps, profile, max_notional } = recomputeNetEdge(signal, config, sizeUsd);
+  const { rawBps, feeBps, slipBps, safetyBps, floorBps, requiredEdge, gatedEdge, net: recomputedNetBps, profile, max_notional } = recomputeNetEdge(signal, config, sizeUsd, isBatchMode);
   
   // Min edge: use config value, defaulting to 0 (not 3) so paper trading flows.
   // Explicit 0 in config means "no floor" — let everything through for paper mode.
@@ -139,7 +143,7 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
     Math.min(minEdgeBtc, minEdgeEth);
 
   if (recomputedNetBps < minEdge) {
-    reasons.push(`edge_below_min(raw=${rawBps.toFixed(1)},fees=${feeBps}×2,slip=${slipBps.toFixed(1)},safety=${safetyBps},required=${requiredEdge.toFixed(1)},net=${recomputedNetBps.toFixed(1)}<${minEdge})`);
+    reasons.push(`edge_below_min(raw=${rawBps.toFixed(1)},fees=${feeBps}×2,slip=${slipBps.toFixed(1)},safety=${safetyBps},floor=${floorBps},gated=${gatedEdge.toFixed(1)},net=${recomputedNetBps.toFixed(1)}<${minEdge},batch=${isBatchMode})`);
   }
 
   // Asset-specific notional gate (execution profile limit)
@@ -174,10 +178,10 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
   }
 
   console.log('DEBUG checkGates:', {
-  signal_id: signal.id, pair: signal.pair, asset, profile,
+  signal_id: signal.id, pair: signal.pair, asset, profile, batch_mode: isBatchMode,
   raw_spread_bps: rawBps, fee_bps_per_leg: feeBps, fee_legs: 2,
-  slippage_bps: slipBps.toFixed(2), safety_bps: safetyBps,
-  required_edge: requiredEdge.toFixed(2), recomputed_net: recomputedNetBps.toFixed(2),
+  slippage_bps: slipBps.toFixed(2), safety_bps: safetyBps, floor_bps: floorBps,
+  required_edge: requiredEdge.toFixed(2), gated_edge: gatedEdge.toFixed(2), recomputed_net: recomputedNetBps.toFixed(2),
   min_edge: minEdge, max_notional, size_usd: sizeUsd, fillable: signal.fillable_size_usd,
   reasons,
   });
@@ -328,6 +332,16 @@ async function routeExecution({ signal, sizeUsd, paperTrading }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Batch-mode ranking & scoring
+// ─────────────────────────────────────────────────────────────────────────────
+
+function scoreSignal(signal, netEdgeBps) {
+  const agePenalty = Number(signal.signal_age_ms || 0) / 1000;
+  const sizePenalty = Number(signal.fillable_size_usd || 0) * 0.0001;
+  return netEdgeBps - agePenalty - sizePenalty;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Main handler
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -344,6 +358,8 @@ Deno.serve(async (req) => {
     const minConfirmedCross = Number(body.min_confirmed || 2);
     const forceSignalId = body.signal_id || null;
     const signalTtlMs = Number(body.signal_ttl_ms || 600_000); // 10 min TTL
+    const batchThreshold = Number(body.batch_threshold || 10);
+    const batchTopN = Number(body.batch_top_n || 5);
 
     // Load config — entity rows are plain objects (no .data wrapper)
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
@@ -393,6 +409,8 @@ Deno.serve(async (req) => {
         .slice(0, maxSignals);
     }
 
+    const isBatchMode = candidates.length >= batchThreshold;
+
     // Today's PnL + open positions (needed for circuit breakers)
     const todayStr = new Date().toISOString().slice(0, 10);
     const [closedToday, openPositions] = await Promise.all([
@@ -401,14 +419,52 @@ Deno.serve(async (req) => {
     ]);
     const todayPnl = closedToday.reduce((a, t) => a + Number(t.net_pnl || 0), 0);
 
-    const results = [];
-    let tradeCounter = 1;
-
+    // ── Batch mode: rank & select top candidates ─────────────────────────────
+    const scoredCandidates = [];
     for (const sig of candidates) {
-      // ── PILLAR 1: assess signal health / confidence ──────────────────────
       const confidence = signalConfidence(sig, signalTtlMs);
       const condition = marketCondition(confidence);
+      
+      // Skip stale signals in batch too
+      if (condition === 'STALE' && !forceSignalId) continue;
+      
+      const sizeUsd = sizeTrade({ signal: sig, config, confidence });
+      if (sizeUsd <= 0) continue;
 
+      const gates = checkGates({ signal: sig, config, todayPnl, openPositions, sizeUsd, isBatchMode });
+      if (!gates.allowed && !forceSignalId) continue;
+
+      const score = scoreSignal(sig, gates.recomputedNetBps);
+      scoredCandidates.push({ score, sig, confidence, condition, sizeUsd, gates });
+    }
+
+    // Sort by score descending, apply batch top-N if needed
+    scoredCandidates.sort((a, b) => b.score - a.score);
+    const toProcess = isBatchMode && scoredCandidates.length > batchTopN
+      ? scoredCandidates.slice(0, batchTopN)
+      : scoredCandidates;
+
+    const results = [];
+    let tradeCounter = 1;
+    const reservedAssets = new Set(); // Prevent duplicate asset execution in batch
+
+    for (const { score, sig, confidence, condition, sizeUsd, gates } of toProcess) {
+      // ── Per-asset deduplication in batch mode ──────────────────────────────
+      if (isBatchMode && reservedAssets.has(sig.asset)) {
+        if (!dryRun) {
+          await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
+            status: 'rejected',
+            rejection_reason: `duplicate_asset_in_batch(asset=${sig.asset})`,
+          });
+        }
+        results.push({
+          signal_id: sig.id, pair: sig.pair,
+          decision: 'rejected', reasons: [`duplicate_asset_in_batch`], confidence,
+        });
+        continue;
+      }
+
+      // ── PILLAR 1: assess signal health / confidence ──────────────────────
       if (condition === 'STALE' && !forceSignalId) {
         if (!dryRun) {
           await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
@@ -419,9 +475,6 @@ Deno.serve(async (req) => {
         results.push({ signal_id: sig.id, pair: sig.pair, decision: 'rejected', reasons: [`stale_signal(confidence=${confidence})`], confidence });
         continue;
       }
-
-      // ── Sizing with PILLAR 1 multiplier ──────────────────────────────────
-      const sizeUsd = sizeTrade({ signal: sig, config, confidence });
 
       if (sizeUsd <= 0) {
         if (!dryRun) {
@@ -434,9 +487,6 @@ Deno.serve(async (req) => {
       }
 
       // ── PILLAR 2 + 3: gate checks with real spread ────────────────────────
-      const gates = checkGates({ signal: sig, config, todayPnl, openPositions, sizeUsd });
-      
-      // Auto-force execution if signal is older than 1 minute — avoids missing stale opportunities
       const ageMs = signalAgeMs(sig);
       const forceOlderThan1Min = ageMs > 60_000 && !forceSignalId;
 
@@ -589,6 +639,7 @@ Deno.serve(async (req) => {
         notes: `trade=${trade.trade_id} confidence=${confidence}% condition=${condition}`,
       });
 
+      reservedAssets.add(sig.asset);
       results.push({
         signal_id: sig.id, pair: sig.pair,
         decision: 'executed', mode: execResult.mode,
@@ -603,6 +654,10 @@ Deno.serve(async (req) => {
       ok: true,
       dry_run: dryRun,
       paper_trading: config.paper_trading !== false,
+      batch_mode: isBatchMode,
+      batch_threshold: batchThreshold,
+      candidates_received: candidates.length,
+      candidates_processed: toProcess.length,
       processed: results.length,
       executed: results.filter(r => r.decision === 'executed').length,
       rejected: results.filter(r => r.decision === 'rejected').length,
