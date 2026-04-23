@@ -15,9 +15,6 @@ import SystemAuditPanel from '@/components/arb/SystemAuditPanel';
 import { fmtUSD, fmtBps, sumBy, computeNetPnl } from '@/lib/arbMath';
 
 export default function ArbDashboard() {
-  // PERF: cap each query at a reasonable window and cache for 30s.
-  // Previous: 500 trades + 500 transfers + 200 positions + 200 exceptions = 1400 rows,
-  // re-fetched on every mount. Now we cap rows and cache — dashboard loads ~10× faster.
   const qOpts = { staleTime: 30_000, refetchOnWindowFocus: false };
   const { data: config } = useQuery({
     queryKey: ['arb-config'],
