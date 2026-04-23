@@ -111,10 +111,14 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
   // Edge gate (PILLAR 2: real spread with slippage)
   const asset = signal.asset || 'Other';
   const { rawBps, feeBps, slipBps, net: recomputedNetBps } = recomputeNetEdge(signal, config, sizeUsd);
+  // Min edge: use config value, defaulting to 0 (not 3) so paper trading flows.
+  // Explicit 0 in config means "no floor" — let everything through for paper mode.
+  const minEdgeBtc = config.btc_min_edge_bps != null ? Number(config.btc_min_edge_bps) : 0;
+  const minEdgeEth = config.eth_min_edge_bps != null ? Number(config.eth_min_edge_bps) : 0;
   const minEdge =
-    asset === 'BTC' ? Number(config.btc_min_edge_bps || 3) :
-    asset === 'ETH' ? Number(config.eth_min_edge_bps || 3) :
-    Math.min(Number(config.btc_min_edge_bps || 3), Number(config.eth_min_edge_bps || 3));
+    asset === 'BTC' ? minEdgeBtc :
+    asset === 'ETH' ? minEdgeEth :
+    Math.min(minEdgeBtc, minEdgeEth);
 
   if (recomputedNetBps < minEdge) {
     reasons.push(`edge_below_min(raw=${rawBps.toFixed(1)},fee=${feeBps},slip=${slipBps.toFixed(1)},net=${recomputedNetBps.toFixed(1)}<${minEdge})`);
