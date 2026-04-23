@@ -1,0 +1,29 @@
+{
+  "name": "ArbAlertState",
+  "fields": {
+    "alert_type": {
+      "type": "string",
+      "required": true,
+      "description": "Type of alert (critical_offline, warning_stale, book_freshness, connectivity)"
+    },
+    "last_sent_at": {
+      "type": "date",
+      "required": true,
+      "description": "When the alert was last sent"
+    },
+    "is_active": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the alert condition is still active"
+    },
+    "resolved_at": {
+      "type": "date",
+      "description": "When the alert condition was resolved"
+    },
+    "metadata": {
+      "type": "string",
+      "description": "JSON metadata about the alert"
+    }
+  },
+  "indexes": ["alert_type", "last_sent_at", "is_active"]
+}
