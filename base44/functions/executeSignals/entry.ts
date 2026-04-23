@@ -105,8 +105,8 @@ function recomputeNetEdge(signal, config, sizeUsd, isBatchMode) {
   const feeBps = effectiveFeeBps(config);
   const slipBps = estimatedSlippageBps(sizeUsd, Number(signal.fillable_size_usd || 0), profile.name);
   
-  // Batch mode: relax safety & floor gates
-  const safetyBps = isBatchMode ? 1.0 : 2.0;
+  // Batch mode + paper trading: relax safety buffer
+  const safetyBps = (isBatchMode || config.paper_trading) ? 0.5 : 2.0;
   const floorBps = isBatchMode ? 2.0 : 3.0;
   
   const requiredEdge = 2 * feeBps + slipBps + safetyBps;
