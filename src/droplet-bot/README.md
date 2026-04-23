@@ -63,21 +63,41 @@ npm install ws dotenv
 ```env
 # Base44 endpoints — your app's function base URL
 BASE44_INGEST_URL=https://YOUR_APP.base44.app/functions/ingestSignal
+BASE44_HEARTBEAT_URL=https://YOUR_APP.base44.app/functions/ingestHeartbeat
 BASE44_STATS_URL=https://YOUR_APP.base44.app/functions/signalStats
 
 # A user token from Base44 (dashboard → your profile → API token)
 # Must belong to a registered user of the app.
 BASE44_USER_TOKEN=paste-your-token-here
 
-# Tuning (current production values)
-PAIRS=BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT
-MIN_NET_EDGE_BPS=3          # minimum net edge after 2x taker fees
-MAX_SIGNAL_AGE_MS=1000      # drop ticks older than this
-MIN_FILLABLE_USD=2000       # require this much top-of-book depth both legs
-ALERT_EDGE_BPS=15           # raise Slack/Telegram flag at this edge
-TAKER_FEE_BPS=2             # per-leg fee assumption (maker exec on OKX/Bybit)
-HEARTBEAT_MS=60000          # log heartbeat cadence
+# ── TUNING ── MUST stay consistent with ArbConfig in the Base44 UI ──────────
+PAIRS=BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT,ATOM-USDT,APT-USDT,SUI-USDT,ARB-USDT,OP-USDT,INJ-USDT,SEI-USDT,TIA-USDT
+
+# per-leg taker fee in bps — MUST match ArbConfig.taker_fee_bps_per_leg in Base44.
+# net_edge = raw_spread - 4 × TAKER_FEE_BPS  (4 round-trip legs)
+TAKER_FEE_BPS=2
+
+# minimum net edge (post 4-leg fees) to POST a signal. Keep low for visibility;
+# the executor gates on ArbConfig thresholds anyway.
+MIN_NET_EDGE_BPS=2
+
+# net edge at which alert=true fires Telegram/Slack in ingestSignal.
+# MUST match TELEGRAM_ALERT_MIN_BPS in functions/ingestSignal (default 20 bps).
+ALERT_EDGE_BPS=20
+
+MAX_SIGNAL_AGE_MS=1500      # drop ticks older than this (ms)
+MIN_FILLABLE_USD=100        # top-of-book USD depth required on both legs
+CONFIRM_MIN_RATIO=0.5       # cross-venue confirmation sensitivity (0–1)
+HEARTBEAT_MS=60000          # heartbeat POST cadence (ms)
 ```
+
+**Key alignment rules (never drift these):**
+
+| Constant | Droplet `.env` | Base44 ArbConfig | ingestSignal |
+|---|---|---|---|
+| Per-leg fee | `TAKER_FEE_BPS` | `taker_fee_bps_per_leg` | hardcoded comment (8 bps = 4×2) |
+| Alert floor | `ALERT_EDGE_BPS=20` | n/a | `TELEGRAM_ALERT_MIN_BPS=20` |
+| Fee legs | always `4 × TAKER_FEE_BPS` | `4 × taker_fee_bps_per_leg` | matches |
 
 ### Run with systemd
 
