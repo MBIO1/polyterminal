@@ -1,13 +1,14 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
-import { Radio, Play, Loader2, Clock, Activity, TrendingUp, TrendingDown, Zap } from 'lucide-react';
+import { Radio, Play, Loader2, Clock, Activity, TrendingUp, TrendingDown, Zap, MousePointerClick } from 'lucide-react';
 import { toast } from 'sonner';
 import Section from '@/components/arb/Section';
 import StatTile from '@/components/arb/StatTile';
 import EmptyState from '@/components/arb/EmptyState';
 import LivePnlChart from '@/components/arb/LivePnlChart';
 import SignalFeed from '@/components/arb/SignalFeed';
+import SignalDetailDrawer from '@/components/arb/SignalDetailDrawer';
 import { fmtUSD } from '@/lib/arbMath';
 
 function timeAgo(ts) {
@@ -22,7 +23,8 @@ function timeAgo(ts) {
 export default function TradeMonitor() {
   const qc = useQueryClient();
   const [executing, setExecuting] = useState(new Set());
-  const [wsEvents, setWsEvents] = useState([]); // real-time subscription events
+  const [wsEvents, setWsEvents] = useState([]);
+  const [selectedSignal, setSelectedSignal] = useState(null);
 
   // Real-time WebSocket subscription to ArbSignal changes
   useEffect(() => {
@@ -173,7 +175,8 @@ export default function TradeMonitor() {
                 return (
                   <div
                     key={s.id}
-                    className="flex items-center gap-3 p-3 rounded-lg border border-border bg-secondary/20 hover:bg-secondary/40 transition-colors"
+                    onClick={() => setSelectedSignal(s)}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-border bg-secondary/20 hover:bg-secondary/40 hover:border-primary/40 transition-colors cursor-pointer"
                   >
                     <div className="flex-1 min-w-0 space-y-0.5">
                       <div className="flex items-center gap-2 flex-wrap">
@@ -190,7 +193,7 @@ export default function TradeMonitor() {
                       </div>
                     </div>
                     <button
-                      onClick={() => forceExecute(s.id, s.pair)}
+                      onClick={e => { e.stopPropagation(); forceExecute(s.id, s.pair); }}
                       disabled={isBusy}
                       className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-primary text-primary-foreground text-xs font-semibold hover:bg-primary/90 disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex-shrink-0"
                     >
@@ -206,14 +209,19 @@ export default function TradeMonitor() {
           )}
         </Section>
 
-        {/* Live signal feed (all statuses) */}
+        {/* Live signal feed (all statuses) — click any row to inspect + execute */}
         <Section
           title="Live Signal Feed"
-          subtitle="All recent signals with status · green = profit, red = loss"
+          subtitle="Click any signal to inspect gates, dry-run, or force execute"
+          action={
+            <span className="flex items-center gap-1 text-[10px] font-mono text-muted-foreground">
+              <MousePointerClick className="w-3 h-3" /> click to inspect
+            </span>
+          }
         >
           {recentAll.length === 0
             ? <EmptyState title="No signals yet" subtitle="Waiting for droplet bot to post" icon={Radio} />
-            : <SignalFeed signals={recentAll} />
+            : <SignalFeed signals={recentAll} onSelect={setSelectedSignal} />
           }
         </Section>
 
@@ -284,6 +292,15 @@ export default function TradeMonitor() {
           </div>
         )}
       </Section>
+      {/* Signal detail drawer — click any signal to open */}
+      <SignalDetailDrawer
+        signal={selectedSignal}
+        onClose={() => setSelectedSignal(null)}
+        onExecuted={() => {
+          qc.invalidateQueries({ queryKey: ['tm-signals'] });
+          qc.invalidateQueries({ queryKey: ['tm-trades'] });
+        }}
+      />
     </div>
   );
 }

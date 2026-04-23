@@ -1,5 +1,5 @@
 import React from 'react';
-import { Clock, Zap, CheckCircle2, XCircle, Timer } from 'lucide-react';
+import { Clock, Zap, CheckCircle2, XCircle, Timer, ChevronRight, Play } from 'lucide-react';
 
 function timeAgo(ts) {
   if (!ts) return '—';
@@ -11,14 +11,14 @@ function timeAgo(ts) {
 }
 
 const STATUS_CONFIG = {
-  detected:  { icon: Zap,          color: 'text-chart-4',        bg: 'bg-chart-4/10',    label: 'Detected' },
-  alerted:   { icon: Zap,          color: 'text-primary',        bg: 'bg-primary/10',    label: 'Alerted' },
-  executed:  { icon: CheckCircle2, color: 'text-accent',         bg: 'bg-accent/10',     label: 'Executed' },
-  rejected:  { icon: XCircle,      color: 'text-destructive',    bg: 'bg-destructive/10',label: 'Rejected' },
-  expired:   { icon: Timer,        color: 'text-muted-foreground', bg: 'bg-muted/30',    label: 'Expired' },
+  detected:  { icon: Zap,          color: 'text-chart-4',          bg: 'bg-chart-4/10',     label: 'Detected' },
+  alerted:   { icon: Zap,          color: 'text-primary',          bg: 'bg-primary/10',     label: 'Alerted' },
+  executed:  { icon: CheckCircle2, color: 'text-accent',           bg: 'bg-accent/10',      label: 'Executed' },
+  rejected:  { icon: XCircle,      color: 'text-destructive',      bg: 'bg-destructive/10', label: 'Rejected' },
+  expired:   { icon: Timer,        color: 'text-muted-foreground', bg: 'bg-muted/30',       label: 'Expired' },
 };
 
-export default function SignalFeed({ signals = [] }) {
+export default function SignalFeed({ signals = [], onSelect }) {
   return (
     <div className="space-y-1.5 max-h-[420px] overflow-y-auto pr-1">
       {signals.map(s => {
@@ -26,10 +26,13 @@ export default function SignalFeed({ signals = [] }) {
         const Icon = cfg.icon;
         const edge = Number(s.net_edge_bps || 0);
         const pnl = s.executed_pnl_usd != null ? Number(s.executed_pnl_usd) : null;
+        const isPending = s.status === 'detected' || s.status === 'alerted';
+
         return (
           <div
             key={s.id}
-            className={`flex items-start gap-3 p-2.5 rounded-lg border border-border ${cfg.bg} transition-all`}
+            onClick={() => onSelect?.(s)}
+            className={`flex items-start gap-3 p-2.5 rounded-lg border border-border ${cfg.bg} transition-all cursor-pointer hover:border-primary/40 hover:brightness-110 group`}
           >
             <div className={`mt-0.5 flex-shrink-0 ${cfg.color}`}>
               <Icon className="w-3.5 h-3.5" />
@@ -54,11 +57,17 @@ export default function SignalFeed({ signals = [] }) {
               )}
             </div>
             <div className="flex items-center gap-1.5 flex-shrink-0">
+              {isPending && (
+                <span className="text-[10px] font-mono text-primary flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Play className="w-2.5 h-2.5" /> Execute
+                </span>
+              )}
               <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${cfg.bg} ${cfg.color}`}>{cfg.label}</span>
               <span className="text-[10px] font-mono text-muted-foreground flex items-center gap-0.5">
                 <Clock className="w-2.5 h-2.5" />
                 {timeAgo(s.received_time || s.created_date)}
               </span>
+              <ChevronRight className="w-3 h-3 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
           </div>
         );
