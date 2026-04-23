@@ -105,9 +105,9 @@ function recomputeNetEdge(signal, config, sizeUsd, isBatchMode) {
   const feeBps = effectiveFeeBps(config);
   const slipBps = estimatedSlippageBps(sizeUsd, Number(signal.fillable_size_usd || 0), profile.name);
   
-  // Batch mode + paper trading: relax safety buffer
+  // Batch mode + paper trading: relax safety & floor
   const safetyBps = (isBatchMode || config.paper_trading) ? 0.5 : 2.0;
-  const floorBps = isBatchMode ? 2.0 : 3.0;
+  const floorBps = config.paper_trading ? 0 : (isBatchMode ? 2.0 : 3.0);
   
   const requiredEdge = 2 * feeBps + slipBps + safetyBps;
   const gatedEdge = Math.max(requiredEdge, floorBps);
@@ -133,10 +133,9 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd, isBatchM
   const asset = signal.asset || 'Other';
   const { rawBps, feeBps, slipBps, safetyBps, floorBps, requiredEdge, gatedEdge, net: recomputedNetBps, profile, max_notional } = recomputeNetEdge(signal, config, sizeUsd, isBatchMode);
   
-  // Min edge: use config value, defaulting to 0 (not 3) so paper trading flows.
-  // Explicit 0 in config means "no floor" — let everything through for paper mode.
-  const minEdgeBtc = config.btc_min_edge_bps != null ? Number(config.btc_min_edge_bps) : 0;
-  const minEdgeEth = config.eth_min_edge_bps != null ? Number(config.eth_min_edge_bps) : 0;
+  // Min edge: paper trading uses 0.25 bps (very usable), live trading uses config.
+  const minEdgeBtc = config.paper_trading ? 0.25 : (config.btc_min_edge_bps != null ? Number(config.btc_min_edge_bps) : 0);
+  const minEdgeEth = config.paper_trading ? 0.25 : (config.eth_min_edge_bps != null ? Number(config.eth_min_edge_bps) : 0);
   const minEdge =
     asset === 'BTC' ? minEdgeBtc :
     asset === 'ETH' ? minEdgeEth :
