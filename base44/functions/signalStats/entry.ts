@@ -7,6 +7,7 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Read-only stats endpoint: allow any logged-in user
 
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const windowHours = Number(body.window_hours) || 24;
