@@ -81,7 +81,7 @@
     "taker_fee_bps_per_leg": {
       "type": "number",
       "default": 2,
-      "description": "Per-leg taker fee in bps for basis arbitrage (droplet TAKER_FEE_BPS)"
+      "description": "Per-leg taker fee in bps for basis arbitrage"
     },
     "stress_slippage_multiplier": {
       "type": "number",
@@ -112,12 +112,12 @@
     "funding_min_apr_bps": {
       "type": "number",
       "default": 1000,
-      "description": "Minimum annualized funding rate to enter (bps, 1000 = 10% APR)"
+      "description": "Minimum annualized funding rate to enter (bps)"
     },
     "funding_exit_apr_bps": {
       "type": "number",
       "default": 500,
-      "description": "Exit when funding drops below this APR (bps, 500 = 5% APR)"
+      "description": "Exit when funding drops below this APR (bps)"
     },
     "funding_exit_on_flip": {
       "type": "boolean",
@@ -127,7 +127,87 @@
     "funding_max_position_usd": {
       "type": "number",
       "default": 200,
-      "description": "Max USD per funding position (small capital safety)"
+      "description": "Max USD per funding position"
+    },
+    "execution_profiles": {
+      "type": "object",
+      "description": "Order execution strategies",
+      "properties": {
+        "Aggressive": {
+          "type": "object",
+          "properties": {
+            "order_type": {
+              "type": "string",
+              "enum": [
+                "market",
+                "limit"
+              ]
+            },
+            "max_slippage_bps": {
+              "type": "number"
+            },
+            "timeout_ms": {
+              "type": "number"
+            },
+            "allow_partial_fill": {
+              "type": "boolean"
+            },
+            "fallback_enabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "Conservative": {
+          "type": "object",
+          "properties": {
+            "order_type": {
+              "type": "string",
+              "enum": [
+                "market",
+                "limit"
+              ]
+            },
+            "post_only": {
+              "type": "boolean"
+            },
+            "entry_buffer_bps": {
+              "type": "number"
+            },
+            "timeout_ms": {
+              "type": "number"
+            },
+            "allow_partial_fill": {
+              "type": "boolean"
+            },
+            "fallback_enabled": {
+              "type": "boolean"
+            },
+            "fallback_profile": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    },
+    "asset_execution": {
+      "type": "object",
+      "description": "Per-asset execution config (BTC, ETH, SOL, etc)",
+      "properties": {
+        "profile": {
+          "type": "string",
+          "enum": [
+            "Aggressive",
+            "Conservative"
+          ]
+        },
+        "max_notional_usd": {
+          "type": "number"
+        },
+        "safety_buffer_bps": {
+          "type": "number",
+          "default": 2
+        }
+      }
     }
   },
   "required": [],

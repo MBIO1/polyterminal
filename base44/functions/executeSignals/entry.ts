@@ -75,24 +75,41 @@ function effectiveFeeBps(config) {
 }
 
 // Slippage estimate: proportional to how much of the book you consume.
-// A $200 trade in a $1 000 book = 20% of top-of-book → ~4 bps slippage.
-// No artificial minimum — tiny paper trades in deep books have near-zero slippage.
-function estimatedSlippageBps(sizeUsd, fillableUsd) {
+// Adjusted per execution profile (Aggressive accepts more slippage, Conservative minimizes).
+function estimatedSlippageBps(sizeUsd, fillableUsd, profileName) {
   if (!fillableUsd || fillableUsd <= 0) return 5;
   const depthRatio = sizeUsd / fillableUsd;
-  return Math.min(10, depthRatio * 20);
+  const baseSlip = Math.min(10, depthRatio * 20);
+  
+  // Profile-based adjustment
+  if (profileName === 'Aggressive') return baseSlip * 1.5;
+  return baseSlip; // Conservative = baseline
 }
 
-// Recompute net edge:
-//   net = raw_spread - 2 × taker_fee_bps - slippage
-// We use 2-leg cost (entry only) because the bot already computes raw_spread
-// as the executable spread at current prices. The exit legs are a separate trade.
+// Get execution profile for asset
+function getExecutionProfile(asset, config) {
+  const profiles = config.execution_profiles || {};
+  const assetConfig = config.asset_execution?.[asset] || {};
+  const profileName = assetConfig.profile || 'Conservative';
+  return { name: profileName, max_notional_usd: assetConfig.max_notional_usd, ...profiles[profileName] };
+}
+
+// Recompute net edge WITH execution profile:
+//   required_edge = fees_bps + expected_slippage_bps + safety_buffer_bps
+//   net = raw_spread - required_edge
 function recomputeNetEdge(signal, config, sizeUsd) {
   const rawBps = Number(signal.raw_spread_bps || 0);
+  const asset = signal.asset || 'Other';
+  const profile = getExecutionProfile(asset, config);
+  
   const feeBps = effectiveFeeBps(config);
-  const slipBps = estimatedSlippageBps(sizeUsd, Number(signal.fillable_size_usd || 0));
-  const net = rawBps - 2 * feeBps - slipBps;
-  return { rawBps, feeBps, slipBps, net };
+  const slipBps = estimatedSlippageBps(sizeUsd, Number(signal.fillable_size_usd || 0), profile.name);
+  const safetyBps = profile.safety_buffer_bps || 2;
+  
+  const requiredEdge = 2 * feeBps + slipBps + safetyBps;
+  const net = rawBps - requiredEdge;
+  
+  return { rawBps, feeBps, slipBps, safetyBps, requiredEdge, net, profile: profile.name, max_notional: profile.max_notional_usd };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -110,7 +127,8 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
 
   // Edge gate (PILLAR 2: real spread with slippage)
   const asset = signal.asset || 'Other';
-  const { rawBps, feeBps, slipBps, net: recomputedNetBps } = recomputeNetEdge(signal, config, sizeUsd);
+  const { rawBps, feeBps, slipBps, safetyBps, requiredEdge, net: recomputedNetBps, profile, max_notional } = recomputeNetEdge(signal, config, sizeUsd);
+  
   // Min edge: use config value, defaulting to 0 (not 3) so paper trading flows.
   // Explicit 0 in config means "no floor" — let everything through for paper mode.
   const minEdgeBtc = config.btc_min_edge_bps != null ? Number(config.btc_min_edge_bps) : 0;
@@ -121,7 +139,12 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
     Math.min(minEdgeBtc, minEdgeEth);
 
   if (recomputedNetBps < minEdge) {
-    reasons.push(`edge_below_min(raw=${rawBps.toFixed(1)},fee=${feeBps},slip=${slipBps.toFixed(1)},net=${recomputedNetBps.toFixed(1)}<${minEdge})`);
+    reasons.push(`edge_below_min(raw=${rawBps.toFixed(1)},fees=${feeBps}×2,slip=${slipBps.toFixed(1)},safety=${safetyBps},required=${requiredEdge.toFixed(1)},net=${recomputedNetBps.toFixed(1)}<${minEdge})`);
+  }
+
+  // Asset-specific notional gate (execution profile limit)
+  if (max_notional && sizeUsd > max_notional) {
+    reasons.push(`max_notional_breach(${sizeUsd}>${max_notional})`);
   }
 
   // Daily drawdown circuit breaker
@@ -151,11 +174,12 @@ function checkGates({ signal, config, todayPnl, openPositions, sizeUsd }) {
   }
 
   console.log('DEBUG checkGates:', {
-  signal_id: signal.id, pair: signal.pair, asset,
+  signal_id: signal.id, pair: signal.pair, asset, profile,
   raw_spread_bps: rawBps, fee_bps_per_leg: feeBps, fee_legs: 2,
-  slippage_bps: slipBps.toFixed(2), recomputed_net: recomputedNetBps.toFixed(2),
-  min_edge: minEdge, fillable: signal.fillable_size_usd,
-  size_usd: sizeUsd, reasons,
+  slippage_bps: slipBps.toFixed(2), safety_bps: safetyBps,
+  required_edge: requiredEdge.toFixed(2), recomputed_net: recomputedNetBps.toFixed(2),
+  min_edge: minEdge, max_notional, size_usd: sizeUsd, fillable: signal.fillable_size_usd,
+  reasons,
   });
 
   return { allowed: reasons.length === 0, reasons, recomputedNetBps };
