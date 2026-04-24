@@ -83,8 +83,21 @@ Deno.serve(async (req) => {
     if (req.method !== 'POST') return Response.json({ error: 'POST only' }, { status: 405 });
 
     const base44 = createClientFromRequest(req);
-    const user   = await base44.auth.me();
-    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    let user = null;
+    try {
+      user = await base44.auth.me();
+    } catch {
+      // Not authenticated, check if it's an authorized droplet
+    }
+
+    const clientIP = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
+                     req.headers.get('cf-connecting-ip') || 'unknown';
+    const isDroplet = clientIP === Deno.env.get('DROPLET_IP') ||
+                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_SECRET');
+
+    if (!user && !isDroplet) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     let body;
     try { body = await req.json(); }
