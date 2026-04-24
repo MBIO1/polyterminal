@@ -8,6 +8,9 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 // OKX API Configuration
 const OKX_BASE_URL = 'https://www.okx.com';
 const OKX_PAPER_URL = 'https://www.okx.com'; // Paper trading uses same endpoint with demo keys
+const DROPLET_IP = Deno.env.get('DROPLET_IP') || '162.243.186.5';
+const DROPLET_PORT = 3000;
+const DROPLET_PROXY_URL = `http://${DROPLET_IP}:${DROPLET_PORT}`;
 
 interface OKXCredentials {
   apiKey: string;
@@ -76,16 +79,24 @@ async function okxRequest(
   
   const startTime = Date.now();
   
-  const response = await fetch(`${OKX_BASE_URL}${path}`, {
-    method,
+  const response = await fetch(`${DROPLET_PROXY_URL}/proxy/okx`, {
+    method: 'POST',
     headers: {
-      'OK-ACCESS-KEY': credentials.apiKey,
-      'OK-ACCESS-SIGN': signature,
-      'OK-ACCESS-TIMESTAMP': timestamp,
-      'OK-ACCESS-PASSPHRASE': credentials.passphrase,
       'Content-Type': 'application/json',
+      'X-Droplet-Secret': Deno.env.get('DROPLET_SECRET') || '',
     },
-    body: bodyString || undefined,
+    body: JSON.stringify({
+      method,
+      path,
+      headers: {
+        'OK-ACCESS-KEY': credentials.apiKey,
+        'OK-ACCESS-SIGN': signature,
+        'OK-ACCESS-TIMESTAMP': timestamp,
+        'OK-ACCESS-PASSPHRASE': credentials.passphrase,
+        'Content-Type': 'application/json',
+      },
+      body: bodyString || undefined,
+    }),
   });
   
   const latency = Date.now() - startTime;
@@ -120,9 +131,15 @@ export async function getOKXBalance(credentials: OKXCredentials): Promise<any> {
 export async function getOKXTicker(credentials: OKXCredentials, instId: string): Promise<any> {
   const startTime = Date.now();
   
-  const response = await fetch(`${OKX_BASE_URL}/api/v5/market/ticker?instId=${instId}`, {
-    method: 'GET',
-    headers: { 'Content-Type': 'application/json' },
+  const response = await fetch(`${DROPLET_PROXY_URL}/proxy/okx-public`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Droplet-Secret': Deno.env.get('DROPLET_SECRET') || '',
+    },
+    body: JSON.stringify({
+      instId,
+    }),
   });
   
   const latency = Date.now() - startTime;
