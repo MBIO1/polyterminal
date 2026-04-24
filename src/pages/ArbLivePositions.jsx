@@ -73,13 +73,14 @@ export default function ArbLivePositions() {
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
 
   const getAgeCategory = (snapshotTime) => {
-    if (!snapshotTime) return { age: '0m', color: 'bg-green-500', label: 'Fresh (<5m)' };
+    if (!snapshotTime) return { age: '0s', color: 'bg-green-500', label: 'Fresh (<30s)' };
     const ageMs = Date.now() - new Date(snapshotTime).getTime();
+    const ageSec = Math.floor(ageMs / 1000);
     const ageMin = Math.floor(ageMs / 60000);
-    if (ageMin < 5) return { age: `${ageMin}m`, color: 'bg-green-500', label: 'Fresh (<5m)' };
-    if (ageMin < 30) return { age: `${ageMin}m`, color: 'bg-blue-500', label: 'Active (5-30m)' };
-    if (ageMin < 120) return { age: `${Math.floor(ageMin / 60)}h`, color: 'bg-yellow-500', label: 'Aging (30m-2h)' };
-    return { age: `${Math.floor(ageMin / 1440)}d`, color: 'bg-red-500', label: 'Old (2h+)' };
+    if (ageSec < 30) return { age: `${ageSec}s`, color: 'bg-green-500', label: 'Fresh (<30s)' };
+    if (ageMin < 5) return { age: `${ageMin}m`, color: 'bg-blue-500', label: 'Recent (30s-5m)' };
+    if (ageMin < 15) return { age: `${ageMin}m`, color: 'bg-yellow-500', label: 'Stale (5-15m)' };
+    return { age: `${ageMin}m`, color: 'bg-red-500', label: 'Very stale (15m+)' };
   };
 
   const numField = (k, label, step = 'any') => (
