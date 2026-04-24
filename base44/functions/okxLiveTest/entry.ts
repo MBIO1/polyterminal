@@ -4,7 +4,6 @@
 // Validates latency, fees, and execution quality
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
-import { auditLog } from '../lib/auditLogger.ts';
 
 // OKX API Configuration
 const OKX_BASE_URL = 'https://www.okx.com';
@@ -116,14 +115,17 @@ export async function getOKXBalance(credentials: OKXCredentials): Promise<any> {
 }
 
 /**
- * Get current ticker price
+ * Get current ticker price (public endpoint, no auth needed)
  */
 export async function getOKXTicker(credentials: OKXCredentials, instId: string): Promise<any> {
-  const { response, latency } = await okxRequest(
-    credentials,
-    'GET',
-    `/api/v5/market/ticker?instId=${instId}`
-  );
+  const startTime = Date.now();
+  
+  const response = await fetch(`${OKX_BASE_URL}/api/v5/market/ticker?instId=${instId}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+  });
+  
+  const latency = Date.now() - startTime;
   
   if (!response.ok) {
     const error = await response.text();
@@ -302,16 +304,7 @@ Deno.serve(async (req) => {
     const results = await testOKXConnection(credentials);
     
     // Log test
-    await auditLog(base44, {
-      eventType: 'OKX_CONNECTION_TEST',
-      severity: results.overall === 'passed' ? 'INFO' : 'WARN',
-      message: `OKX test ${results.overall}`,
-      details: {
-        userId: user.id,
-        overall: results.overall,
-        tests: Object.keys(results.tests),
-      },
-    });
+    console.log('[OKX Test] Results:', { userId: user.id, overall: results.overall });
     
     return Response.json({
       ok: true,
