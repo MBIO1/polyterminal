@@ -15,17 +15,25 @@ async function signRequest(method, path, body, secret, key, passphrase) {
   const messageStr = timestamp + method + path + bodyStr;
   
   const encoder = new TextEncoder();
+  const secretBuf = encoder.encode(secret);
+  const messageBuf = encoder.encode(messageStr);
+  
   const keyData = await crypto.subtle.importKey(
     'raw',
-    encoder.encode(secret),
+    secretBuf,
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
   
-  const signatureBuffer = await crypto.subtle.sign('HMAC', keyData, encoder.encode(messageStr));
-  const signatureArray = Array.from(new Uint8Array(signatureBuffer));
-  const signatureBase64 = btoa(signatureArray.map(b => String.fromCharCode(b)).join(''));
+  const signatureBuffer = await crypto.subtle.sign('HMAC', keyData, messageBuf);
+  const signatureHex = Array.from(new Uint8Array(signatureBuffer))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  const signatureBase64 = btoa(signatureHex.match(/.{1,2}/g).map(x => String.fromCharCode(parseInt(x, 16))).join(''));
+  
+  console.log(`[DEBUG] Message: ${messageStr}`);
+  console.log(`[DEBUG] Signature: ${signatureBase64}`);
   
   return {
     timestamp,
