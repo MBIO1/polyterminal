@@ -19,6 +19,7 @@ import {
   Percent,
   MonitorPlay,
   HeartPulse,
+  BarChart2,
 } from 'lucide-react';
 
 const navItems = [
@@ -31,6 +32,7 @@ const navItems = [
   { path: '/trade-monitor', icon: MonitorPlay, label: 'Trade Monitor' },
   { path: '/bot-analytics', icon: LineChart, label: 'Bot Analytics' },
   { path: '/droplet-health', icon: HeartPulse, label: 'Droplet Health' },
+  { path: '/portfolio-manager', icon: BarChart2, label: 'Portfolio Mgr' },
   { path: '/trades', icon: History, label: 'Trades' },
   { path: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
   { path: '/positions', icon: Activity, label: 'Live Positions' },
