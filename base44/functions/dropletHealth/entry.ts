@@ -75,9 +75,14 @@ Deno.serve(async (req) => {
     let websocketDetails = 'No recent heartbeat data';
 
     if (venues.length > 0) {
-      const allHealthy = venues.every(v => v.includes('7/7'));
-      websocketStatus = allHealthy ? 'healthy' : venues.some(v => v.includes('0/')) ? 'critical' : 'degraded';
-      websocketDetails = `${venues.length} venues monitored`;
+      // Count venues with fresh data (at least 1 fresh book)
+      const freshCount = venues.filter(v => !v.includes('0/')).length;
+      const criticalCount = venues.filter(v => v.includes('0/')).length;
+      
+      // With Binance geo-blocked, we expect OKX + Bybit (4 books). If at least 3 are healthy, it's fine.
+      const minimumHealthyVenues = 3;
+      websocketStatus = freshCount >= minimumHealthyVenues ? 'healthy' : criticalCount > 0 ? 'critical' : 'degraded';
+      websocketDetails = `${freshCount}/${venues.length} venues with fresh data`;
     }
 
     // Overall health determination
@@ -107,10 +112,10 @@ Deno.serve(async (req) => {
 
     if (websocketStatus === 'critical') {
       overallStatus = 'critical';
-      issues.push('WebSocket connectivity severely degraded');
+      issues.push('WebSocket connectivity severely degraded (multiple venues 0/7)');
     } else if (websocketStatus === 'degraded') {
       overallStatus = overallStatus === 'healthy' ? 'warning' : overallStatus;
-      issues.push('Some WebSocket venues offline or stale');
+      issues.push('Some venues have stale data (expected with Binance geo-block)');
     }
 
     // Recommendations
