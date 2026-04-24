@@ -310,6 +310,7 @@ Deno.serve(async (req) => {
       const grossSpread = (sellFill?.px || 0) - (buyFill?.px || 0);
 
       // Hybrid fee: 2 taker legs + 2 maker legs
+      const perLegFee = notional * ((takerBps + makerBps) / 10000);
       const takerTotal = notional * (takerBps / 10000) * 2;
       const makerTotal = notional * (makerBps / 10000) * 2;
       const feeTotal  = takerTotal + makerTotal;
