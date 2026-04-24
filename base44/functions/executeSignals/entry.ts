@@ -237,7 +237,7 @@ Deno.serve(async (req) => {
       const minFill = Number(config.min_fillable_usd || 200);
       if (Number(sig.fillable_size_usd || 0) < minFill && !forceId) continue;
 
-      scored.push({ sig, confidence, sizeUsd, net, rawBps, feeBps, slipBps });
+      scored.push({ sig, confidence, sizeUsd, net, rawBps, takerBps, slipBps });
     }
 
     // Sort best edge first, deduplicate by asset (one trade per asset per run)
@@ -254,7 +254,8 @@ Deno.serve(async (req) => {
     const results    = [];
     let tradeCounter = 1;
 
-    for (const { sig, confidence, sizeUsd, net, rawBps, takerBps, makerBps, slipBps } of toExecute) {
+    for (const { sig, confidence, sizeUsd, net, rawBps, takerBps: sigTakerBps, slipBps } of toExecute) {
+      const { takerBps, makerBps } = recomputeNetEdge(sig, config, sizeUsd);
       const condition = confidence >= 80 ? 'HEALTHY' : confidence >= 60 ? 'VOLATILE' : 'UNCERTAIN';
 
       if (dryRun) {
