@@ -11,19 +11,21 @@ function getOKXTimestamp() {
 
 async function signRequest(method, path, body, secret, key, passphrase) {
   const timestamp = getOKXTimestamp();
-  const messageStr = timestamp + method + path + (body ? JSON.stringify(body) : '');
+  const bodyStr = body ? JSON.stringify(body) : '';
+  const messageStr = timestamp + method + path + bodyStr;
   
-  const enc = new TextEncoder();
+  const encoder = new TextEncoder();
   const keyData = await crypto.subtle.importKey(
     'raw',
-    enc.encode(secret),
+    encoder.encode(secret),
     { name: 'HMAC', hash: 'SHA-256' },
     false,
     ['sign']
   );
   
-  const signature = await crypto.subtle.sign('HMAC', keyData, enc.encode(messageStr));
-  const signatureBase64 = btoa(String.fromCharCode(...new Uint8Array(signature)));
+  const signatureBuffer = await crypto.subtle.sign('HMAC', keyData, encoder.encode(messageStr));
+  const signatureBytes = new Uint8Array(signatureBuffer);
+  const signatureBase64 = btoa(String.fromCharCode.apply(null, signatureBytes));
   
   return {
     timestamp,
@@ -82,7 +84,7 @@ Deno.serve(async (req) => {
       if (balanceRes.code === '0' && balanceRes.data?.length > 0) {
         tests.balance = { success: true, latency };
       } else {
-        tests.balance = { success: false, latency, error: balanceRes.msg || 'Failed' };
+        tests.balance = { success: false, latency, error: balanceRes.msg || balanceRes.error || 'Failed' };
         overall = 'failed';
       }
     } catch (e) {
@@ -113,7 +115,7 @@ Deno.serve(async (req) => {
 
     // Test 3: Fee Structure (Public endpoint)
     try {
-      const feeRes = await fetch('https://www.okx.com/api/v5/public/trading-rules?instType=SPOT');
+      const feeRes = await fetch('https://www.okx.com/api/v5/account/trade-fee?instType=SPOT');
       const data = await feeRes.json();
       
       if (data.code === '0' && data.data?.length > 0) {
@@ -166,7 +168,7 @@ Deno.serve(async (req) => {
         
         tests.execution = { success: true, latency };
       } else {
-        tests.execution = { success: false, latency, error: orderRes.msg || 'Failed' };
+        tests.execution = { success: false, latency, error: orderRes.msg || orderRes.error || 'Failed' };
         overall = 'failed';
       }
     } catch (e) {
