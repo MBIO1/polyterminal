@@ -59,7 +59,20 @@ function shadowPnlAt(floorBps, heartbeats) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
+    
+    let user = null;
+    try {
+      user = await base44.auth.me();
+    } catch (authError) {
+      console.warn('botProductivity: auth check failed, returning no_data');
+      return Response.json({
+        window_hours: 24,
+        heartbeat_count: 0,
+        verdict: 'no_data',
+        message: 'Authentication failed. Returning empty stats.',
+      });
+    }
+    
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};

@@ -3,7 +3,24 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
+    
+    let user = null;
+    try {
+      user = await base44.auth.me();
+    } catch (authError) {
+      console.warn('dropletHealth: auth check failed, returning unknown status');
+      return Response.json({
+        overall_status: 'unknown',
+        issues: ['authentication_unavailable'],
+        heartbeat: { status: 'unknown', last_seen_sec: null },
+        connectivity: { post_errors_last_hour: 0, non_2xx_last_hour: 0, issues: [] },
+        signal_flow: { status: 'unknown', signals_ingested_last_hour: 0 },
+        websocket_books: { status: 'unknown', details: 'Auth failed' },
+        recommendations: [],
+        diagnostics: null,
+        checked_at: new Date().toISOString(),
+      });
+    }
 
     if (!user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
