@@ -1,0 +1,41 @@
+{
+  "name": "ArbCrashLog",
+  "fields": {
+    "crash_time": {
+      "type": "date",
+      "required": true,
+      "description": "When the crash occurred"
+    },
+    "offline_seconds": {
+      "type": "number",
+      "required": true,
+      "description": "How long droplet was offline"
+    },
+    "last_heartbeat_id": {
+      "type": "string",
+      "description": "ID of last heartbeat before crash"
+    },
+    "possible_causes": {
+      "type": "string",
+      "description": "JSON array of possible crash causes"
+    },
+    "memory_at_crash": {
+      "type": "number",
+      "description": "Memory usage in MB at time of crash"
+    },
+    "cpu_at_crash": {
+      "type": "number",
+      "description": "CPU percentage at time of crash"
+    },
+    "auto_restarted": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether auto-restart was attempted"
+    },
+    "restart_successful": {
+      "type": "boolean",
+      "description": "Whether restart succeeded"
+    }
+  },
+  "indexes": ["crash_time", "auto_restarted"]
+}
