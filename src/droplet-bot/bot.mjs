@@ -55,6 +55,9 @@ const HEARTBEAT_MS      = Number(process.env.HEARTBEAT_MS || 60_000);
 // and at least this fraction of the primary venue's basis to earn confirmed_exchanges=2.
 const CONFIRM_MIN_RATIO = Number(process.env.CONFIRM_MIN_RATIO || 0.5);
 
+// Set DISABLE_BINANCE=true in .env if running from a US-based server (HTTP 451 geo-block).
+const DISABLE_BINANCE = process.env.DISABLE_BINANCE === 'true';
+
 if (!INGEST_URL || !TOKEN) {
   console.error('Missing BASE44_INGEST_URL or BASE44_USER_TOKEN in .env');
   process.exit(1);
@@ -67,7 +70,7 @@ const pairThresholds = Object.fromEntries(PAIRS.map(p => [p, MIN_NET_EDGE_BPS]))
 const books = {
   'OKX-spot': {}, 'OKX-perp': {},
   'Bybit-spot': {}, 'Bybit-perp': {},
-  'Binance-spot': {}, 'Binance-perp': {},
+  ...(DISABLE_BINANCE ? {} : { 'Binance-spot': {}, 'Binance-perp': {} }),
 };
 
 const recentlyPosted = new Map();
@@ -251,7 +254,7 @@ function venueBasisBps(venue, pair, now) {
 function evaluate(pair) {
   const now = Date.now();
   stats.evaluations++;
-  const venues = ['OKX', 'Bybit', 'Binance'];
+  const venues = DISABLE_BINANCE ? ['OKX', 'Bybit'] : ['OKX', 'Bybit', 'Binance'];
 
   // ── Same-venue spot/perp basis carry ──────────────────────────
   for (const venue of venues) {
@@ -345,7 +348,7 @@ function evaluate(pair) {
   const spotVenues = [
     { name: 'OKX-spot',     book: books['OKX-spot'][pair] },
     { name: 'Bybit-spot',   book: books['Bybit-spot'][pair] },
-    { name: 'Binance-spot', book: books['Binance-spot'][pair] },
+    ...(DISABLE_BINANCE ? [] : [{ name: 'Binance-spot', book: books['Binance-spot'][pair] }]),
   ].filter(v => v.book && now - v.book.ts <= MAX_SIGNAL_AGE_MS);
 
   if (spotVenues.length >= 2) {
@@ -517,6 +520,10 @@ console.log(
 connectOKX();
 connectBybitSpot();
 connectBybitPerp();
-connectBinanceSpot();
-connectBinancePerp();
+if (!DISABLE_BINANCE) {
+  connectBinanceSpot();
+  connectBinancePerp();
+} else {
+  console.log('  [Binance] DISABLED via DISABLE_BINANCE=true (US geo-block workaround)');
+}
 refreshThresholds();
