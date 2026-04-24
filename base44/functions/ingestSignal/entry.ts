@@ -93,7 +93,7 @@ Deno.serve(async (req) => {
     const clientIP = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
                      req.headers.get('cf-connecting-ip') || 'unknown';
     const isDroplet = clientIP === Deno.env.get('DROPLET_IP') ||
-                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_SECRET');
+                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_API_KEY');
 
     if (!user && !isDroplet) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

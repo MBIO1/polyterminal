@@ -29,7 +29,7 @@ Deno.serve(async (req) => {
     }
 
     const isDroplet = clientIP === Deno.env.get('DROPLET_IP') ||
-                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_SECRET');
+                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_API_KEY');
 
     if (!user && !isDroplet) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
