@@ -37,14 +37,14 @@ function sizeMultiplier(confidence) {
   return 0;
 }
 
-// Recompute net edge: raw_spread - (2 × fee) - slippage
-// Returns net in bps
+// Recompute net edge: raw_spread - (4 × fee) - slippage
+// 4-leg round trip: buy spot, sell perp (entry) + sell spot, buy perp (exit)
 function recomputeNetEdge(signal, config, sizeUsd) {
   const rawBps    = Number(signal.raw_spread_bps || 0);
   const feeBps    = Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG);
   const fillable  = Number(signal.fillable_size_usd || 1);
   const slipBps   = Math.min((sizeUsd / fillable) * 100, 3); // impact capped at 3 bps
-  const totalCost = 2 * feeBps + slipBps;
+  const totalCost = 4 * feeBps + slipBps;
   const net       = rawBps - totalCost;
   return { rawBps, feeBps, slipBps, totalCost, net };
 }
