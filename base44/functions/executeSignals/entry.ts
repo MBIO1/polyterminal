@@ -37,17 +37,24 @@ function sizeMultiplier(confidence) {
   return 0;
 }
 
-// Recompute net edge: raw_spread - (4 × fee) - slippage
-// 4-leg round trip: buy spot, sell perp (entry) + sell spot, buy perp (exit)
+// Recompute net edge with hybrid maker/taker cost model
+// Buy (aggressive) = taker | Sell (passive) = maker (post-only limit)
+// Cost: 2×taker + 2×maker + slippage (maker typically 0 bps on major CEX)
 function recomputeNetEdge(signal, config, sizeUsd) {
   const rawBps    = Math.max(-1000, Math.min(1000, Number(signal.raw_spread_bps || 0)));
-  const feeBps    = Math.max(0, Math.min(100, Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG)));
+  const takerBps  = Math.max(0, Math.min(100, Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG)));
+  const makerBps  = 0; // Most major CEX: 0 bps maker on BTC/ETH spot/perp
   const fillable  = Math.max(1, Number(signal.fillable_size_usd || 1));
   const sizeUsdSafe = Math.max(0, Math.min(fillable * 10, sizeUsd)); // cap at 10x to prevent overflow
-  const slipBps   = Math.min((sizeUsdSafe / fillable) * 100, 3);
-  const totalCost = 4 * feeBps + slipBps;
+  
+  // Dynamic slippage: proportional to size relative to book, capped at 2 bps for large sizes
+  const sizeRatio = Math.min(sizeUsdSafe / fillable, 1);
+  const slipBps   = sizeRatio < 0.1 ? 0.5 : sizeRatio < 0.3 ? 1 : sizeRatio < 0.6 ? 1.5 : 2;
+  
+  // Hybrid cost: 2 legs taker (entry/exit aggressive) + 2 legs maker (passive)
+  const totalCost = (2 * takerBps) + (2 * makerBps) + slipBps;
   const net       = rawBps - totalCost;
-  return { rawBps, feeBps, slipBps, totalCost, net };
+  return { rawBps, takerBps, makerBps, slipBps, totalCost, net, hybridMode: true };
 }
 
 // Size in USD: min of per-trade cap, fillable liquidity × confidence mult
@@ -218,11 +225,11 @@ Deno.serve(async (req) => {
       const sizeUsd = computeSizeUsd(sig, config, confidence);
       if (sizeUsd <= 0) continue;
 
-      const { rawBps, feeBps, slipBps, totalCost, net } = recomputeNetEdge(sig, config, sizeUsd);
+      const { rawBps, takerBps, makerBps, slipBps, totalCost, net } = recomputeNetEdge(sig, config, sizeUsd);
 
       // Gate: edge must be positive and above minEdge
       if (net < minEdge && !forceId) {
-        console.log(`[executeSignals] REJECT ${sig.pair}: net=${net.toFixed(2)}bps < min=${minEdge}bps (raw=${rawBps}, cost=${totalCost.toFixed(2)})`);
+        console.log(`[executeSignals] REJECT ${sig.pair}: net=${net.toFixed(2)}bps < min=${minEdge}bps (raw=${rawBps}, hybrid_cost=2×${takerBps}+2×${makerBps}+${slipBps.toFixed(1)}=${totalCost.toFixed(2)})`);
         continue;
       }
 
@@ -247,7 +254,7 @@ Deno.serve(async (req) => {
     const results    = [];
     let tradeCounter = 1;
 
-    for (const { sig, confidence, sizeUsd, net, rawBps, feeBps, slipBps } of toExecute) {
+    for (const { sig, confidence, sizeUsd, net, rawBps, takerBps, makerBps, slipBps } of toExecute) {
       const condition = confidence >= 80 ? 'HEALTHY' : confidence >= 60 ? 'VOLATILE' : 'UNCERTAIN';
 
       if (dryRun) {
@@ -300,8 +307,11 @@ Deno.serve(async (req) => {
       const qty       = buyFill?.qty || 0;
       const notional  = buyFill?.notional_usd || qty * (buyFill?.px || 0);
       const grossSpread = (sellFill?.px || 0) - (buyFill?.px || 0);
-      const perLegFee = notional * (feeBps / 10000);
-      const feeTotal  = perLegFee * 2;
+
+      // Hybrid fee: 2 taker legs + 2 maker legs
+      const takerTotal = notional * (takerBps / 10000) * 2;
+      const makerTotal = notional * (makerBps / 10000) * 2;
+      const feeTotal  = takerTotal + makerTotal;
       const slipTotal = notional * (slipBps / 10000);
       const basisPnl  = qty * grossSpread;
       const netPnl    = basisPnl - feeTotal - slipTotal;
