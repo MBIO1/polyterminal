@@ -33,9 +33,21 @@ Deno.serve(async (req) => {
       return rateLimitCheck.response;
     }
 
-    // Authentication
-    const user = await base44.auth.me();
-    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Authentication - allow either logged-in user OR service role from authorized IPs
+    let user = null;
+    try {
+      user = await base44.auth.me();
+    } catch {
+      // Not authenticated, check if it's an authorized service call
+    }
+    
+    // If no user, check for droplet authorization via IP or special header
+    const isDroplet = clientIP === Deno.env.get('DROPLET_IP') || 
+                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_SECRET');
+    
+    if (!user && !isDroplet) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
 
     // Parse body
     let body;
@@ -94,7 +106,7 @@ Deno.serve(async (req) => {
       post_errors: sanitizeNumber(body.post_errors, { min: 0, max: 10000, decimals: 0 }) || 0,
       post_non_2xx: sanitizeNumber(body.post_non_2xx, { min: 0, max: 10000, decimals: 0 }) || 0,
       source_ip: clientIP,
-      source_user: user.id,
+      source_user: user?.id || 'droplet-service',
     });
 
     // Log heartbeat ingestion (but not too verbosely - only if there are issues)
@@ -110,7 +122,7 @@ Deno.serve(async (req) => {
           evaluations: body.evaluations,
           posted: body.posted,
         },
-        userId: user.id,
+        userId: user?.id || 'droplet-service',
         requestId,
         ipAddress: clientIP,
         entityType: 'ArbHeartbeat',
