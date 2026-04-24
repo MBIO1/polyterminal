@@ -6,17 +6,7 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch (authError) {
-      console.warn('signalStats: auth check failed, returning empty stats');
-      return Response.json({ ok: true, window_hours: 24, pairs: [] });
-    }
-    
-    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    // Read-only stats endpoint: allow any logged-in user
-
+    // Read-only endpoint: use service role to bypass user auth
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const windowHours = Number(body.window_hours) || 24;
     const cutoff = new Date(Date.now() - windowHours * 3600_000).toISOString();
