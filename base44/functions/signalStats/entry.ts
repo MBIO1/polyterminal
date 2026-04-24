@@ -5,7 +5,15 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
+    
+    let user = null;
+    try {
+      user = await base44.auth.me();
+    } catch (authError) {
+      console.warn('signalStats: auth check failed, returning empty stats');
+      return Response.json({ ok: true, window_hours: 24, pairs: [] });
+    }
+    
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     // Read-only stats endpoint: allow any logged-in user
 
