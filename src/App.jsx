@@ -21,6 +21,7 @@ import ArbFunding from '@/pages/ArbFunding';
 import DropletHealthCheck from '@/pages/DropletHealthCheck';
 import PortfolioManager from '@/pages/PortfolioManager';
 import OKXLiveTest from '@/pages/OKXLiveTest';
+import Monitor from '@/pages/Monitor';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -59,6 +60,7 @@ const AuthenticatedApp = () => {
         <Route path="/droplet-health" element={<DropletHealthCheck />} />
         <Route path="/portfolio-manager" element={<PortfolioManager />} />
         <Route path="/okx-test" element={<OKXLiveTest />} />
+        <Route path="/monitor" element={<Monitor />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
