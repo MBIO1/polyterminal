@@ -21,18 +21,16 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
 
     // Authentication - allow either logged-in user OR droplet service
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      // Not authenticated, check if it's an authorized droplet
-    }
-
     const isDroplet = clientIP === Deno.env.get('DROPLET_IP') ||
-                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_API_KEY');
+                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_SECRET');
 
-    if (!user && !isDroplet) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    let user = null;
+    if (!isDroplet) {
+      try {
+        user = await base44.auth.me();
+      } catch {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
     }
 
     // Parse body
