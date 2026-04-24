@@ -24,8 +24,8 @@ async function signRequest(method, path, body, secret, key, passphrase) {
   );
   
   const signatureBuffer = await crypto.subtle.sign('HMAC', keyData, encoder.encode(messageStr));
-  const signatureBytes = new Uint8Array(signatureBuffer);
-  const signatureBase64 = btoa(String.fromCharCode.apply(null, signatureBytes));
+  const signatureArray = Array.from(new Uint8Array(signatureBuffer));
+  const signatureBase64 = btoa(signatureArray.map(b => String.fromCharCode(b)).join(''));
   
   return {
     timestamp,
