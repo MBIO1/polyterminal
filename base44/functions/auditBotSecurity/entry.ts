@@ -254,7 +254,7 @@ Deno.serve(async (req) => {
     return Response.json({
       ok: true,
       audit,
-      action_items: audit.critical_issues.length > 0 
+      action_items: audit.critical_issues.length > 0
         ? `${audit.critical_issues.length} critical issues require immediate action`
         : audit.warnings.length > 0
         ? `${audit.warnings.length} warnings to review`
