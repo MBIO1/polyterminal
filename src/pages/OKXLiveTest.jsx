@@ -130,10 +130,12 @@ export default function OKXLiveTest() {
         </CardContent>
       </Card>
 
-      {error && (
+      {result?.error && (
         <Alert variant="destructive">
           <XCircle className="h-4 w-4" />
-          <AlertDescription>{error}</AlertDescription>
+          <AlertDescription className="font-mono text-xs">
+            {result.error}
+          </AlertDescription>
         </Alert>
       )}
 

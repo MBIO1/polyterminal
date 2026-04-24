@@ -104,12 +104,14 @@ export async function getOKXBalance(credentials: OKXCredentials): Promise<any> {
     '/api/v5/account/balance'
   );
   
+  const responseText = await response.text();
+  console.log('[OKX Test] Balance response:', response.status, responseText.slice(0, 200));
+  
   if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`OKX API error: ${error}`);
+    throw new Error(`OKX API error ${response.status}: ${responseText}`);
   }
   
-  const data = await response.json();
+  const data = JSON.parse(responseText);
   return { data, latency };
 }
 
