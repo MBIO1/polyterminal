@@ -20,6 +20,7 @@ import {
   MonitorPlay,
   HeartPulse,
   BarChart2,
+  TestTube,
 } from 'lucide-react';
 
 const navItems = [
@@ -33,6 +34,7 @@ const navItems = [
   { path: '/bot-analytics', icon: LineChart, label: 'Bot Analytics' },
   { path: '/droplet-health', icon: HeartPulse, label: 'Droplet Health' },
   { path: '/portfolio-manager', icon: BarChart2, label: 'Portfolio Mgr' },
+  { path: '/okx-test', icon: TestTube, label: 'OKX Live Test' },
   { path: '/trades', icon: History, label: 'Trades' },
   { path: '/transfers', icon: ArrowLeftRight, label: 'Transfers' },
   { path: '/positions', icon: Activity, label: 'Live Positions' },
