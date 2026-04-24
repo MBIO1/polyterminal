@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { toast } from 'sonner';
-import { Plus, Trash2, X } from 'lucide-react';
+import { Plus, Trash2, X, Clock } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -71,6 +71,16 @@ export default function ArbLivePositions() {
 
   const openForm = (p = null) => { setEditing(p); setF(init(p)); setShowForm(true); };
   const set = (k, v) => setF(prev => ({ ...prev, [k]: v }));
+
+  const getAgeCategory = (snapshotTime) => {
+    if (!snapshotTime) return { age: '0m', color: 'bg-green-500', label: 'Fresh (<5m)' };
+    const ageMs = Date.now() - new Date(snapshotTime).getTime();
+    const ageMin = Math.floor(ageMs / 60000);
+    if (ageMin < 5) return { age: `${ageMin}m`, color: 'bg-green-500', label: 'Fresh (<5m)' };
+    if (ageMin < 30) return { age: `${ageMin}m`, color: 'bg-blue-500', label: 'Active (5-30m)' };
+    if (ageMin < 120) return { age: `${Math.floor(ageMin / 60)}h`, color: 'bg-yellow-500', label: 'Aging (30m-2h)' };
+    return { age: `${Math.floor(ageMin / 1440)}d`, color: 'bg-red-500', label: 'Old (2h+)' };
+  };
 
   const numField = (k, label, step = 'any') => (
     <div>
@@ -167,6 +177,7 @@ export default function ArbLivePositions() {
             <table className="w-full text-xs font-mono whitespace-nowrap">
               <thead>
                 <tr className="text-[10px] uppercase tracking-wider text-muted-foreground border-b border-border">
+                  <th className="text-left py-2 px-2 font-medium">Age</th>
                   <th className="text-left py-2 px-2 font-medium">Time</th>
                   <th className="text-left font-medium">Status</th>
                   <th className="text-left font-medium">Asset</th>
@@ -183,10 +194,18 @@ export default function ArbLivePositions() {
                 </tr>
               </thead>
               <tbody>
-                {positions.map(p => (
-                  <tr key={p.id} className="border-b border-border/30 hover:bg-secondary/40 cursor-pointer" onClick={() => openForm(p)}>
-                    <td className="py-2 px-2 text-muted-foreground">{p.snapshot_time ? new Date(p.snapshot_time).toLocaleString() : '—'}</td>
-                    <td><StatusBadge status={p.status} /></td>
+                {positions.map(p => {
+                   const ageInfo = getAgeCategory(p.snapshot_time);
+                   return (
+                   <tr key={p.id} className="border-b border-border/30 hover:bg-secondary/40 cursor-pointer" onClick={() => openForm(p)}>
+                     <td className="py-2 px-2">
+                       <div className="flex items-center gap-2">
+                         <div className={`w-2 h-2 rounded-full ${ageInfo.color}`} title={ageInfo.label} />
+                         <span className="text-muted-foreground text-xs">{ageInfo.age}</span>
+                       </div>
+                     </td>
+                     <td className="py-2 px-2 text-muted-foreground">{p.snapshot_time ? new Date(p.snapshot_time).toLocaleString() : '—'}</td>
+                     <td><StatusBadge status={p.status} /></td>
                     <td className="font-bold">{p.asset}</td>
                     <td>{p.spot_exchange || '—'}</td>
                     <td>{p.perp_exchange || '—'}</td>
@@ -202,9 +221,10 @@ export default function ArbLivePositions() {
                         <Trash2 className="w-3 h-3 text-destructive" />
                       </Button>
                     </td>
-                  </tr>
-                ))}
-              </tbody>
+                    </tr>
+                    );
+                    })}
+                    </tbody>
             </table>
           </div>
         )}
