@@ -28,8 +28,9 @@
 import 'dotenv/config';
 import WebSocket from 'ws';
 
-const INGEST_URL      = process.env.BASE44_INGEST_URL;
+const INGEST_URL       = process.env.BASE44_INGEST_URL;
 const HEARTBEAT_URL   = process.env.BASE44_HEARTBEAT_URL;  // POST heartbeats to Base44
+const EXECUTE_URL     = process.env.BASE44_EXECUTE_URL;    // Trigger immediate executor
 const STATS_URL       = process.env.BASE44_STATS_URL;
 const TOKEN           = process.env.BASE44_USER_TOKEN;
 
@@ -323,7 +324,7 @@ function evaluate(pair) {
 
     const key = pair + '|' + buyVenue + '|' + sellVenue;
     const last = recentlyPosted.get(key);
-    if (last && now - last < 5_000) { stats.rejected_dedupe++; continue; }
+    if (last && now - last < 3_000) { stats.rejected_dedupe++; continue; } // reduced from 5s to 3s for faster re-signal
     recentlyPosted.set(key, now);
     stats.passed_dedupe_gate++;
     stats.posted++;
@@ -372,9 +373,9 @@ function evaluate(pair) {
       if (netBps >= threshold) {
         const fillable = Math.min(cheapest.book.askSize, richest.book.bidSize);
         const signalAgeMs = now - Math.min(cheapest.book.ts, richest.book.ts);
-        const key = pair + '|' + cheapest.name + '|' + richest.name;
-        const last = recentlyPosted.get(key);
-        if (fillable >= MIN_FILLABLE_USD && signalAgeMs <= MAX_SIGNAL_AGE_MS && !(last && now - last < 5_000)) {
+          const key = pair + '|' + cheapest.name + '|' + richest.name;
+          const last = recentlyPosted.get(key);
+          if (fillable >= MIN_FILLABLE_USD && signalAgeMs <= MAX_SIGNAL_AGE_MS && !(last && now - last < 3_000)) {
           recentlyPosted.set(key, now);
           stats.posted++;
           post({
@@ -401,28 +402,37 @@ function evaluate(pair) {
 // HTTP helpers
 // ───────────────────────────────────────────────────────────────
 async function post(payload) {
-  stats.post_attempts++;
-  try {
-    const res = await fetch(INGEST_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
-      body: JSON.stringify(payload),
-    });
-    if (res.status < 200 || res.status >= 300) {
-      stats.post_non_2xx++;
-      const t = await res.text().catch(() => '');
-      console.error('POST non-2xx ' + res.status + ' [' + payload.pair + ']: ' + t.slice(0, 200));
-      return;
-    }
-    const body = await res.json();
-    console.log('[' + payload.pair + '] ' + payload.buy_exchange + '->' + payload.sell_exchange +
-      ' raw=' + payload.raw_spread_bps.toFixed(2) + ' net=' + payload.net_edge_bps.toFixed(2) +
-      'bps fill=$' + Math.round(payload.fillable_size_usd) + ' -> ' + res.status + ' ' +
-      (body.duplicate ? '(dup)' : body.signal_id || ''));
-  } catch (e) {
-    stats.post_errors++;
-    console.error('POST failed:', e.message);
-  }
+   stats.post_attempts++;
+   try {
+     const res = await fetch(INGEST_URL, {
+       method: 'POST',
+       headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+       body: JSON.stringify(payload),
+     });
+     if (res.status < 200 || res.status >= 300) {
+       stats.post_non_2xx++;
+       const t = await res.text().catch(() => '');
+       console.error('POST non-2xx ' + res.status + ' [' + payload.pair + ']: ' + t.slice(0, 200));
+       return;
+     }
+     const body = await res.json();
+     console.log('[' + payload.pair + '] ' + payload.buy_exchange + '->' + payload.sell_exchange +
+       ' raw=' + payload.raw_spread_bps.toFixed(2) + ' net=' + payload.net_edge_bps.toFixed(2) +
+       'bps fill=$' + Math.round(payload.fillable_size_usd) + ' -> ' + res.status + ' ' +
+       (body.duplicate ? '(dup)' : body.signal_id || ''));
+
+     // Trigger immediate executor on healthy signal
+     if (EXECUTE_URL && payload.net_edge_bps >= 15) {
+       fetch(EXECUTE_URL, {
+         method: 'POST',
+         headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+         body: JSON.stringify({ signal_id: body.signal_id }),
+       }).catch(e => console.error('executor trigger failed:', e.message));
+     }
+   } catch (e) {
+     stats.post_errors++;
+     console.error('POST failed:', e.message);
+   }
 }
 
 async function postHeartbeat(freshBooks) {

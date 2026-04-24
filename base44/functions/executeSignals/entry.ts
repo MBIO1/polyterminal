@@ -128,7 +128,7 @@ Deno.serve(async (req) => {
     const body        = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const dryRun      = body.dry_run === true;
     const forceId     = body.signal_id || null;
-    const ttlMs       = Number(body.signal_ttl_ms) || DEFAULT_TTL_MS;
+    const ttlMs       = Number(body.signal_ttl_ms) || 60_000; // reduced from 300s to 60s
     const maxSignals  = Math.min(Number(body.max_signals) || 10, 25);
 
     // ── Load config ──────────────────────────────────────────────────────────
@@ -153,7 +153,7 @@ Deno.serve(async (req) => {
     // ── Load signals ─────────────────────────────────────────────────────────
     const nowTs      = Date.now();
     const todayStr   = new Date().toISOString().slice(0, 10);
-    const recentAll  = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 200);
+    const recentAll  = await base44.asServiceRole.entities.ArbSignal.filter({ status: { $in: ['detected', 'alerted'] } }, '-received_time', 100);
 
     let candidates;
     const expiredIds = [];
