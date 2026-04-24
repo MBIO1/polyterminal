@@ -40,10 +40,11 @@ function sizeMultiplier(confidence) {
 // Recompute net edge: raw_spread - (4 × fee) - slippage
 // 4-leg round trip: buy spot, sell perp (entry) + sell spot, buy perp (exit)
 function recomputeNetEdge(signal, config, sizeUsd) {
-  const rawBps    = Number(signal.raw_spread_bps || 0);
-  const feeBps    = Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG);
-  const fillable  = Number(signal.fillable_size_usd || 1);
-  const slipBps   = Math.min((sizeUsd / fillable) * 100, 3); // impact capped at 3 bps
+  const rawBps    = Math.max(-1000, Math.min(1000, Number(signal.raw_spread_bps || 0)));
+  const feeBps    = Math.max(0, Math.min(100, Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG)));
+  const fillable  = Math.max(1, Number(signal.fillable_size_usd || 1));
+  const sizeUsdSafe = Math.max(0, Math.min(fillable * 10, sizeUsd)); // cap at 10x to prevent overflow
+  const slipBps   = Math.min((sizeUsdSafe / fillable) * 100, 3);
   const totalCost = 4 * feeBps + slipBps;
   const net       = rawBps - totalCost;
   return { rawBps, feeBps, slipBps, totalCost, net };
@@ -100,15 +101,19 @@ async function bybitOrder({ symbol, side, qty }) {
   const signature  = await bybitSign(preSign, apiSecret);
 
   const res  = await fetch(`${base}/v5/order/create`, {
-    method: 'POST',
-    headers: {
-      'X-BAPI-API-KEY': apiKey, 'X-BAPI-SIGN': signature,
-      'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow,
-      'Content-Type': 'application/json',
-    },
-    body,
+   method: 'POST',
+   headers: {
+     'X-BAPI-API-KEY': apiKey, 'X-BAPI-SIGN': signature,
+     'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow,
+     'Content-Type': 'application/json',
+   },
+   body,
   });
-  return await res.json();
+  if (!res.ok) {
+   const errText = await res.text().catch(() => '');
+   throw new Error(`Bybit HTTP ${res.status}: ${errText.slice(0, 100)}`);
+  }
+  return await res.json().catch(() => { throw new Error('invalid_response_body'); });
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -278,11 +283,14 @@ Deno.serve(async (req) => {
           execResult = paperFill(sig, sizeUsd);
         }
       } catch (e) {
-        console.error(`[executeSignals] exec error signal ${sig.id}:`, e.message);
+        const safeMsg = e.message?.includes('key') || e.message?.includes('secret') 
+          ? 'credential_error' 
+          : e.message?.slice(0, 100) || 'unknown_error';
+        console.error(`[executeSignals] exec error signal ${sig.id}:`, safeMsg);
         await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
-          status: 'rejected', rejection_reason: `exec_error:${e.message}`,
+          status: 'rejected', rejection_reason: `exec_error:${safeMsg}`,
         });
-        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'error', error: e.message });
+        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'error', error: 'execution_failed' });
         continue;
       }
 
@@ -409,7 +417,10 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
-    console.error('[executeSignals] fatal error:', error);
-    return Response.json({ error: error.message }, { status: 500 });
+    const safeError = error.message?.includes('key') || error.message?.includes('secret')
+      ? 'server_error'
+      : (error.message || 'fatal_error').slice(0, 100);
+    console.error('[executeSignals] fatal error:', safeError);
+    return Response.json({ error: 'execution_service_error' }, { status: 500 });
   }
 });
