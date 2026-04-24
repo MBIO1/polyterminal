@@ -1,9 +1,9 @@
 // Unified system audit — single endpoint that rolls up the live state of:
-//   - Bot config (running flags, paper mode, kill switch)
-//   - Signal pipeline (detected/alerted/executed/rejected counts, last-hour throughput)
-//   - Executor outcomes (recent trades with PnL + mode)
-//   - Open positions and net delta drift vs cap
-//   - Heartbeat freshness (are we still ingesting?)
+// - Bot config (running flags, paper mode, kill switch)
+// - Signal pipeline (detected/alerted/executed/rejected counts, last-hour throughput)
+// - Executor outcomes (recent trades with PnL + mode)
+// - Open positions and net delta drift vs cap
+// - Heartbeat freshness (are we still ingesting?)
 //
 // Read-only, intended for continuous polling from an AuditPanel on the dashboard.
 //
@@ -14,25 +14,7 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch (authError) {
-      console.warn('systemAudit: auth check failed, returning degraded audit');
-      return Response.json({
-        ok: true,
-        ts: new Date().toISOString(),
-        verdict: 'degraded',
-        issues: ['auth_unavailable'],
-        config: {},
-        signals: { total_recent: 0, status_counts: {}, last_hour: {} },
-        trades: { today_count: 0, today_pnl_usd: 0, open_count: 0 },
-        positions: { open_count: 0, net_delta_usd: 0 },
-        heartbeat: { healthy: false },
-      });
-    }
-    
+    const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     // Allow both admin and regular users to view audit (read-only)
 
@@ -65,7 +47,7 @@ Deno.serve(async (req) => {
           // comma-joined list of top-level reasons. We split only on commas that are NOT
           // inside parentheses to avoid splitting the detail params inside each reason.
           const raw = String(s.rejection_reason || 'unknown');
-          const reasons = raw.split(/,(?![^(]*\))/);
+          const reasons = raw.split(/,(?![^()]*\))/);
           for (const r of reasons) {
             const key = r.trim().split('(')[0].trim() || 'unknown';
             rejectReasonCounts[key] = (rejectReasonCounts[key] || 0) + 1;

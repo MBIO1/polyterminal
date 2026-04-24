@@ -5,8 +5,10 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    
-    // Read-only endpoint: use service role to bypass user auth
+    const user = await base44.auth.me();
+    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Read-only stats endpoint: allow any logged-in user
+
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const windowHours = Number(body.window_hours) || 24;
     const cutoff = new Date(Date.now() - windowHours * 3600_000).toISOString();
