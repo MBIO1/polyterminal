@@ -24,6 +24,7 @@ import ArbRebalance from '@/pages/ArbRebalance';
 import ArbFunding from '@/pages/ArbFunding';
 import TradeMonitor from '@/pages/TradeMonitor';
 import DropletHealthCheck from '@/pages/DropletHealthCheck';
+import PortfolioManager from '@/pages/PortfolioManager';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -65,6 +66,7 @@ const AuthenticatedApp = () => {
         <Route path="/bot-analytics" element={<ArbBotAnalytics />} />
         <Route path="/trade-monitor" element={<TradeMonitor />} />
         <Route path="/droplet-health" element={<DropletHealthCheck />} />
+        <Route path="/portfolio-manager" element={<PortfolioManager />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>
