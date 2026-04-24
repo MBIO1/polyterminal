@@ -6,8 +6,23 @@
 const BOT_SOURCE = `// Droplet WebSocket arbitrage bot — BASIS-CARRY v3 (BIDIRECTIONAL + CROSS-VENUE CONFIRMATION)
 // Auto-downloaded from Base44. Start: node bot.mjs
 //
-// FEE MODEL: 4-leg round-trip — net_edge_bps = raw_spread_bps - 4 × TAKER_FEE_BPS
-// Must match ArbConfig.taker_fee_bps_per_leg in Base44 UI.
+// ─── FEE MODEL (critical — must be consistent everywhere) ────────────────────
+// A round-trip basis carry has 4 legs:
+//   leg 1: entry buy taker (spot or perp)
+//   leg 2: entry sell taker (spot or perp)
+//   leg 3: exit buy taker
+//   leg 4: exit sell taker
+// net_edge_bps = raw_spread_bps - 4 × TAKER_FEE_BPS
+//
+// This MUST match:
+//   • ArbConfig.taker_fee_bps_per_leg (Base44 UI)
+//   • executeSignals backend function (4 × config.taker_fee_bps_per_leg)
+//   • ingestSignal Telegram message (4 × 2 = 8 bps shown)
+//
+// ─── ALERT THRESHOLD alignment ───────────────────────────────────────────────
+// ALERT_EDGE_BPS (default 20) = net_edge at which alert=true is sent in the signal payload.
+// ingestSignal fires Telegram/Slack when alert=true (TELEGRAM_ALERT_MIN_BPS = 20 bps).
+// Keep ALERT_EDGE_BPS = TELEGRAM_ALERT_MIN_BPS to avoid false alerts.
 
 import 'dotenv/config';
 import WebSocket from 'ws';
@@ -19,9 +34,17 @@ const TOKEN           = process.env.BASE44_USER_TOKEN;
 
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT,ATOM-USDT,APT-USDT,SUI-USDT,ARB-USDT,OP-USDT,INJ-USDT,SEI-USDT,TIA-USDT').split(',');
 
+// TAKER_FEE_BPS: per-leg taker fee. MUST match ArbConfig.taker_fee_bps_per_leg in Base44 (default 2).
 const TAKER_FEE_BPS     = Number(process.env.TAKER_FEE_BPS || 2);
+
+// MIN_NET_EDGE_BPS: minimum net edge (post 4-leg fees) to post a signal.
+// Keep low (1–2 bps) for visibility; the executor gates on ArbConfig thresholds.
 const MIN_NET_EDGE_BPS  = Number(process.env.MIN_NET_EDGE_BPS || 2);
+
+// ALERT_EDGE_BPS: net edge at which alert=true fires Telegram/Slack.
+// Must match TELEGRAM_ALERT_MIN_BPS in ingestSignal (20 bps).
 const ALERT_EDGE_BPS    = Number(process.env.ALERT_EDGE_BPS || 20);
+
 const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1500);
 const MIN_FILLABLE_USD  = Number(process.env.MIN_FILLABLE_USD || 100);
 const HEARTBEAT_MS      = Number(process.env.HEARTBEAT_MS || 60_000);
@@ -71,14 +94,14 @@ function recordBucket(edgeBps) {
   else                   stats.bucket_20_plus++;
 }
 
-// OKX spot + perp
+// OKX spot + perp (swap) on the same WS
 function connectOKX() {
   const ws = new WebSocket('wss://ws.okx.com:8443/ws/v5/public');
   ws.on('open', () => {
     const args = [];
     for (const p of PAIRS) {
-      args.push({ channel: 'tickers', instId: p });
-      args.push({ channel: 'tickers', instId: p + '-SWAP' });
+      args.push({ channel: 'tickers', instId: p });          // spot: BTC-USDT
+      args.push({ channel: 'tickers', instId: p + '-SWAP' }); // perp: BTC-USDT-SWAP
     }
     ws.send(JSON.stringify({ op: 'subscribe', args }));
   });
@@ -103,7 +126,7 @@ function connectOKX() {
   ws.on('error', e => console.error('OKX WS:', e.message));
 }
 
-// Bybit spot
+// Bybit spot — uses orderbook.1, subscribed per-pair to survive missing pairs
 function connectBybitSpot() {
   const venue = 'Bybit-spot';
   const ws = new WebSocket('wss://stream.bybit.com/v5/public/spot');
@@ -138,7 +161,7 @@ function connectBybitSpot() {
   ws.on('error', e => console.error(venue + ' WS:', e.message));
 }
 
-// Bybit perp
+// Bybit linear perp — tickers channel
 function connectBybitPerp() {
   const venue = 'Bybit-perp';
   const ws = new WebSocket('wss://stream.bybit.com/v5/public/linear');
@@ -172,7 +195,7 @@ function connectBybitPerp() {
   ws.on('error', e => console.error(venue + ' WS:', e.message));
 }
 
-// Binance spot + perp
+// Binance spot + perp via combined-stream @bookTicker
 function binanceWS(kind, baseUrl) {
   const venue = 'Binance-' + kind;
   const streams = PAIRS.map(p => p.replace('-', '').toLowerCase() + '@bookTicker').join('/');
@@ -253,16 +276,17 @@ function evaluate(pair) {
       if (otherBasis === null) { confirmParts.push(other + '=stale'); continue; }
       const matches = Math.sign(otherBasis) === Math.sign(thisBasis) &&
         Math.abs(otherBasis) >= CONFIRM_MIN_RATIO * Math.abs(thisBasis);
-      if (matches) { confirmedExchanges++; confirmParts.push(other + '✓' + otherBasis.toFixed(1)); }
+      if (matches) { confirmedExchanges++; confirmParts.push(other + '\\u2713' + otherBasis.toFixed(1)); }
       else { confirmParts.push(other + '=' + otherBasis.toFixed(1)); }
     }
     notes += ' | confirms=' + confirmedExchanges + ' [' + confirmParts.join(',') + ']';
 
+    // 4-leg round-trip fee
     const netEdgeBps = rawSpreadBps - 4 * TAKER_FEE_BPS;
 
     if (netEdgeBps > stats.best_edge_seen_bps) {
       stats.best_edge_seen_bps = netEdgeBps;
-      stats.best_edge_pair = pair;
+      stats.best_edge_pair  = pair;
       stats.best_edge_route = buyVenue + '->' + sellVenue;
     }
     recordBucket(netEdgeBps);
@@ -319,16 +343,16 @@ function evaluate(pair) {
 
       if (netBps > stats.best_edge_seen_bps) {
         stats.best_edge_seen_bps = netBps;
-        stats.best_edge_pair = pair;
+        stats.best_edge_pair  = pair;
         stats.best_edge_route = cheapest.name + '->' + richest.name;
       }
       recordBucket(netBps);
 
       const threshold = pairThresholds[pair] || MIN_NET_EDGE_BPS;
       if (netBps >= threshold) {
-        const fillable = Math.min(cheapest.book.askSize, richest.book.bidSize);
+        const fillable    = Math.min(cheapest.book.askSize, richest.book.bidSize);
         const signalAgeMs = now - Math.min(cheapest.book.ts, richest.book.ts);
-        const key = pair + '|' + cheapest.name + '|' + richest.name;
+        const key  = pair + '|' + cheapest.name + '|' + richest.name;
         const last = recentlyPosted.get(key);
         if (fillable >= MIN_FILLABLE_USD && signalAgeMs <= MAX_SIGNAL_AGE_MS && !(last && now - last < 5_000)) {
           recentlyPosted.set(key, now);
@@ -368,6 +392,7 @@ async function post(payload) {
       return;
     }
     const body = await res.json();
+    if (body.rejected) return; // net_edge <= 0, silently skip
     console.log('[' + payload.pair + '] ' + payload.buy_exchange + '->' + payload.sell_exchange +
       ' raw=' + payload.raw_spread_bps.toFixed(2) + ' net=' + payload.net_edge_bps.toFixed(2) +
       'bps fill=$' + Math.round(payload.fillable_size_usd) + ' -> ' + res.status + ' ' +
@@ -418,7 +443,7 @@ async function refreshThresholds() {
     for (const s of data.pairs) {
       if (s.recommended_min_bps && PAIRS.includes(s.pair)) {
         const next = Math.max(s.recommended_min_bps, MIN_NET_EDGE_BPS);
-        const old = pairThresholds[s.pair];
+        const old  = pairThresholds[s.pair];
         pairThresholds[s.pair] = next;
         if (old !== next) console.log('[threshold] ' + s.pair + ': ' + old + ' -> ' + next + ' bps');
       }
@@ -434,7 +459,7 @@ setInterval(() => {
 setInterval(refreshThresholds, 15 * 60_000);
 
 setInterval(() => {
-  const now = Date.now();
+  const now   = Date.now();
   const conns = Object.entries(books).map(([v, pairs]) => {
     const freshCount = Object.values(pairs).filter(b => now - b.ts < MAX_SIGNAL_AGE_MS * 5).length;
     return v + ':' + freshCount + '/' + PAIRS.length;
@@ -442,7 +467,7 @@ setInterval(() => {
   const best = stats.best_edge_seen_bps > -Infinity
     ? 'best=' + stats.best_edge_seen_bps.toFixed(2) + 'bps ' + stats.best_edge_pair + ' ' + stats.best_edge_route
     : 'best=none';
-  const dist = 'dist[<5=' + stats.bucket_0_5 + ' 5-10=' + stats.bucket_5_10 + ' 10-15=' + stats.bucket_10_15 + ' 15-20=' + stats.bucket_15_20 + ' 20+=' + stats.bucket_20_plus + ']';
+  const dist   = 'dist[<5=' + stats.bucket_0_5 + ' 5-10=' + stats.bucket_5_10 + ' 10-15=' + stats.bucket_10_15 + ' 15-20=' + stats.bucket_15_20 + ' 20+=' + stats.bucket_20_plus + ']';
   const funnel = 'funnel[edge\\u2713=' + stats.passed_edge_gate + ' fill\\u2713=' + stats.passed_fillable_gate + ' age\\u2713=' + stats.passed_stale_gate + ' dedup\\u2713=' + stats.passed_dedupe_gate + ' post=' + stats.post_attempts + ' err=' + stats.post_errors + ' non2xx=' + stats.post_non_2xx + ']';
   console.log('[heartbeat] evals=' + stats.evaluations + ' posted=' + stats.posted +
     ' rej(edge=' + stats.rejected_edge + ' fill=' + stats.rejected_fillable +
