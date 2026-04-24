@@ -14,7 +14,25 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user = await base44.auth.me();
+    
+    let user = null;
+    try {
+      user = await base44.auth.me();
+    } catch (authError) {
+      console.warn('systemAudit: auth check failed, returning degraded audit');
+      return Response.json({
+        ok: true,
+        ts: new Date().toISOString(),
+        verdict: 'degraded',
+        issues: ['auth_unavailable'],
+        config: {},
+        signals: { total_recent: 0, status_counts: {}, last_hour: {} },
+        trades: { today_count: 0, today_pnl_usd: 0, open_count: 0 },
+        positions: { open_count: 0, net_delta_usd: 0 },
+        heartbeat: { healthy: false },
+      });
+    }
+    
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     // Allow both admin and regular users to view audit (read-only)
 

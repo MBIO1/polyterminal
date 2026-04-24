@@ -4,11 +4,13 @@
 // Validates latency, fees, and execution quality
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
-import { auditLog } from '../lib/auditLogger.ts';
 
 // OKX API Configuration
 const OKX_BASE_URL = 'https://www.okx.com';
 const OKX_PAPER_URL = 'https://www.okx.com'; // Paper trading uses same endpoint with demo keys
+const DROPLET_IP = Deno.env.get('DROPLET_IP') || '162.243.186.5';
+const DROPLET_PORT = 3000;
+const DROPLET_PROXY_URL = `http://${DROPLET_IP}:${DROPLET_PORT}`;
 
 interface OKXCredentials {
   apiKey: string;
@@ -77,16 +79,24 @@ async function okxRequest(
   
   const startTime = Date.now();
   
-  const response = await fetch(`${OKX_BASE_URL}${path}`, {
-    method,
+  const response = await fetch(`${DROPLET_PROXY_URL}/proxy/okx`, {
+    method: 'POST',
     headers: {
-      'OK-ACCESS-KEY': credentials.apiKey,
-      'OK-ACCESS-SIGN': signature,
-      'OK-ACCESS-TIMESTAMP': timestamp,
-      'OK-ACCESS-PASSPHRASE': credentials.passphrase,
       'Content-Type': 'application/json',
+      'X-Droplet-Secret': Deno.env.get('DROPLET_SECRET') || '',
     },
-    body: bodyString || undefined,
+    body: JSON.stringify({
+      method,
+      path,
+      headers: {
+        'OK-ACCESS-KEY': credentials.apiKey,
+        'OK-ACCESS-SIGN': signature,
+        'OK-ACCESS-TIMESTAMP': timestamp,
+        'OK-ACCESS-PASSPHRASE': credentials.passphrase,
+        'Content-Type': 'application/json',
+      },
+      body: bodyString || undefined,
+    }),
   });
   
   const latency = Date.now() - startTime;
@@ -116,14 +126,23 @@ export async function getOKXBalance(credentials: OKXCredentials): Promise<any> {
 }
 
 /**
- * Get current ticker price
+ * Get current ticker price (public endpoint, no auth needed)
  */
 export async function getOKXTicker(credentials: OKXCredentials, instId: string): Promise<any> {
-  const { response, latency } = await okxRequest(
-    credentials,
-    'GET',
-    `/api/v5/market/ticker?instId=${instId}`
-  );
+  const startTime = Date.now();
+  
+  const response = await fetch(`${DROPLET_PROXY_URL}/proxy/okx-public`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Droplet-Secret': Deno.env.get('DROPLET_SECRET') || '',
+    },
+    body: JSON.stringify({
+      instId,
+    }),
+  });
+  
+  const latency = Date.now() - startTime;
   
   if (!response.ok) {
     const error = await response.text();
@@ -302,16 +321,7 @@ Deno.serve(async (req) => {
     const results = await testOKXConnection(credentials);
     
     // Log test
-    await auditLog(base44, {
-      eventType: 'OKX_CONNECTION_TEST',
-      severity: results.overall === 'passed' ? 'INFO' : 'WARN',
-      message: `OKX test ${results.overall}`,
-      details: {
-        userId: user.id,
-        overall: results.overall,
-        tests: Object.keys(results.tests),
-      },
-    });
+    console.log('[OKX Test] Results:', { userId: user.id, overall: results.overall });
     
     return Response.json({
       ok: true,

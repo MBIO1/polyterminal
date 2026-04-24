@@ -14,18 +14,14 @@ import ArbLivePositions from '@/pages/ArbLivePositions';
 import ArbDailySummary from '@/pages/ArbDailySummary';
 import ArbExceptions from '@/pages/ArbExceptions';
 import ArbInstructions from '@/pages/ArbInstructions';
-import ArbBybit from '@/pages/ArbBybit';
 import ArbMarketScan from '@/pages/ArbMarketScan';
-import ArbSop100 from '@/pages/ArbSop100';
 import ArbSignals from '@/pages/ArbSignals';
-import ArbBotAnalytics from '@/pages/ArbBotAnalytics';
-import ArbSignalMonitor from '@/pages/ArbSignalMonitor';
 import ArbRebalance from '@/pages/ArbRebalance';
 import ArbFunding from '@/pages/ArbFunding';
-import TradeMonitor from '@/pages/TradeMonitor';
 import DropletHealthCheck from '@/pages/DropletHealthCheck';
 import PortfolioManager from '@/pages/PortfolioManager';
 import OKXLiveTest from '@/pages/OKXLiveTest';
+import Monitor from '@/pages/Monitor';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
@@ -57,18 +53,14 @@ const AuthenticatedApp = () => {
         <Route path="/daily" element={<ArbDailySummary />} />
         <Route path="/exceptions" element={<ArbExceptions />} />
         <Route path="/instructions" element={<ArbInstructions />} />
-        <Route path="/bybit" element={<ArbBybit />} />
         <Route path="/scan" element={<ArbMarketScan />} />
-        <Route path="/sop100" element={<ArbSop100 />} />
         <Route path="/signals" element={<ArbSignals />} />
-        <Route path="/monitor" element={<ArbSignalMonitor />} />
         <Route path="/rebalance" element={<ArbRebalance />} />
         <Route path="/funding" element={<ArbFunding />} />
-        <Route path="/bot-analytics" element={<ArbBotAnalytics />} />
-        <Route path="/trade-monitor" element={<TradeMonitor />} />
         <Route path="/droplet-health" element={<DropletHealthCheck />} />
         <Route path="/portfolio-manager" element={<PortfolioManager />} />
         <Route path="/okx-test" element={<OKXLiveTest />} />
+        <Route path="/monitor" element={<Monitor />} />
       </Route>
       <Route path="*" element={<PageNotFound />} />
     </Routes>

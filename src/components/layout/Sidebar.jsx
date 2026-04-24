@@ -30,8 +30,6 @@ const navItems = [
   { path: '/signals', icon: Radio, label: 'Signal Feed' },
   { path: '/funding', icon: Percent, label: 'Funding Capture' },
   { path: '/monitor', icon: Zap, label: 'Live Monitor' },
-  { path: '/trade-monitor', icon: MonitorPlay, label: 'Trade Monitor' },
-  { path: '/bot-analytics', icon: LineChart, label: 'Bot Analytics' },
   { path: '/droplet-health', icon: HeartPulse, label: 'Droplet Health' },
   { path: '/portfolio-manager', icon: BarChart2, label: 'Portfolio Mgr' },
   { path: '/okx-test', icon: TestTube, label: 'OKX Live Test' },
@@ -41,8 +39,6 @@ const navItems = [
   { path: '/rebalance', icon: Scale, label: 'Rebalance' },
   { path: '/daily', icon: CalendarDays, label: 'Daily Summary' },
   { path: '/exceptions', icon: AlertTriangle, label: 'Exceptions' },
-  { path: '/bybit', icon: Plug, label: 'Bybit' },
-  { path: '/sop100', icon: ClipboardCheck, label: '$100 SOP' },
   { path: '/instructions', icon: BookOpen, label: 'Instructions' },
 ];
 
