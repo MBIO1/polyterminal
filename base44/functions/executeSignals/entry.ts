@@ -37,24 +37,24 @@ function sizeMultiplier(confidence) {
   return 0;
 }
 
-// Recompute net edge with hybrid maker/taker cost model
-// Buy (aggressive) = taker | Sell (passive) = maker (post-only limit)
-// Cost: 2×taker + 2×maker + slippage (maker typically 0 bps on major CEX)
+// Use the net_edge_bps already computed by the droplet bot (fees already deducted).
+// Only re-derive fee/slip components for PnL accounting purposes.
 function recomputeNetEdge(signal, config, sizeUsd) {
   const rawBps    = Math.max(-1000, Math.min(1000, Number(signal.raw_spread_bps || 0)));
   const takerBps  = Math.max(0, Math.min(100, Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG)));
-  const makerBps  = 0; // Most major CEX: 0 bps maker on BTC/ETH spot/perp
+  const makerBps  = 0;
   const fillable  = Math.max(1, Number(signal.fillable_size_usd || 1));
-  const sizeUsdSafe = Math.max(0, Math.min(fillable * 10, sizeUsd)); // cap at 10x to prevent overflow
-  
-  // Dynamic slippage: proportional to size relative to book, capped at 2 bps for large sizes
+  const sizeUsdSafe = Math.max(0, Math.min(fillable * 10, sizeUsd));
   const sizeRatio = Math.min(sizeUsdSafe / fillable, 1);
   const slipBps   = sizeRatio < 0.1 ? 0.5 : sizeRatio < 0.3 ? 1 : sizeRatio < 0.6 ? 1.5 : 2;
-  
-  // Hybrid cost: 2 legs taker (entry/exit aggressive) + 2 legs maker (passive)
   const totalCost = (2 * takerBps) + (2 * makerBps) + slipBps;
-  const net       = rawBps - totalCost;
-  return { rawBps, takerBps, makerBps, slipBps, totalCost, net, hybridMode: true };
+
+  // Trust the droplet's pre-calculated net_edge_bps if available (already fee-adjusted)
+  const net = signal.net_edge_bps != null
+    ? Number(signal.net_edge_bps)
+    : rawBps - totalCost;
+
+  return { rawBps, takerBps, makerBps, slipBps, totalCost, net };
 }
 
 // Size in USD: min of per-trade cap, fillable liquidity × confidence mult
@@ -150,12 +150,13 @@ Deno.serve(async (req) => {
       return Response.json({ ok: false, halted: true, reason: 'bot_not_running' });
     }
 
-    const minEdge = config.paper_trading
-      ? 0.5
-      : Math.min(
-          Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE),
-          Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
-        );
+    // Use the configured floor for all assets. btc/eth_min_edge_bps are asset-specific;
+    // for other assets (SOL etc) fall back to DEFAULT_MIN_EDGE.
+    const configuredFloor = Math.min(
+      Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE),
+      Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
+    );
+    const minEdge = config.paper_trading ? DEFAULT_MIN_EDGE : configuredFloor;
 
     // ── Load signals ─────────────────────────────────────────────────────────
     const nowTs      = Date.now();
