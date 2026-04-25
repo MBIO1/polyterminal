@@ -163,6 +163,53 @@ async function fetchBalance() {
 // ─── HTTP server ──────────────────────────────────────────────────────────────
 
 const server = http.createServer(async (req, res) => {
+  // Setup endpoint — receives order-server code and env vars from Base44
+  if (req.method === 'POST' && req.url === '/setup') {
+    const secret = req.headers['x-droplet-secret'];
+    if (secret !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body);
+        const { orderServerCode, envVars } = payload;
+
+        if (!orderServerCode || !envVars) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'missing_orderServerCode_or_envVars' }));
+          return;
+        }
+
+        // Write .env file
+        const envContent = Object.entries(envVars)
+          .map(([k, v]) => `${k}=${v}`)
+          .join('\n');
+        
+        await Deno.writeTextFile('/opt/arb-bot/.env', envContent);
+
+        // Write order-server.mjs
+        await Deno.writeTextFile('/opt/arb-bot/order-server.mjs', orderServerCode);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+          status: 'setup_complete',
+          message: 'Order server code and env configured',
+          ts: new Date().toISOString()
+        }));
+      } catch (e) {
+        console.error('[setup] error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: e.message }));
+      }
+    });
+    return;
+  }
+
   // Health check
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
