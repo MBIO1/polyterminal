@@ -1,17 +1,17 @@
-// Auto-executor: CEX Arbitrage - Clean, self-contained
+// executeSignals — Base44 signal executor (Phase C architecture)
+//
+// Base44 handles: signal ingestion, risk gating, trade record creation
+// Droplet handles: actual Bybit order placement (geo-block workaround)
 //
 // THREE PILLARS:
 //   PILLAR 1 — Staleness: signals older than TTL are expired
 //   PILLAR 2 — Real edge: recomputes net edge with fees + slippage. Must be > minEdge to execute.
-//   PILLAR 3 — Risk gates: daily drawdown, margin util, delta drift, kill switch
+//   PILLAR 3 — Risk gates: daily drawdown, margin util, kill switch
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
-// ─── Constants ────────────────────────────────────────────────────────────────
-const DEFAULT_TTL_MS     = 300_000; // 5 minutes
-const DEFAULT_MIN_EDGE   = 2.0;     // bps — minimum net edge to execute
-const FEE_BPS_PER_LEG   = 2;       // taker fee per leg in bps
-const SLIP_PCT_OF_FILL   = 0.001;   // 0.1% of fillable_size_usd as slippage (conservative)
+const DEFAULT_MIN_EDGE = 2.0;
+const FEE_BPS_PER_LEG  = 2;
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -19,7 +19,6 @@ function signalAgeMs(signal) {
   return Date.now() - new Date(signal.received_time || signal.created_date).getTime();
 }
 
-// Confidence 0–100 based on age + exchange confirmations + liquidity
 function signalConfidence(signal, ttlMs) {
   const ageFraction = Math.min(signalAgeMs(signal) / ttlMs, 1);
   const agePts      = 50 * (1 - ageFraction);
@@ -37,40 +36,27 @@ function sizeMultiplier(confidence) {
   return 0;
 }
 
-// Use the net_edge_bps already computed by the droplet bot (fees already deducted).
-// Only re-derive fee/slip components for PnL accounting purposes.
 function recomputeNetEdge(signal, config, sizeUsd) {
-  const rawBps    = Math.max(-1000, Math.min(1000, Number(signal.raw_spread_bps || 0)));
-  const takerBps  = Math.max(0, Math.min(100, Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG)));
-  const makerBps  = 0;
-  const fillable  = Math.max(1, Number(signal.fillable_size_usd || 1));
-  const sizeUsdSafe = Math.max(0, Math.min(fillable * 10, sizeUsd));
-  const sizeRatio = Math.min(sizeUsdSafe / fillable, 1);
-  const slipBps   = sizeRatio < 0.1 ? 0.5 : sizeRatio < 0.3 ? 1 : sizeRatio < 0.6 ? 1.5 : 2;
-  // 4-leg round trip: entry buy + entry sell + exit buy + exit sell (all taker)
-  // Must match droplet formula: net_edge_bps = raw_spread_bps - 4 × TAKER_FEE_BPS
-  const totalCost = (4 * takerBps) + slipBps;
-
-  // Trust the droplet's pre-calculated net_edge_bps if available (already fee-adjusted)
-  const net = signal.net_edge_bps != null
+  const rawBps   = Math.max(-1000, Math.min(1000, Number(signal.raw_spread_bps || 0)));
+  const takerBps = Math.max(0, Math.min(100, Number(config.taker_fee_bps_per_leg ?? FEE_BPS_PER_LEG)));
+  const fillable = Math.max(1, Number(signal.fillable_size_usd || 1));
+  const sizeRatio= Math.min(Math.max(0, sizeUsd) / fillable, 1);
+  const slipBps  = sizeRatio < 0.1 ? 0.5 : sizeRatio < 0.3 ? 1 : sizeRatio < 0.6 ? 1.5 : 2;
+  const net      = signal.net_edge_bps != null
     ? Number(signal.net_edge_bps)
-    : rawBps - totalCost;
-
-  return { rawBps, takerBps, slipBps, totalCost, net };
+    : rawBps - (4 * takerBps) - slipBps;
+  return { rawBps, takerBps, slipBps, net };
 }
 
-// Size in USD: min of per-trade cap, fillable liquidity × confidence mult
 function computeSizeUsd(signal, config, confidence) {
   const totalCap   = Number(config.total_capital || 0);
   const spotBucket = totalCap * Number(config.spot_allocation_pct || 0.35);
-  const perTradeCap= spotBucket * 0.10; // max 10% of spot bucket per trade
+  const perTradeCap= spotBucket * 0.10;
   const fillable   = Number(signal.fillable_size_usd || 0);
   const mult       = sizeMultiplier(confidence);
-  const raw        = Math.min(perTradeCap, fillable * 0.20) * mult; // max 20% of book
-  return Math.max(0, Math.floor(raw));
+  return Math.max(0, Math.floor(Math.min(perTradeCap, fillable * 0.20) * mult));
 }
 
-// Paper fill: instant at signal prices
 function paperFill(signal, sizeUsd) {
   const buyPx  = Number(signal.buy_price)  || 0;
   const sellPx = Number(signal.sell_price) || 0;
@@ -78,123 +64,46 @@ function paperFill(signal, sizeUsd) {
   const qty = Number((sizeUsd / buyPx).toFixed(6));
   return {
     mode: 'paper',
-    fills: {
-      buy:  { venue: signal.buy_exchange,  px: buyPx,  qty, notional_usd: qty * buyPx },
-      sell: { venue: signal.sell_exchange, px: sellPx, qty, notional_usd: qty * sellPx },
-    },
+    fills: { buy: { px: buyPx, qty }, sell: { px: sellPx, qty } },
   };
 }
 
-// ─── Bybit Live Execution ─────────────────────────────────────────────────────
+// ─── Droplet proxy execution ──────────────────────────────────────────────────
+// Sends order to the droplet's order-server.mjs, which calls Bybit directly.
+// This bypasses Bybit's geo-block on Base44's server region.
 
-async function bybitSign(preSign, apiSecret) {
-  const enc = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw', enc.encode(apiSecret),
-    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, enc.encode(preSign));
-  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
+async function executeViaDroplet(signal, qty) {
+  const dropletIp  = Deno.env.get('DROPLET_IP');
+  const secret     = Deno.env.get('DROPLET_SECRET');
+  const port       = Deno.env.get('ORDER_SERVER_PORT') || '4001';
 
-async function bybitOrder({ category, symbol, side, qty, reduceOnly = false }) {
-  const isTestnet = (Deno.env.get('BYBIT_TESTNET') || 'false').toLowerCase() !== 'false';
-  const base      = isTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
-  const apiKey    = Deno.env.get('BYBIT_API_KEY');
-  const apiSecret = Deno.env.get('BYBIT_API_SECRET');
-  if (!apiKey || !apiSecret) throw new Error('Bybit keys not configured');
+  if (!dropletIp || !secret) throw new Error('DROPLET_IP or DROPLET_SECRET not configured');
 
-  const timestamp  = Date.now().toString();
-  const recvWindow = '5000';
-  const orderBody  = {
-    category,
-    symbol,
-    side,
-    orderType: 'Market',
-    qty: String(qty),
-    timeInForce: 'IOC',
-    ...(category === 'linear' && reduceOnly ? { reduceOnly: true } : {}),
-  };
-  const bodyStr   = JSON.stringify(orderBody);
-  const preSign   = timestamp + apiKey + recvWindow + bodyStr;
-  const signature = await bybitSign(preSign, apiSecret);
-
-  const res = await fetch(`${base}/v5/order/create`, {
+  const url = `http://${dropletIp}:${port}/execute`;
+  const res = await fetch(url, {
     method: 'POST',
-    headers: {
-      'X-BAPI-API-KEY': apiKey, 'X-BAPI-SIGN': signature,
-      'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow,
-      'Content-Type': 'application/json',
-    },
-    body: bodyStr,
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${secret}` },
+    body: JSON.stringify({
+      signal_id:    signal.id,
+      pair:         signal.pair,
+      asset:        signal.asset,
+      buy_exchange: signal.buy_exchange,
+      sell_exchange:signal.sell_exchange,
+      buy_price:    signal.buy_price,
+      sell_price:   signal.sell_price,
+      net_edge_bps: signal.net_edge_bps,
+      qty,
+    }),
   });
+
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
-    throw new Error(`Bybit HTTP ${res.status} [${category}/${symbol}/${side}]: ${errText.slice(0, 120)}`);
-  }
-  const json = await res.json().catch(() => { throw new Error('invalid_response_body'); });
-  if (json.retCode !== 0) {
-    throw new Error(`Bybit order rejected [${category}/${symbol}/${side}]: ${json.retMsg} (code ${json.retCode})`);
-  }
-  return json;
-}
-
-// Place both legs of a basis carry simultaneously:
-//   - Spot leg: buy or sell on Bybit spot (category=spot)
-//   - Perp leg: opposite side on Bybit linear perp (category=linear)
-async function bybitBothLegs(signal, qty) {
-  const asset  = String(signal.asset || signal.pair.split('-')[0]);
-  const symbol = asset + 'USDT';
-
-  // Determine direction from venue names
-  const buyVenueRaw  = String(signal.buy_exchange  || '').toLowerCase();
-  const sellVenueRaw = String(signal.sell_exchange || '').toLowerCase();
-  const buyIsPerp    = /perp|swap|linear/i.test(signal.buy_exchange  || '');
-  const sellIsPerp   = /perp|swap|linear/i.test(signal.sell_exchange || '');
-
-  // Contango: buy spot, sell perp (short perp). Backwardation: buy perp, sell spot.
-  let spotSide, perpSide;
-  if (!buyIsPerp && sellIsPerp) {
-    // buy spot / short perp  (contango)
-    spotSide = 'Buy';
-    perpSide = 'Sell';
-  } else if (buyIsPerp && !sellIsPerp) {
-    // long perp / sell spot  (backwardation)
-    spotSide = 'Sell';
-    perpSide = 'Buy';
-  } else {
-    // Cross-venue spot/spot or perp/perp — treat buy_exchange as spot buy, sell_exchange as spot sell
-    spotSide = 'Buy';
-    perpSide = 'Sell';
+    throw new Error(`droplet_http_${res.status}: ${errText.slice(0, 120)}`);
   }
 
-  console.log(`[bybit-live] ${symbol} qty=${qty} spot=${spotSide} perp=${perpSide}`);
-
-  // Fire both legs concurrently
-  const [spotResult, perpResult] = await Promise.allSettled([
-    bybitOrder({ category: 'spot',   symbol, side: spotSide, qty }),
-    bybitOrder({ category: 'linear', symbol, side: perpSide, qty }),
-  ]);
-
-  const spotOk = spotResult.status === 'fulfilled';
-  const perpOk = perpResult.status === 'fulfilled';
-
-  if (!spotOk || !perpOk) {
-    const spotErr = !spotOk ? spotResult.reason?.message : 'ok';
-    const perpErr = !perpOk ? perpResult.reason?.message : 'ok';
-    // Both failed → clean error
-    if (!spotOk && !perpOk) throw new Error(`both_legs_failed spot=${spotErr} perp=${perpErr}`);
-    // One leg failed → leg mismatch, log as critical
-    console.error(`[bybit-live] LEG MISMATCH — spot=${spotErr} perp=${perpErr} — manual review required`);
-    // Still return partial so we record it with a warning
-  }
-
-  return {
-    spotOk, perpOk,
-    spotOrderId: spotResult.value?.result?.orderId,
-    perpOrderId: perpResult.value?.result?.orderId,
-    spotSide, perpSide, symbol,
-  };
+  const json = await res.json().catch(() => { throw new Error('droplet_invalid_response'); });
+  if (!json.ok) throw new Error(`droplet_exec_failed: ${json.error || 'unknown'}`);
+  return json; // { ok, spotOk, perpOk, spotOrderId, perpOrderId, mode }
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -206,13 +115,13 @@ Deno.serve(async (req) => {
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
     if (user.role !== 'admin') return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
 
-    const body        = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
-    const dryRun      = body.dry_run === true;
-    const forceId     = body.signal_id || null;
-    const ttlMs       = Number(body.signal_ttl_ms) || 60_000; // reduced from 300s to 60s
-    const maxSignals  = Math.min(Number(body.max_signals) || 10, 25);
+    const body       = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
+    const dryRun     = body.dry_run === true;
+    const forceId    = body.signal_id || null;
+    const ttlMs      = Number(body.signal_ttl_ms) || 60_000;
+    const maxSignals = Math.min(Number(body.max_signals) || 10, 25);
 
-    // ── Load config ──────────────────────────────────────────────────────────
+    // ── Load config ───────────────────────────────────────────────────────────
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
     const config  = configs?.[0];
     if (!config) return Response.json({ error: 'No ArbConfig found' }, { status: 400 });
@@ -224,9 +133,6 @@ Deno.serve(async (req) => {
       return Response.json({ ok: false, halted: true, reason: 'bot_not_running' });
     }
 
-    // Minimum net edge to execute. The droplet already pre-filters with MIN_NET_EDGE_BPS,
-    // so we just gate on > 0 here (any positive net edge from the droplet is valid).
-    // Use configured asset floors for live trading as an extra safety check.
     const minEdge = config.paper_trading
       ? 0
       : Math.min(
@@ -234,10 +140,12 @@ Deno.serve(async (req) => {
           Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
         );
 
-    // ── Load signals ─────────────────────────────────────────────────────────
-    const nowTs      = Date.now();
-    const todayStr   = new Date().toISOString().slice(0, 10);
-    const recentAll  = await base44.asServiceRole.entities.ArbSignal.filter({ status: { $in: ['detected', 'alerted'] } }, '-received_time', 100);
+    // ── Load signals ──────────────────────────────────────────────────────────
+    const nowTs     = Date.now();
+    const todayStr  = new Date().toISOString().slice(0, 10);
+    const recentAll = await base44.asServiceRole.entities.ArbSignal.filter(
+      { status: { $in: ['detected', 'alerted'] } }, '-received_time', 100
+    );
 
     let candidates;
     const expiredIds = [];
@@ -247,82 +155,72 @@ Deno.serve(async (req) => {
       if (!found) return Response.json({ error: `Signal ${forceId} not found` }, { status: 404 });
       candidates = [found];
     } else {
-      const pending = recentAll.filter(s => ['detected', 'alerted'].includes(s.status));
-      const fresh   = [];
-
-      for (const s of pending) {
+      const fresh = [];
+      for (const s of recentAll) {
         if (nowTs - new Date(s.received_time || s.created_date).getTime() > ttlMs) {
           expiredIds.push(s.id);
         } else {
           fresh.push(s);
         }
       }
-
-      // Expire stale signals
       if (!dryRun && expiredIds.length > 0) {
         await Promise.all(expiredIds.map(id =>
-          base44.asServiceRole.entities.ArbSignal.update(id, {
-            status: 'expired',
-            rejection_reason: `ttl_exceeded`,
-          }).catch(e => console.error('expire failed', id, e.message))
+          base44.asServiceRole.entities.ArbSignal.update(id, { status: 'expired', rejection_reason: 'ttl_exceeded' })
+            .catch(e => console.error('expire failed', id, e.message))
         ));
       }
-
       candidates = fresh.slice(0, maxSignals);
     }
 
-    // ── Load today P&L + open positions ──────────────────────────────────────
+    // ── Risk gates ────────────────────────────────────────────────────────────
     const [closedToday, openPositions] = await Promise.all([
       base44.asServiceRole.entities.ArbTrade.filter({ status: 'Closed', trade_date: todayStr }, '-updated_date', 200),
       base44.asServiceRole.entities.ArbLivePosition.filter({ status: 'Open' }, '-snapshot_time', 50),
     ]);
-    const todayPnl = closedToday.reduce((a, t) => a + Number(t.net_pnl || 0), 0);
 
-    // ── Risk gates (portfolio level) ─────────────────────────────────────────
-    const totalCap  = Number(config.total_capital || 0);
-    const ddCap     = totalCap * Number(config.max_daily_drawdown_pct || 0.01);
+    const totalCap = Number(config.total_capital || 0);
+    const todayPnl = closedToday.reduce((a, t) => a + Number(t.net_pnl || 0), 0);
+    const ddCap    = totalCap * Number(config.max_daily_drawdown_pct || 0.01);
     if (todayPnl < -ddCap) {
       return Response.json({ ok: false, halted: true, reason: `daily_drawdown_breach(${todayPnl.toFixed(2)})` });
     }
 
-    const perpBucket   = totalCap * Number(config.perp_collateral_pct || 0.245);
-    const marginUsed   = openPositions.reduce((a, p) => a + Number(p.margin_used || 0), 0);
-    const marginUtil   = perpBucket > 0 ? marginUsed / perpBucket : 0;
-    const maxMarginUtil= Number(config.max_margin_utilization_pct || 0.35);
+    const perpBucket    = totalCap * Number(config.perp_collateral_pct || 0.245);
+    const marginUsed    = openPositions.reduce((a, p) => a + Number(p.margin_used || 0), 0);
+    const marginUtil    = perpBucket > 0 ? marginUsed / perpBucket : 0;
+    const maxMarginUtil = Number(config.max_margin_utilization_pct || 0.35);
     if (marginUtil >= maxMarginUtil) {
       return Response.json({ ok: false, halted: true, reason: `margin_util_breach(${(marginUtil*100).toFixed(1)}%)` });
     }
 
-    // ── Score and filter signals ──────────────────────────────────────────────
+    // ── Score & filter signals ────────────────────────────────────────────────
     const scored = [];
     for (const sig of candidates) {
       const confidence = signalConfidence(sig, ttlMs);
-      if (confidence < 40 && !forceId) continue; // STALE
+      if (confidence < 40 && !forceId) continue;
 
       const sizeUsd = computeSizeUsd(sig, config, confidence);
       if (sizeUsd <= 0) continue;
 
-      const { rawBps, takerBps, slipBps, totalCost, net } = recomputeNetEdge(sig, config, sizeUsd);
+      const { rawBps, takerBps, slipBps, net } = recomputeNetEdge(sig, config, sizeUsd);
 
-      // Gate: edge must be above minEdge
       if (net < minEdge && !forceId) {
-        console.log(`[executeSignals] REJECT ${sig.pair}: net=${net.toFixed(2)}bps < min=${minEdge}bps (raw=${rawBps}, cost=4×${takerBps}+${slipBps.toFixed(1)}=${totalCost.toFixed(2)})`);
+        console.log(`[executeSignals] REJECT ${sig.pair}: net=${net.toFixed(2)}bps < min=${minEdge}bps`);
         continue;
       }
 
-      // Gate: liquidity
       const minFill = Number(config.min_fillable_usd || 200);
       if (Number(sig.fillable_size_usd || 0) < minFill && !forceId) continue;
 
       scored.push({ sig, confidence, sizeUsd, net, rawBps, takerBps, slipBps });
     }
 
-    // Sort best edge first, deduplicate by asset (one trade per asset per run)
+    // Best edge first, one trade per asset
     scored.sort((a, b) => b.net - a.net);
     const seenAssets = new Set();
     const toExecute  = [];
     for (const s of scored) {
-      if (seenAssets.has(s.sig.asset)) continue; // DEDUPLICATE
+      if (seenAssets.has(s.sig.asset)) continue;
       seenAssets.add(s.sig.asset);
       toExecute.push(s);
     }
@@ -335,167 +233,146 @@ Deno.serve(async (req) => {
       const condition = confidence >= 80 ? 'HEALTHY' : confidence >= 60 ? 'VOLATILE' : 'UNCERTAIN';
 
       if (dryRun) {
-        results.push({
-          signal_id: sig.id, pair: sig.pair, decision: 'would_execute',
-          size_usd: sizeUsd, confidence, condition, net_bps: net,
-        });
+        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'would_execute', size_usd: sizeUsd, confidence, condition, net_bps: net });
         continue;
       }
 
-      // Determine execution mode
-      const buyVenueStr  = String(sig.buy_exchange  || '').toLowerCase();
-      const sellVenueStr = String(sig.sell_exchange || '').toLowerCase();
-      const isLive       = !config.paper_trading;
-      const involvesSpot = !(/perp|swap|linear/i.test(sig.buy_exchange || '') && /perp|swap|linear/i.test(sig.sell_exchange || ''));
-      const involvesPerp = /perp|swap|linear/i.test(sig.buy_exchange || '') || /perp|swap|linear/i.test(sig.sell_exchange || '');
-      const isBybitSignal= buyVenueStr.includes('bybit') || sellVenueStr.includes('bybit');
-      const canGoLive    = isLive && isBybitSignal;
+      const buyPx    = Number(sig.buy_price) || 0;
+      const sellPx   = Number(sig.sell_price) || 0;
+      if (!buyPx) {
+        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'error', error: 'missing_buy_price' });
+        continue;
+      }
+
+      const qty      = Number((sizeUsd / buyPx).toFixed(6));
+      const isLive   = !config.paper_trading;
 
       let execResult;
       try {
-        if (canGoLive) {
-          const buyPx = Number(sig.buy_price);
-          const qty   = Number((sizeUsd / buyPx).toFixed(6));
-          const live  = await bybitBothLegs(sig, qty);
+        if (isLive) {
+          const dropletResult = await executeViaDroplet(sig, qty);
           execResult = {
-            mode: live.spotOk && live.perpOk ? 'live' : 'live_partial',
-            fills: {
-              buy:  { venue: sig.buy_exchange,  px: buyPx,                    qty },
-              sell: { venue: sig.sell_exchange, px: Number(sig.sell_price),   qty },
-            },
-            live,
+            mode:  dropletResult.mode || (dropletResult.spotOk && dropletResult.perpOk ? 'live' : 'live_partial'),
+            fills: { buy: { px: buyPx, qty }, sell: { px: sellPx, qty } },
+            droplet: dropletResult,
           };
         } else {
           execResult = paperFill(sig, sizeUsd);
         }
       } catch (e) {
-        const safeMsg = e.message?.includes('key') || e.message?.includes('secret')
-          ? 'credential_error'
-          : e.message?.slice(0, 100) || 'unknown_error';
+        const safeMsg = e.message?.slice(0, 120) || 'unknown_error';
         console.error(`[executeSignals] exec error signal ${sig.id}:`, safeMsg);
         await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
           status: 'rejected', rejection_reason: `exec_error:${safeMsg}`,
         });
-        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'error', error: 'execution_failed' });
+        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'error', error: safeMsg });
         continue;
       }
 
-      // Build trade record
-      const buyFill   = execResult.fills.buy;
-      const sellFill  = execResult.fills.sell;
-      const qty       = buyFill?.qty || 0;
-      const notional  = buyFill?.notional_usd || qty * (buyFill?.px || 0);
-      const grossSpread = (sellFill?.px || 0) - (buyFill?.px || 0);
+      // ── Build trade record ────────────────────────────────────────────────
+      const notional   = qty * buyPx;
+      const grossSpread= sellPx - buyPx;
+      const perLegFee  = notional * (takerBps / 10000);
+      const feeTotal   = perLegFee * 4;
+      const slipTotal  = notional * (slipBps / 10000);
+      const basisPnl   = qty * grossSpread;
+      const netPnl     = basisPnl - feeTotal - slipTotal;
 
-      // 4-leg round trip taker fees: entry buy + entry sell + exit buy + exit sell
-      const perLegFee = notional * (takerBps / 10000);
-      const feeTotal  = notional * (takerBps / 10000) * 4;
-      const slipTotal = notional * (slipBps / 10000);
-      const basisPnl  = qty * grossSpread;
-      const netPnl    = basisPnl - feeTotal - slipTotal;
-
-      // Detect strategy
-      const rootOf    = v => v.replace(/-(spot|perp|swap|futures)$/i, '').trim();
-      const buyRoot   = rootOf(String(sig.buy_exchange  || ''));
-      const sellRoot  = rootOf(String(sig.sell_exchange || ''));
-      const buyIsPerp = /perp|swap|futures/i.test(sig.buy_exchange  || '');
-      const sellIsPerp= /perp|swap|futures/i.test(sig.sell_exchange || '');
-      const sameVenue = buyRoot === sellRoot && buyRoot !== '';
+      const rootOf     = v => v.replace(/-(spot|perp|swap|futures)$/i, '').trim();
+      const buyRoot    = rootOf(String(sig.buy_exchange  || ''));
+      const sellRoot   = rootOf(String(sig.sell_exchange || ''));
+      const buyIsPerp  = /perp|swap|futures/i.test(sig.buy_exchange  || '');
+      const sellIsPerp = /perp|swap|futures/i.test(sig.sell_exchange || '');
+      const sameVenue  = buyRoot === sellRoot && buyRoot !== '';
 
       let strategy, spotExchange, perpExchange, spotEntryPx, perpEntryPx, direction;
-      if (sameVenue && (buyIsPerp !== sellIsPerp)) {
-        strategy      = 'Same-venue Spot/Perp Carry';
-        spotExchange  = buyRoot;
-        perpExchange  = buyRoot;
-        spotEntryPx   = buyIsPerp ? sellFill?.px : buyFill?.px;
-        perpEntryPx   = buyIsPerp ? buyFill?.px  : sellFill?.px;
-        direction     = buyIsPerp
-          ? `Long ${buyRoot} perp / Short ${buyRoot} spot`
-          : `Long ${buyRoot} spot / Short ${buyRoot} perp`;
+      if (sameVenue && buyIsPerp !== sellIsPerp) {
+        strategy     = 'Same-venue Spot/Perp Carry';
+        spotExchange = buyRoot;
+        perpExchange = buyRoot;
+        spotEntryPx  = buyIsPerp ? sellPx : buyPx;
+        perpEntryPx  = buyIsPerp ? buyPx  : sellPx;
+        direction    = buyIsPerp ? `Long ${buyRoot} perp / Short ${buyRoot} spot` : `Long ${buyRoot} spot / Short ${buyRoot} perp`;
       } else if (buyIsPerp && sellIsPerp) {
-        strategy      = 'Cross-venue Perp/Perp';
-        perpExchange  = `${buyRoot}/${sellRoot}`;
-        spotExchange  = null;
-        perpEntryPx   = buyFill?.px;
-        direction     = `Buy ${sig.buy_exchange} / Sell ${sig.sell_exchange}`;
+        strategy     = 'Cross-venue Perp/Perp';
+        perpExchange = `${buyRoot}/${sellRoot}`;
+        spotExchange = null;
+        perpEntryPx  = buyPx;
+        direction    = `Buy ${sig.buy_exchange} / Sell ${sig.sell_exchange}`;
       } else {
-        strategy      = 'Cross-venue Spot Spread';
-        spotExchange  = `${buyRoot}/${sellRoot}`;
-        perpExchange  = null;
-        spotEntryPx   = buyFill?.px;
-        direction     = `Buy ${sig.buy_exchange} / Sell ${sig.sell_exchange}`;
+        strategy     = 'Cross-venue Spot Spread';
+        spotExchange = `${buyRoot}/${sellRoot}`;
+        perpExchange = null;
+        spotEntryPx  = buyPx;
+        direction    = `Buy ${sig.buy_exchange} / Sell ${sig.sell_exchange}`;
       }
 
+      const d = execResult.droplet;
       const tradeIdSuffix = `${Date.now().toString(36)}-${tradeCounter++}`;
       const trade = await base44.asServiceRole.entities.ArbTrade.create({
-        trade_id:          `AUTO-${tradeIdSuffix}`,
-        trade_date:        todayStr,
-        entry_timestamp:   new Date().toISOString(),
-        exit_timestamp:    new Date().toISOString(),
-        status:            'Closed',
+        trade_id:           `AUTO-${tradeIdSuffix}`,
+        trade_date:         todayStr,
+        entry_timestamp:    new Date().toISOString(),
+        exit_timestamp:     new Date().toISOString(),
+        status:             'Closed',
         strategy,
-        asset:             sig.asset || 'Other',
-        spot_exchange:     spotExchange,
-        perp_exchange:     perpExchange,
+        asset:              sig.asset || 'Other',
+        spot_exchange:      spotExchange,
+        perp_exchange:      perpExchange,
         direction,
-        spot_entry_px:     spotEntryPx   || null,
-        spot_exit_px:      null,
-        perp_entry_px:     perpEntryPx   || null,
-        perp_exit_px:      null,
-        spot_qty:          qty,
-        perp_qty:          perpEntryPx ? qty : null,
+        spot_entry_px:      spotEntryPx || null,
+        perp_entry_px:      perpEntryPx || null,
+        spot_exit_px:       null,
+        perp_exit_px:       null,
+        spot_qty:           qty,
+        perp_qty:           perpEntryPx ? qty : null,
         gross_spread_entry: grossSpread,
-        entry_spread_bps:  rawBps,
-        exit_spread_bps:   0,
-        spot_entry_fee:    perLegFee,
-        spot_exit_fee:     perLegFee,
-        perp_entry_fee:    perpEntryPx ? perLegFee : null,
-        perp_exit_fee:     perpEntryPx ? perLegFee : null,
-        expected_slippage: slipTotal,
-        realized_slippage: slipTotal,
+        entry_spread_bps:   rawBps,
+        exit_spread_bps:    0,
+        spot_entry_fee:     perLegFee,
+        spot_exit_fee:      perLegFee,
+        perp_entry_fee:     perpEntryPx ? perLegFee : null,
+        perp_exit_fee:      perpEntryPx ? perLegFee : null,
+        expected_slippage:  slipTotal,
+        realized_slippage:  slipTotal,
         total_realized_fees: feeTotal + slipTotal,
-        basis_pnl:         basisPnl,
-        net_pnl:           netPnl,
-        net_pnl_bps:       notional > 0 ? (netPnl / notional) * 10000 : 0,
-        allocated_capital: notional,
-        entry_order_type:  'Market',
-        exit_order_type:   'Market',
-        entry_fee_type:    'Taker',
-        exit_fee_type:     'Taker',
-        mode:              execResult.mode === 'paper' ? 'paper' : 'live',
-        review_notes:      execResult.live ? `spotOrderId=${execResult.live.spotOrderId} perpOrderId=${execResult.live.perpOrderId} spotOk=${execResult.live.spotOk} perpOk=${execResult.live.perpOk}` : undefined,
-        entry_thesis:      `Auto-executed signal ${sig.id} | net=${net.toFixed(2)}bps | confidence=${confidence}% | condition=${condition} | ${sig.notes || ''}`.trim(),
-        net_delta_usd:     0,
+        basis_pnl:          basisPnl,
+        net_pnl:            netPnl,
+        net_pnl_bps:        notional > 0 ? (netPnl / notional) * 10000 : 0,
+        allocated_capital:  notional,
+        entry_order_type:   'Market',
+        exit_order_type:    'Market',
+        entry_fee_type:     'Taker',
+        exit_fee_type:      'Taker',
+        mode:               isLive ? 'live' : 'paper',
+        review_notes:       d ? `spotOrderId=${d.spotOrderId} perpOrderId=${d.perpOrderId} spotOk=${d.spotOk} perpOk=${d.perpOk} mode=${d.mode}` : undefined,
+        entry_thesis:       `Auto-executed signal ${sig.id} | net=${net.toFixed(2)}bps | confidence=${confidence}% | condition=${condition}`.trim(),
+        net_delta_usd:      0,
         borrow_conversion_cost: 0,
       });
 
       await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
-        status:            'executed',
-        executed_pnl_bps:  trade.net_pnl_bps,
-        executed_pnl_usd:  netPnl,
-        win:               netPnl > 0,
-        notes:             `trade=${trade.trade_id} confidence=${confidence}% condition=${condition}`,
+        status:           'executed',
+        executed_pnl_bps: trade.net_pnl_bps,
+        executed_pnl_usd: netPnl,
+        win:              netPnl > 0,
+        notes:            `trade=${trade.trade_id} confidence=${confidence}% condition=${condition}`,
       });
 
-      console.log(`[executeSignals] EXECUTED ${sig.pair} | trade=${trade.trade_id} | net=${net.toFixed(2)}bps | pnl=$${netPnl.toFixed(4)} | mode=${execResult.mode}`);
+      console.log(`[executeSignals] EXECUTED ${sig.pair} | trade=${trade.trade_id} | net=${net.toFixed(2)}bps | mode=${execResult.mode}`);
 
       results.push({
-        signal_id:           sig.id,
-        pair:                sig.pair,
-        decision:            'executed',
-        mode:                execResult.mode,
-        trade_id:            trade.trade_id,
-        size_usd:            Math.round(notional),
-        net_bps:             Number(net.toFixed(2)),
-        net_pnl_usd:         Number(netPnl.toFixed(4)),
+        signal_id: sig.id,
+        pair:      sig.pair,
+        decision:  'executed',
+        mode:      execResult.mode,
+        trade_id:  trade.trade_id,
+        size_usd:  Math.round(notional),
+        net_bps:   Number(net.toFixed(2)),
+        net_pnl_usd: Number(netPnl.toFixed(4)),
         confidence,
         condition,
-        ...(execResult.live ? {
-          spot_order_id: execResult.live.spotOrderId,
-          perp_order_id: execResult.live.perpOrderId,
-          spot_ok:       execResult.live.spotOk,
-          perp_ok:       execResult.live.perpOk,
-        } : {}),
+        ...(d ? { spot_order_id: d.spotOrderId, perp_order_id: d.perpOrderId, spot_ok: d.spotOk, perp_ok: d.perpOk } : {}),
       });
     }
 
@@ -512,9 +389,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (error) {
-    const safeError = error.message?.includes('key') || error.message?.includes('secret')
-      ? 'server_error'
-      : (error.message || 'fatal_error').slice(0, 100);
+    const safeError = (error.message || 'fatal_error').slice(0, 100);
     console.error('[executeSignals] fatal error:', safeError);
     return Response.json({ error: 'execution_service_error' }, { status: 500 });
   }

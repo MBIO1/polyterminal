@@ -1,0 +1,219 @@
+// order-server.mjs — Droplet execution server for Basis-Carry v3
+//
+// Receives execute commands from Base44, calls Bybit directly, reports results back.
+//
+// Setup:
+//   npm install ws dotenv
+//   node order-server.mjs
+//
+// Env vars (add to /opt/arb-bot/.env):
+//   DROPLET_SECRET=your-shared-secret   # must match Base44 DROPLET_SECRET
+//   BYBIT_API_KEY=...
+//   BYBIT_API_SECRET=...
+//   BYBIT_TESTNET=false                 # false = mainnet
+//   ORDER_SERVER_PORT=4001
+//   BASE44_RESULT_URL=https://YOUR_APP.base44.app/functions/ingestTradeResult
+//   BASE44_USER_TOKEN=...
+
+import 'dotenv/config';
+import { createHmac } from 'crypto';
+import http from 'http';
+
+const SECRET       = process.env.DROPLET_SECRET;
+const API_KEY      = process.env.BYBIT_API_KEY;
+const API_SECRET   = process.env.BYBIT_API_SECRET;
+const IS_TESTNET   = (process.env.BYBIT_TESTNET || 'false').toLowerCase() !== 'false';
+const BYBIT_BASE   = IS_TESTNET ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
+const RESULT_URL   = process.env.BASE44_RESULT_URL;
+const TOKEN        = process.env.BASE44_USER_TOKEN;
+const PORT         = Number(process.env.ORDER_SERVER_PORT || 4001);
+
+if (!SECRET || !API_KEY || !API_SECRET) {
+  console.error('Missing DROPLET_SECRET, BYBIT_API_KEY, or BYBIT_API_SECRET in .env');
+  process.exit(1);
+}
+
+// ─── Bybit signing ────────────────────────────────────────────────────────────
+
+function bybitSign(preSign) {
+  return createHmac('sha256', API_SECRET).update(preSign).digest('hex');
+}
+
+async function bybitOrder({ category, symbol, side, qty }) {
+  const timestamp  = Date.now().toString();
+  const recvWindow = '5000';
+  const orderBody  = { category, symbol, side, orderType: 'Market', qty: String(qty), timeInForce: 'IOC' };
+  const bodyStr    = JSON.stringify(orderBody);
+  const preSign    = timestamp + API_KEY + recvWindow + bodyStr;
+  const signature  = bybitSign(preSign);
+
+  const res = await fetch(`${BYBIT_BASE}/v5/order/create`, {
+    method: 'POST',
+    headers: {
+      'X-BAPI-API-KEY': API_KEY,
+      'X-BAPI-SIGN': signature,
+      'X-BAPI-TIMESTAMP': timestamp,
+      'X-BAPI-RECV-WINDOW': recvWindow,
+      'Content-Type': 'application/json',
+    },
+    body: bodyStr,
+  });
+
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new Error(`Bybit HTTP ${res.status}`);
+  if (json.retCode !== 0) throw new Error(`Bybit rejected [${category}/${symbol}/${side}]: ${json.retMsg} (${json.retCode})`);
+  return { orderId: json.result?.orderId, retCode: json.retCode };
+}
+
+// ─── Execute both legs ────────────────────────────────────────────────────────
+
+async function executeBothLegs(signal) {
+  const asset  = String(signal.asset || signal.pair?.split('-')[0] || 'BTC');
+  const symbol = asset + 'USDT';
+  const qty    = signal.qty;
+
+  const buyIsPerp  = /perp|swap|linear/i.test(signal.buy_exchange  || '');
+  const sellIsPerp = /perp|swap|linear/i.test(signal.sell_exchange || '');
+
+  let spotSide, perpSide;
+  if (!buyIsPerp && sellIsPerp) {
+    spotSide = 'Buy';  perpSide = 'Sell';  // contango
+  } else if (buyIsPerp && !sellIsPerp) {
+    spotSide = 'Sell'; perpSide = 'Buy';   // backwardation
+  } else {
+    spotSide = 'Buy';  perpSide = 'Sell';  // fallback
+  }
+
+  console.log(`[execute] ${symbol} qty=${qty} spot=${spotSide} perp=${perpSide} env=${IS_TESTNET ? 'testnet' : 'mainnet'}`);
+
+  const [spotRes, perpRes] = await Promise.allSettled([
+    bybitOrder({ category: 'spot',   symbol, side: spotSide, qty }),
+    bybitOrder({ category: 'linear', symbol, side: perpSide, qty }),
+  ]);
+
+  const spotOk = spotRes.status === 'fulfilled';
+  const perpOk = perpRes.status === 'fulfilled';
+
+  if (!spotOk && !perpOk) {
+    throw new Error(`both_legs_failed spot=${spotRes.reason?.message} perp=${perpRes.reason?.message}`);
+  }
+  if (!spotOk || !perpOk) {
+    const spotErr = !spotOk ? spotRes.reason?.message : 'ok';
+    const perpErr = !perpOk ? perpRes.reason?.message : 'ok';
+    console.error(`[execute] LEG MISMATCH — spot=${spotErr} perp=${perpErr} — MANUAL REVIEW REQUIRED`);
+  }
+
+  return {
+    spotOk,
+    perpOk,
+    spotOrderId: spotRes.value?.orderId,
+    perpOrderId: perpRes.value?.orderId,
+    symbol,
+    spotSide,
+    perpSide,
+    mode: spotOk && perpOk ? 'live' : 'live_partial',
+  };
+}
+
+// ─── Report result back to Base44 ────────────────────────────────────────────
+
+async function reportResult(payload) {
+  if (!RESULT_URL || !TOKEN) return;
+  try {
+    await fetch(RESULT_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + TOKEN },
+      body: JSON.stringify(payload),
+    });
+  } catch (e) {
+    console.error('[reportResult] failed:', e.message);
+  }
+}
+
+// ─── HTTP server ──────────────────────────────────────────────────────────────
+
+const server = http.createServer(async (req, res) => {
+  // Health check
+  if (req.method === 'GET' && req.url === '/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, env: IS_TESTNET ? 'testnet' : 'mainnet', ts: new Date().toISOString() }));
+    return;
+  }
+
+  // Execute endpoint
+  if (req.method === 'POST' && req.url === '/execute') {
+    // Auth check
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (token !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      console.warn('[execute] unauthorized attempt');
+      return;
+    }
+
+    // Parse body
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      let signal;
+      try {
+        signal = JSON.parse(body);
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_json' }));
+        return;
+      }
+
+      // Validate required fields
+      if (!signal.pair || !signal.qty || !signal.buy_exchange || !signal.sell_exchange) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'missing_required_fields: pair, qty, buy_exchange, sell_exchange' }));
+        return;
+      }
+
+      // Execute
+      let result;
+      try {
+        result = await executeBothLegs(signal);
+        console.log(`[execute] OK signal=${signal.signal_id} trade=${signal.trade_id} mode=${result.mode}`);
+      } catch (e) {
+        const safeErr = e.message?.slice(0, 200) || 'unknown_error';
+        console.error(`[execute] FAILED signal=${signal.signal_id}:`, safeErr);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: safeErr }));
+        // Report failure back to Base44
+        await reportResult({ signal_id: signal.signal_id, trade_id: signal.trade_id, ok: false, error: safeErr });
+        return;
+      }
+
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, ...result }));
+
+      // Report success back to Base44 (async, after responding)
+      await reportResult({
+        signal_id:    signal.signal_id,
+        trade_id:     signal.trade_id,
+        ok:           true,
+        mode:         result.mode,
+        spotOk:       result.spotOk,
+        perpOk:       result.perpOk,
+        spotOrderId:  result.spotOrderId,
+        perpOrderId:  result.perpOrderId,
+        symbol:       result.symbol,
+        qty:          signal.qty,
+        buy_price:    signal.buy_price,
+        sell_price:   signal.sell_price,
+        net_edge_bps: signal.net_edge_bps,
+      });
+    });
+    return;
+  }
+
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'not_found' }));
+});
+
+server.listen(PORT, () => {
+  console.log(`[order-server] listening on :${PORT} | bybit=${IS_TESTNET ? 'testnet' : 'mainnet'}`);
+});
