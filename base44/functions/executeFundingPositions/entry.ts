@@ -162,7 +162,7 @@ Deno.serve(async (req) => {
         const fundingExpected24h = fundingPerCycle * 3;
         
         // Only enter if funding covers ALL fees with margin
-        return fundingExpected24h > totalFeesUsd * 1.1; // 10% safety buffer
+        return fundingExpected24h > totalFeesUsd * 1.05; // 5% safety buffer
       })
       .slice(0, 3);  // Limit entries per run
 
