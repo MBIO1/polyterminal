@@ -179,12 +179,13 @@ Deno.serve(async (req) => {
       }
     }
 
-    if (body.alert) {
+    // Slack alert on any tradeable signal (net edge >= 5 bps)
+    if (netEdge >= 5) {
       await base44.asServiceRole.functions.invoke('slackAlert', {
         alert_type:  'funding_anomaly',
-        severity:    netEdge >= 25 ? 'High' : 'Medium',
+        severity:    netEdge >= 25 ? 'High' : netEdge >= 10 ? 'Medium' : 'Low',
         title:       `${body.pair} ${netEdge.toFixed(1)} bps · ${body.buy_exchange}→${body.sell_exchange}`,
-        description: `Buy ${body.buy_exchange} @ ${Number(body.buy_price).toFixed(2)} · Sell ${body.sell_exchange} @ ${Number(body.sell_price).toFixed(2)}. Fillable ~$${Math.round(body.fillable_size_usd||0).toLocaleString()}.`,
+        description: `Buy ${body.buy_exchange} @ ${Number(body.buy_price).toFixed(4)} · Sell ${body.sell_exchange} @ ${Number(body.sell_price).toFixed(4)}. Fillable ~$${Math.round(body.fillable_size_usd||0).toLocaleString()}.`,
       }).catch(e => console.error('slackAlert:', e.message));
     }
 
