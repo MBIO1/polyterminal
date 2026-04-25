@@ -63,9 +63,7 @@ export default function ArbDashboard() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Arbitrage Dashboard</h1>
           <p className="text-sm text-muted-foreground mt-1 font-mono">
-            <span className={`${config?.paper_trading ? 'text-muted-foreground' : 'text-destructive font-semibold'}`}>
-              {config?.paper_trading ? 'Paper Mode' : '🔴 LIVE MODE'}
-            </span> · {trades.length} trades logged · {openPositions.length} open positions
+            {config?.paper_trading ? 'Paper Mode' : 'Live Mode'} · {trades.length} trades logged · {openPositions.length} open positions
           </p>
         </div>
         <div className="flex items-center gap-2">
