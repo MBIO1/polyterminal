@@ -3,8 +3,9 @@ import Section from '@/components/arb/Section';
 import { BookOpen } from 'lucide-react';
 
 const instructions = [
+  '⚠️ LIVE TRADING: Trades are now executing live on Bybit. All orders are real. Monitor closely.',
   'Edit core capital and fee assumptions in Config.',
-  'Enter every planned or completed trade in Trades.',
+  'All trades are automatically logged from live Bybit fills. Verify in Trades page.',
   'Use separate Spot Exchange and Perp Exchange for each trade.',
   'Record inter-exchange transfers, funding payments, and rebalances in Transfers.',
   'Keep Live Positions updated for open inventory and margin snapshots.',
@@ -12,7 +13,7 @@ const instructions = [
   'Dashboard and Daily Summary are auto-computed from trade / transfer / exception data.',
   'For cross-venue trades, capture both raw spread and normalized spread in bps.',
   'Fill realized fees and funding explicitly; do not trust estimates after execution.',
-  'Reconcile end-of-day balances against exchange statements.',
+  'Reconcile end-of-day balances against Bybit statements daily.',
   'Minimal controls remain mandatory. Removing them is how neutral books become directional losses.',
 ];
 

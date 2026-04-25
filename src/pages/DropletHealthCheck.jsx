@@ -108,7 +108,7 @@ export default function DropletHealthCheck() {
         <div>
           <h1 className="text-3xl font-bold">Droplet Health Check</h1>
           <p className="text-muted-foreground mt-1">
-            Monitor the arbitrage bot droplet status and connectivity
+            Monitor the arbitrage bot droplet status and connectivity · <span className="text-destructive font-semibold">⚠️ Live Bybit trades executing</span>
           </p>
         </div>
         <Button onClick={checkHealth} disabled={loading} variant="outline">
