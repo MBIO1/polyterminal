@@ -196,10 +196,16 @@ Deno.serve(async (req) => {
     const scored = [];
     for (const sig of candidates) {
       const confidence = signalConfidence(sig, ttlMs);
-      if (confidence < 40 && !forceId) continue;
+      if (confidence < 40 && !forceId) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: confidence=${confidence} < 40`);
+        continue;
+      }
 
       const sizeUsd = computeSizeUsd(sig, config, confidence);
-      if (sizeUsd <= 0) continue;
+      if (sizeUsd <= 0) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: sizeUsd=${sizeUsd} (confidence=${confidence}, fillable=${sig.fillable_size_usd}, total_cap=${config.total_capital})`);
+        continue;
+      }
 
       const { rawBps, takerBps, slipBps, net } = recomputeNetEdge(sig, config, sizeUsd);
 
@@ -209,8 +215,12 @@ Deno.serve(async (req) => {
       }
 
       const minFill = Number(config.min_fillable_usd || 200);
-      if (Number(sig.fillable_size_usd || 0) < minFill && !forceId) continue;
+      if (Number(sig.fillable_size_usd || 0) < minFill && !forceId) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: fillable=${sig.fillable_size_usd} < min=${minFill}`);
+        continue;
+      }
 
+      console.log(`[executeSignals] ACCEPT ${sig.pair}: net=${net.toFixed(2)}bps size=$${sizeUsd} confidence=${confidence}`);
       scored.push({ sig, confidence, sizeUsd, net, rawBps, takerBps, slipBps });
     }
 
