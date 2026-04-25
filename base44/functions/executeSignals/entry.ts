@@ -133,12 +133,11 @@ Deno.serve(async (req) => {
       return Response.json({ ok: false, halted: true, reason: 'bot_not_running' });
     }
 
-    const minEdge = config.paper_trading
-      ? 0
-      : Math.min(
-          Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE),
-          Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
-        );
+    // Apply min-edge gate in BOTH paper and live so paper P&L reflects realistic economics.
+    const minEdge = Math.min(
+      Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE),
+      Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
+    );
 
     // ── Load signals ──────────────────────────────────────────────────────────
     const nowTs     = Date.now();
