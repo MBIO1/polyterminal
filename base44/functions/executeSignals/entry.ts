@@ -47,14 +47,16 @@ function recomputeNetEdge(signal, config, sizeUsd) {
   const sizeUsdSafe = Math.max(0, Math.min(fillable * 10, sizeUsd));
   const sizeRatio = Math.min(sizeUsdSafe / fillable, 1);
   const slipBps   = sizeRatio < 0.1 ? 0.5 : sizeRatio < 0.3 ? 1 : sizeRatio < 0.6 ? 1.5 : 2;
-  const totalCost = (2 * takerBps) + (2 * makerBps) + slipBps;
+  // 4-leg round trip: entry buy + entry sell + exit buy + exit sell (all taker)
+  // Must match droplet formula: net_edge_bps = raw_spread_bps - 4 × TAKER_FEE_BPS
+  const totalCost = (4 * takerBps) + slipBps;
 
   // Trust the droplet's pre-calculated net_edge_bps if available (already fee-adjusted)
   const net = signal.net_edge_bps != null
     ? Number(signal.net_edge_bps)
     : rawBps - totalCost;
 
-  return { rawBps, takerBps, makerBps, slipBps, totalCost, net };
+  return { rawBps, takerBps, slipBps, totalCost, net };
 }
 
 // Size in USD: min of per-trade cap, fillable liquidity × confidence mult
@@ -150,13 +152,15 @@ Deno.serve(async (req) => {
       return Response.json({ ok: false, halted: true, reason: 'bot_not_running' });
     }
 
-    // Use the configured floor for all assets. btc/eth_min_edge_bps are asset-specific;
-    // for other assets (SOL etc) fall back to DEFAULT_MIN_EDGE.
-    const configuredFloor = Math.min(
-      Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE),
-      Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
-    );
-    const minEdge = config.paper_trading ? DEFAULT_MIN_EDGE : configuredFloor;
+    // Minimum net edge to execute. The droplet already pre-filters with MIN_NET_EDGE_BPS,
+    // so we just gate on > 0 here (any positive net edge from the droplet is valid).
+    // Use configured asset floors for live trading as an extra safety check.
+    const minEdge = config.paper_trading
+      ? 0
+      : Math.min(
+          Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE),
+          Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
+        );
 
     // ── Load signals ─────────────────────────────────────────────────────────
     const nowTs      = Date.now();
@@ -226,11 +230,11 @@ Deno.serve(async (req) => {
       const sizeUsd = computeSizeUsd(sig, config, confidence);
       if (sizeUsd <= 0) continue;
 
-      const { rawBps, takerBps, makerBps, slipBps, totalCost, net } = recomputeNetEdge(sig, config, sizeUsd);
+      const { rawBps, takerBps, slipBps, totalCost, net } = recomputeNetEdge(sig, config, sizeUsd);
 
-      // Gate: edge must be positive and above minEdge
+      // Gate: edge must be above minEdge
       if (net < minEdge && !forceId) {
-        console.log(`[executeSignals] REJECT ${sig.pair}: net=${net.toFixed(2)}bps < min=${minEdge}bps (raw=${rawBps}, hybrid_cost=2×${takerBps}+2×${makerBps}+${slipBps.toFixed(1)}=${totalCost.toFixed(2)})`);
+        console.log(`[executeSignals] REJECT ${sig.pair}: net=${net.toFixed(2)}bps < min=${minEdge}bps (raw=${rawBps}, cost=4×${takerBps}+${slipBps.toFixed(1)}=${totalCost.toFixed(2)})`);
         continue;
       }
 
@@ -255,8 +259,7 @@ Deno.serve(async (req) => {
     const results    = [];
     let tradeCounter = 1;
 
-    for (const { sig, confidence, sizeUsd, net, rawBps, takerBps: sigTakerBps, slipBps } of toExecute) {
-      const { takerBps, makerBps } = recomputeNetEdge(sig, config, sizeUsd);
+    for (const { sig, confidence, sizeUsd, net, rawBps, takerBps, slipBps } of toExecute) {
       const condition = confidence >= 80 ? 'HEALTHY' : confidence >= 60 ? 'VOLATILE' : 'UNCERTAIN';
 
       if (dryRun) {
@@ -310,11 +313,9 @@ Deno.serve(async (req) => {
       const notional  = buyFill?.notional_usd || qty * (buyFill?.px || 0);
       const grossSpread = (sellFill?.px || 0) - (buyFill?.px || 0);
 
-      // Hybrid fee: 2 taker legs + 2 maker legs
-      const perLegFee = notional * ((takerBps + makerBps) / 10000);
-      const takerTotal = notional * (takerBps / 10000) * 2;
-      const makerTotal = notional * (makerBps / 10000) * 2;
-      const feeTotal  = takerTotal + makerTotal;
+      // 4-leg round trip taker fees: entry buy + entry sell + exit buy + exit sell
+      const perLegFee = notional * (takerBps / 10000);
+      const feeTotal  = notional * (takerBps / 10000) * 4;
       const slipTotal = notional * (slipBps / 10000);
       const basisPnl  = qty * grossSpread;
       const netPnl    = basisPnl - feeTotal - slipTotal;
