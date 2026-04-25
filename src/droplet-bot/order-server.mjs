@@ -39,6 +39,48 @@ function bybitSign(preSign) {
   return createHmac('sha256', API_SECRET).update(preSign).digest('hex');
 }
 
+// ─── Instrument-info cache (qty/price precision) ──────────────────────────────
+// Bybit v5 /v5/market/instruments-info — public, no auth needed.
+// Cache for 1h per category:symbol. Returns { qtyStep, minQty }.
+
+const instrumentCache = new Map(); // key: `${category}:${symbol}` → { qtyStep, minQty, ts }
+const INSTRUMENT_TTL_MS = 60 * 60 * 1000;
+
+async function getInstrumentInfo(category, symbol) {
+  const key = `${category}:${symbol}`;
+  const cached = instrumentCache.get(key);
+  if (cached && (Date.now() - cached.ts) < INSTRUMENT_TTL_MS) return cached;
+
+  const url = `${BYBIT_BASE}/v5/market/instruments-info?category=${category}&symbol=${symbol}`;
+  const res = await fetch(url);
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json || json.retCode !== 0) {
+    throw new Error(`instrument_info_failed ${category}/${symbol}: ${json?.retMsg || res.status}`);
+  }
+  const inst = json.result?.list?.[0];
+  if (!inst) throw new Error(`instrument_not_found ${category}/${symbol}`);
+
+  // Spot uses basePrecision; linear uses qtyStep. Both indicate qty step size.
+  const lot = inst.lotSizeFilter || {};
+  const qtyStep = parseFloat(lot.qtyStep || lot.basePrecision || '0.000001');
+  const minQty  = parseFloat(lot.minOrderQty || '0');
+
+  const info = { qtyStep, minQty, ts: Date.now() };
+  instrumentCache.set(key, info);
+  console.log(`[instrument] ${key} qtyStep=${qtyStep} minQty=${minQty}`);
+  return info;
+}
+
+// Round qty DOWN to nearest qtyStep multiple, format as string with proper decimals.
+function roundQtyToStep(qty, qtyStep) {
+  if (!qtyStep || qtyStep <= 0) return String(qty);
+  const rounded = Math.floor(qty / qtyStep) * qtyStep;
+  // Decimal places implied by qtyStep (e.g. 0.01 → 2, 1 → 0)
+  const stepStr = qtyStep.toString();
+  const decimals = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+  return rounded.toFixed(decimals);
+}
+
 async function bybitOrder({ category, symbol, side, qty }) {
   const timestamp  = Date.now().toString();
   const recvWindow = '5000';
@@ -70,7 +112,7 @@ async function bybitOrder({ category, symbol, side, qty }) {
 async function executeBothLegs(signal) {
   const asset  = String(signal.asset || signal.pair?.split('-')[0] || 'BTC');
   const symbol = asset + 'USDT';
-  const qty    = signal.qty;
+  const rawQty = Number(signal.qty);
 
   const buyIsPerp  = /perp|swap|linear/i.test(signal.buy_exchange  || '');
   const sellIsPerp = /perp|swap|linear/i.test(signal.sell_exchange || '');
@@ -84,11 +126,27 @@ async function executeBothLegs(signal) {
     spotSide = 'Buy';  perpSide = 'Sell';  // fallback
   }
 
-  console.log(`[execute] ${symbol} qty=${qty} spot=${spotSide} perp=${perpSide} env=${IS_TESTNET ? 'testnet' : 'mainnet'}`);
+  // Fetch lot-size info for both legs and round qty to each step.
+  const [spotInfo, perpInfo] = await Promise.all([
+    getInstrumentInfo('spot',   symbol),
+    getInstrumentInfo('linear', symbol),
+  ]);
+
+  const spotQty = roundQtyToStep(rawQty, spotInfo.qtyStep);
+  const perpQty = roundQtyToStep(rawQty, perpInfo.qtyStep);
+
+  if (parseFloat(spotQty) < spotInfo.minQty) {
+    throw new Error(`spot_qty_below_min ${symbol}: ${spotQty} < ${spotInfo.minQty}`);
+  }
+  if (parseFloat(perpQty) < perpInfo.minQty) {
+    throw new Error(`perp_qty_below_min ${symbol}: ${perpQty} < ${perpInfo.minQty}`);
+  }
+
+  console.log(`[execute] ${symbol} rawQty=${rawQty} spotQty=${spotQty} perpQty=${perpQty} spot=${spotSide} perp=${perpSide} env=${IS_TESTNET ? 'testnet' : 'mainnet'}`);
 
   const [spotRes, perpRes] = await Promise.allSettled([
-    bybitOrder({ category: 'spot',   symbol, side: spotSide, qty }),
-    bybitOrder({ category: 'linear', symbol, side: perpSide, qty }),
+    bybitOrder({ category: 'spot',   symbol, side: spotSide, qty: spotQty }),
+    bybitOrder({ category: 'linear', symbol, side: perpSide, qty: perpQty }),
   ]);
 
   const spotOk = spotRes.status === 'fulfilled';
