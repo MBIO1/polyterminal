@@ -137,9 +137,33 @@ Deno.serve(async (req) => {
     }
 
     // ENTRIES: open new positions for qualifying opportunities
+    // But ONLY if net edge (funding - fees) is positive
     const existingPairs = new Set(openPos.map(p => `${p.perp_exchange}|${p.asset}`));
+    const spotTakerFee = Number(config.spot_taker_fee ?? 0.0004);
+    const perpTakerFee = Number(config.perp_taker_fee ?? 0.0004);
+
     const entriesToProcess = qualifyingOpps
-      .filter(o => !existingPairs.has(`${o.venue}|${o.asset}`))  // Don't double-open
+      .filter(o => {
+        if (existingPairs.has(`${o.venue}|${o.asset}`)) return false; // Don't double-open
+        
+        // Fee-adjusted profitability check
+        const mark = Number(o.mark_price || 0);
+        if (!mark) return false;
+        
+        const qty = scaledMaxPosUsd / mark;
+        const notional = qty * mark;
+        
+        // 4 taker legs (entry spot, entry perp, exit spot, exit perp)
+        const totalFeesUsd = notional * (spotTakerFee + perpTakerFee) * 2;
+        
+        // Funding per cycle: qty * mark * funding_rate
+        const fundingPerCycle = Math.abs(qty * mark * Number(o.funding_rate || 0));
+        // 24h = 3 cycles (8h each)
+        const fundingExpected24h = fundingPerCycle * 3;
+        
+        // Only enter if funding covers ALL fees with margin
+        return fundingExpected24h > totalFeesUsd * 1.1; // 10% safety buffer
+      })
       .slice(0, 3);  // Limit entries per run
 
     for (const opp of entriesToProcess) {
