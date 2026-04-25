@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +14,8 @@ import {
   Server,
   Wifi,
   Signal,
-  Clock
+  Clock,
+  TrendingUp
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -101,6 +103,21 @@ export default function DropletHealthCheck() {
   }, []);
 
   const getStatusConfig = (status) => STATUS_CONFIG[status] || STATUS_CONFIG.unknown;
+
+  const { data: latestSignals = [] } = useQuery({
+    queryKey: ['signal-status'],
+    queryFn: () => base44.asServiceRole.entities.ArbSignal.list('-received_time', 10),
+    refetchInterval: 10_000,
+  });
+
+  const { data: latestHeartbeat = null } = useQuery({
+    queryKey: ['heartbeat-status'],
+    queryFn: async () => (await base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 1))[0],
+    refetchInterval: 15_000,
+  });
+
+  const executedSignals = latestSignals.filter(s => s.status === 'executed').length;
+  const detectedSignals = latestSignals.filter(s => ['detected', 'alerted'].includes(s.status)).length;
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
@@ -262,6 +279,40 @@ export default function DropletHealthCheck() {
                       <span className="text-muted-foreground">Last signal:</span>
                       <span>{new Date(health.signal_flow.last_signal_at).toLocaleTimeString()}</span>
                     </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Signal Execution Status */}
+            <Card>
+              <CardHeader className="pb-3">
+                <CardTitle className="text-sm font-medium flex items-center gap-2">
+                  <TrendingUp className="w-4 h-4" />
+                  Execution Status
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-2 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Executed (last 10):</span>
+                    <Badge variant={executedSignals > 0 ? 'default' : 'secondary'}>{executedSignals}</Badge>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Pending/Detected:</span>
+                    <Badge variant={detectedSignals > 0 ? 'warning' : 'secondary'}>{detectedSignals}</Badge>
+                  </div>
+                  {latestHeartbeat && (
+                    <>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Posted (last scan):</span>
+                        <span className="font-mono">{latestHeartbeat.posted || 0}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-muted-foreground">Best edge seen:</span>
+                        <span className="font-mono text-accent">{(latestHeartbeat.best_edge_bps || 0).toFixed(2)} bps</span>
+                      </div>
+                    </>
                   )}
                 </div>
               </CardContent>
