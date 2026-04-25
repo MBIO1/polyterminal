@@ -59,17 +59,34 @@ async function pushTelegramAlert(signal, kind = 'full') {
 }
 
 async function checkFuzzyDuplicate(base44, signal) {
+  // FIX: filter by route at DB level + sort by created_date (received_time can be unreliable
+  // when droplet clock drifts). Fetch wider window and filter in code by created_date.
   const recent = await base44.asServiceRole.entities.ArbSignal.filter(
-    { pair: signal.pair }, '-received_time', 10,
+    {
+      pair:          signal.pair,
+      buy_exchange:  signal.buy_exchange,
+      sell_exchange: signal.sell_exchange,
+    },
+    '-created_date',
+    20,
   );
 
+  const now = Date.now();
   for (const existing of recent) {
-    const ageMs = Date.now() - new Date(existing.received_time || existing.created_date).getTime();
+    const refTs = new Date(existing.created_date).getTime();
+    if (!Number.isFinite(refTs)) continue;
+    const ageMs = now - refTs;
+    if (ageMs < 0) continue; // future-dated row, ignore
     if (ageMs > DUPLICATE_WINDOW_MS) continue;
-    if (existing.buy_exchange !== signal.buy_exchange || existing.sell_exchange !== signal.sell_exchange) continue;
 
-    const buyDiff  = Math.abs((existing.buy_price  - signal.buy_price)  / signal.buy_price);
-    const sellDiff = Math.abs((existing.sell_price - signal.sell_price) / signal.sell_price);
+    const exBuy  = Number(existing.buy_price)  || 0;
+    const exSell = Number(existing.sell_price) || 0;
+    const sgBuy  = Number(signal.buy_price)    || 0;
+    const sgSell = Number(signal.sell_price)   || 0;
+    if (!exBuy || !exSell || !sgBuy || !sgSell) continue;
+
+    const buyDiff  = Math.abs((exBuy  - sgBuy)  / sgBuy);
+    const sellDiff = Math.abs((exSell - sgSell) / sgSell);
 
     if (buyDiff < PRICE_TOLERANCE_PCT && sellDiff < PRICE_TOLERANCE_PCT) {
       return { isDuplicate: true, existingId: existing.id };
@@ -87,13 +104,15 @@ Deno.serve(async (req) => {
     try {
       user = await base44.auth.me();
     } catch {
-      // Not authenticated, check if it's an authorized droplet
+      // Not authenticated, check if it's an authorized droplet via shared secret
     }
 
-    const clientIP = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
-                     req.headers.get('cf-connecting-ip') || 'unknown';
-    const isDroplet = clientIP === Deno.env.get('DROPLET_IP') ||
-                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_API_KEY');
+    // SECURITY: require explicit shared secret in Authorization header for droplet calls.
+    // Do NOT trust x-forwarded-for (spoofable). User session OR Bearer DROPLET_SECRET only.
+    const authHeader    = req.headers.get('authorization') || '';
+    const bearerToken   = authHeader.replace(/^Bearer\s+/i, '').trim();
+    const dropletSecret = Deno.env.get('DROPLET_SECRET');
+    const isDroplet     = !!(dropletSecret && bearerToken && bearerToken === dropletSecret);
 
     if (!user && !isDroplet) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });

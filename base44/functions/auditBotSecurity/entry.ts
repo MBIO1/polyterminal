@@ -83,7 +83,7 @@ Deno.serve(async (req) => {
 
     // ─── 3. DROPLET CONNECTIVITY CHECK ───────────────────────────────────
     const dropletIp = Deno.env.get('DROPLET_IP');
-    const dropletPort = 3000;
+    const dropletPort = Number(Deno.env.get('ORDER_SERVER_PORT') || 4001);
     let dropletReachable = false;
     let dropletLatencyMs = null;
 

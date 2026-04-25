@@ -149,26 +149,47 @@ Deno.serve(async (req) => {
     let candidates;
     const expiredIds = [];
 
+    // Hard-stale cleanup: any signal older than 5 min is unconditionally expired,
+    // regardless of TTL setting. This prevents pileup of stale signals.
+    const HARD_STALE_MS = 5 * 60 * 1000;
+    const hardStaleIds  = [];
+
     if (forceId) {
       const found = recentAll.find(s => s.id === forceId);
       if (!found) return Response.json({ error: `Signal ${forceId} not found` }, { status: 404 });
       candidates = [found];
+      // Still run hard-stale cleanup even on forced execution
+      for (const s of recentAll) {
+        if (s.id === forceId) continue;
+        const age = nowTs - new Date(s.received_time || s.created_date).getTime();
+        if (age > HARD_STALE_MS) hardStaleIds.push(s.id);
+      }
     } else {
       const fresh = [];
       for (const s of recentAll) {
-        if (nowTs - new Date(s.received_time || s.created_date).getTime() > ttlMs) {
+        const age = nowTs - new Date(s.received_time || s.created_date).getTime();
+        if (age > HARD_STALE_MS) {
+          hardStaleIds.push(s.id);
+        } else if (age > ttlMs) {
           expiredIds.push(s.id);
         } else {
           fresh.push(s);
         }
       }
-      if (!dryRun && expiredIds.length > 0) {
-        await Promise.all(expiredIds.map(id =>
+      candidates = fresh.slice(0, maxSignals);
+    }
+
+    if (!dryRun && (expiredIds.length + hardStaleIds.length) > 0) {
+      await Promise.all([
+        ...expiredIds.map(id =>
           base44.asServiceRole.entities.ArbSignal.update(id, { status: 'expired', rejection_reason: 'ttl_exceeded' })
             .catch(e => console.error('expire failed', id, e.message))
-        ));
-      }
-      candidates = fresh.slice(0, maxSignals);
+        ),
+        ...hardStaleIds.map(id =>
+          base44.asServiceRole.entities.ArbSignal.update(id, { status: 'expired', rejection_reason: 'hard_stale_5min' })
+            .catch(e => console.error('hard-stale expire failed', id, e.message))
+        ),
+      ]);
     }
 
     // ── Risk gates ────────────────────────────────────────────────────────────
@@ -317,13 +338,17 @@ Deno.serve(async (req) => {
       }
 
       const d = execResult.droplet;
+      // CRITICAL: partial fills leave naked unhedged exposure. Mark as Error and alert.
+      const isPartial = isLive && d && (!d.spotOk || !d.perpOk);
+      const tradeStatus = isPartial ? 'Error' : 'Closed';
+
       const tradeIdSuffix = `${Date.now().toString(36)}-${tradeCounter++}`;
       const trade = await base44.asServiceRole.entities.ArbTrade.create({
         trade_id:           `AUTO-${tradeIdSuffix}`,
         trade_date:         todayStr,
         entry_timestamp:    new Date().toISOString(),
         exit_timestamp:     new Date().toISOString(),
-        status:             'Closed',
+        status:             tradeStatus,
         strategy,
         asset:              sig.asset || 'Other',
         spot_exchange:      spotExchange,
@@ -370,6 +395,31 @@ Deno.serve(async (req) => {
 
       console.log(`[executeSignals] EXECUTED ${sig.pair} | trade=${trade.trade_id} | net=${net.toFixed(2)}bps | mode=${execResult.mode}`);
 
+      // CRITICAL ALERT on partial fill — naked exposure requires manual intervention
+      if (isPartial) {
+        const filledLeg  = d.spotOk ? 'spot' : 'perp';
+        const missingLeg = d.spotOk ? 'perp' : 'spot';
+        const orderId    = d.spotOk ? d.spotOrderId : d.perpOrderId;
+        console.error(`[executeSignals] PARTIAL FILL ALERT trade=${trade.trade_id} ${filledLeg}=filled(${orderId}) ${missingLeg}=FAILED — NAKED POSITION`);
+
+        // Activate kill-switch to halt further trades until reviewed
+        await base44.asServiceRole.entities.ArbConfig.update(config.id, { kill_switch_active: true })
+          .catch(e => console.error('kill-switch activation failed:', e.message));
+
+        // Telegram alert
+        const tgToken = Deno.env.get('TELEGRAM_BOT_TOKEN');
+        const tgChat  = Deno.env.get('TELEGRAM_CHAT_ID');
+        if (tgToken && tgChat) {
+          const msg = `🚨🚨 PARTIAL FILL — NAKED ${missingLeg.toUpperCase()} EXPOSURE\n\nTrade: ${trade.trade_id}\nPair: ${sig.pair}\nFilled: ${filledLeg} (${orderId})\nMissing: ${missingLeg}\nQty: ${qty}\n\n⛔ Kill-switch ACTIVATED. Manually flatten the ${filledLeg} leg on Bybit, then reset kill-switch.`;
+          await fetch(`https://api.telegram.org/bot${tgToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ chat_id: tgChat, text: msg }),
+            signal: AbortSignal.timeout(5000),
+          }).catch(e => console.error('telegram alert failed:', e.message));
+        }
+      }
+
       results.push({
         signal_id: sig.id,
         pair:      sig.pair,
@@ -394,6 +444,7 @@ Deno.serve(async (req) => {
       executed:            results.filter(r => r.decision === 'executed').length,
       rejected_edge:       candidates.length - scored.length,
       expired:             expiredIds.length,
+      hard_stale_cleaned:  hardStaleIds.length,
       results,
     });
 
