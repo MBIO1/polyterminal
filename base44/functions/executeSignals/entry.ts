@@ -85,7 +85,8 @@ function paperFill(signal, sizeUsd) {
   };
 }
 
-// Bybit live order (used when one leg is Bybit)
+// ─── Bybit Live Execution ─────────────────────────────────────────────────────
+
 async function bybitSign(preSign, apiSecret) {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
@@ -96,8 +97,8 @@ async function bybitSign(preSign, apiSecret) {
   return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
 
-async function bybitOrder({ symbol, side, qty }) {
-  const isTestnet = (Deno.env.get('BYBIT_TESTNET') || 'true').toLowerCase() !== 'false';
+async function bybitOrder({ category, symbol, side, qty, reduceOnly = false }) {
+  const isTestnet = (Deno.env.get('BYBIT_TESTNET') || 'false').toLowerCase() !== 'false';
   const base      = isTestnet ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
   const apiKey    = Deno.env.get('BYBIT_API_KEY');
   const apiSecret = Deno.env.get('BYBIT_API_SECRET');
@@ -105,24 +106,95 @@ async function bybitOrder({ symbol, side, qty }) {
 
   const timestamp  = Date.now().toString();
   const recvWindow = '5000';
-  const body       = JSON.stringify({ category: 'spot', symbol, side, orderType: 'Market', qty: String(qty), timeInForce: 'IOC' });
-  const preSign    = timestamp + apiKey + recvWindow + body;
-  const signature  = await bybitSign(preSign, apiSecret);
+  const orderBody  = {
+    category,
+    symbol,
+    side,
+    orderType: 'Market',
+    qty: String(qty),
+    timeInForce: 'IOC',
+    ...(category === 'linear' && reduceOnly ? { reduceOnly: true } : {}),
+  };
+  const bodyStr   = JSON.stringify(orderBody);
+  const preSign   = timestamp + apiKey + recvWindow + bodyStr;
+  const signature = await bybitSign(preSign, apiSecret);
 
-  const res  = await fetch(`${base}/v5/order/create`, {
-   method: 'POST',
-   headers: {
-     'X-BAPI-API-KEY': apiKey, 'X-BAPI-SIGN': signature,
-     'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow,
-     'Content-Type': 'application/json',
-   },
-   body,
+  const res = await fetch(`${base}/v5/order/create`, {
+    method: 'POST',
+    headers: {
+      'X-BAPI-API-KEY': apiKey, 'X-BAPI-SIGN': signature,
+      'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow,
+      'Content-Type': 'application/json',
+    },
+    body: bodyStr,
   });
   if (!res.ok) {
-   const errText = await res.text().catch(() => '');
-   throw new Error(`Bybit HTTP ${res.status}: ${errText.slice(0, 100)}`);
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Bybit HTTP ${res.status} [${category}/${symbol}/${side}]: ${errText.slice(0, 120)}`);
   }
-  return await res.json().catch(() => { throw new Error('invalid_response_body'); });
+  const json = await res.json().catch(() => { throw new Error('invalid_response_body'); });
+  if (json.retCode !== 0) {
+    throw new Error(`Bybit order rejected [${category}/${symbol}/${side}]: ${json.retMsg} (code ${json.retCode})`);
+  }
+  return json;
+}
+
+// Place both legs of a basis carry simultaneously:
+//   - Spot leg: buy or sell on Bybit spot (category=spot)
+//   - Perp leg: opposite side on Bybit linear perp (category=linear)
+async function bybitBothLegs(signal, qty) {
+  const asset  = String(signal.asset || signal.pair.split('-')[0]);
+  const symbol = asset + 'USDT';
+
+  // Determine direction from venue names
+  const buyVenueRaw  = String(signal.buy_exchange  || '').toLowerCase();
+  const sellVenueRaw = String(signal.sell_exchange || '').toLowerCase();
+  const buyIsPerp    = /perp|swap|linear/i.test(signal.buy_exchange  || '');
+  const sellIsPerp   = /perp|swap|linear/i.test(signal.sell_exchange || '');
+
+  // Contango: buy spot, sell perp (short perp). Backwardation: buy perp, sell spot.
+  let spotSide, perpSide;
+  if (!buyIsPerp && sellIsPerp) {
+    // buy spot / short perp  (contango)
+    spotSide = 'Buy';
+    perpSide = 'Sell';
+  } else if (buyIsPerp && !sellIsPerp) {
+    // long perp / sell spot  (backwardation)
+    spotSide = 'Sell';
+    perpSide = 'Buy';
+  } else {
+    // Cross-venue spot/spot or perp/perp — treat buy_exchange as spot buy, sell_exchange as spot sell
+    spotSide = 'Buy';
+    perpSide = 'Sell';
+  }
+
+  console.log(`[bybit-live] ${symbol} qty=${qty} spot=${spotSide} perp=${perpSide}`);
+
+  // Fire both legs concurrently
+  const [spotResult, perpResult] = await Promise.allSettled([
+    bybitOrder({ category: 'spot',   symbol, side: spotSide, qty }),
+    bybitOrder({ category: 'linear', symbol, side: perpSide, qty }),
+  ]);
+
+  const spotOk = spotResult.status === 'fulfilled';
+  const perpOk = perpResult.status === 'fulfilled';
+
+  if (!spotOk || !perpOk) {
+    const spotErr = !spotOk ? spotResult.reason?.message : 'ok';
+    const perpErr = !perpOk ? perpResult.reason?.message : 'ok';
+    // Both failed → clean error
+    if (!spotOk && !perpOk) throw new Error(`both_legs_failed spot=${spotErr} perp=${perpErr}`);
+    // One leg failed → leg mismatch, log as critical
+    console.error(`[bybit-live] LEG MISMATCH — spot=${spotErr} perp=${perpErr} — manual review required`);
+    // Still return partial so we record it with a warning
+  }
+
+  return {
+    spotOk, perpOk,
+    spotOrderId: spotResult.value?.result?.orderId,
+    perpOrderId: perpResult.value?.result?.orderId,
+    spotSide, perpSide, symbol,
+  };
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -271,32 +343,34 @@ Deno.serve(async (req) => {
       }
 
       // Determine execution mode
-      const buyVenue  = String(sig.buy_exchange  || '').toLowerCase();
-      const sellVenue = String(sig.sell_exchange || '').toLowerCase();
-      const hasLiveLeg= !config.paper_trading && (buyVenue.includes('bybit') || sellVenue.includes('bybit'));
+      const buyVenueStr  = String(sig.buy_exchange  || '').toLowerCase();
+      const sellVenueStr = String(sig.sell_exchange || '').toLowerCase();
+      const isLive       = !config.paper_trading;
+      const involvesSpot = !(/perp|swap|linear/i.test(sig.buy_exchange || '') && /perp|swap|linear/i.test(sig.sell_exchange || ''));
+      const involvesPerp = /perp|swap|linear/i.test(sig.buy_exchange || '') || /perp|swap|linear/i.test(sig.sell_exchange || '');
+      const isBybitSignal= buyVenueStr.includes('bybit') || sellVenueStr.includes('bybit');
+      const canGoLive    = isLive && isBybitSignal;
 
       let execResult;
       try {
-        if (hasLiveLeg) {
-          const buyPx   = Number(sig.buy_price);
-          const qty     = Number((sizeUsd / buyPx).toFixed(6));
-          const symbol  = `${sig.asset}USDT`;
-          const isOnBuy = buyVenue.includes('bybit');
-          const side    = isOnBuy ? 'Buy' : 'Sell';
-          const liveRes = await bybitOrder({ symbol, side, qty });
+        if (canGoLive) {
+          const buyPx = Number(sig.buy_price);
+          const qty   = Number((sizeUsd / buyPx).toFixed(6));
+          const live  = await bybitBothLegs(sig, qty);
           execResult = {
-            mode: liveRes.retCode === 0 ? 'live_partial' : 'paper',
+            mode: live.spotOk && live.perpOk ? 'live' : 'live_partial',
             fills: {
-              buy:  { venue: sig.buy_exchange,  px: buyPx,                qty },
-              sell: { venue: sig.sell_exchange, px: Number(sig.sell_price), qty },
+              buy:  { venue: sig.buy_exchange,  px: buyPx,                    qty },
+              sell: { venue: sig.sell_exchange, px: Number(sig.sell_price),   qty },
             },
+            live,
           };
         } else {
           execResult = paperFill(sig, sizeUsd);
         }
       } catch (e) {
-        const safeMsg = e.message?.includes('key') || e.message?.includes('secret') 
-          ? 'credential_error' 
+        const safeMsg = e.message?.includes('key') || e.message?.includes('secret')
+          ? 'credential_error'
           : e.message?.slice(0, 100) || 'unknown_error';
         console.error(`[executeSignals] exec error signal ${sig.id}:`, safeMsg);
         await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
@@ -389,6 +463,7 @@ Deno.serve(async (req) => {
         entry_fee_type:    'Taker',
         exit_fee_type:     'Taker',
         mode:              execResult.mode === 'paper' ? 'paper' : 'live',
+        review_notes:      execResult.live ? `spotOrderId=${execResult.live.spotOrderId} perpOrderId=${execResult.live.perpOrderId} spotOk=${execResult.live.spotOk} perpOk=${execResult.live.perpOk}` : undefined,
         entry_thesis:      `Auto-executed signal ${sig.id} | net=${net.toFixed(2)}bps | confidence=${confidence}% | condition=${condition} | ${sig.notes || ''}`.trim(),
         net_delta_usd:     0,
         borrow_conversion_cost: 0,
@@ -415,6 +490,12 @@ Deno.serve(async (req) => {
         net_pnl_usd:         Number(netPnl.toFixed(4)),
         confidence,
         condition,
+        ...(execResult.live ? {
+          spot_order_id: execResult.live.spotOrderId,
+          perp_order_id: execResult.live.perpOrderId,
+          spot_ok:       execResult.live.spotOk,
+          perp_ok:       execResult.live.perpOk,
+        } : {}),
       });
     }
 
