@@ -170,6 +170,26 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Restart endpoint
+  if (req.method === 'POST' && req.url === '/restart') {
+    const secret = req.headers['x-droplet-secret'];
+    if (secret !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ status: 'restart_initiated', ts: new Date().toISOString() }));
+    
+    // Graceful shutdown and restart
+    setTimeout(() => {
+      console.log('[restart] initiating restart...');
+      process.exit(0);
+    }, 500);
+    return;
+  }
+
   // Balance endpoint
   if (req.method === 'GET' && req.url === '/api/balance') {
     const secret = req.headers['x-droplet-secret'];
