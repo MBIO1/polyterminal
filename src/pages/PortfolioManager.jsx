@@ -48,8 +48,8 @@ export default function PortfolioManager() {
       const res = await base44.functions.invoke('portfolioManager', { execute: false });
       return res.data;
     },
-    staleTime: 30_000,
-    refetchInterval: 60_000,
+    staleTime: 10_000,
+    refetchInterval: 30_000,
   });
 
   const executeMutation = useMutation({

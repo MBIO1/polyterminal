@@ -13,10 +13,10 @@ export default function Monitor() {
     const load = async () => {
       try {
         const [hbs, sigs, pos, cfg] = await Promise.all([
-          base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 1).catch(() => []),
-          base44.asServiceRole.entities.ArbSignal.filter({ status: { $in: ['detected', 'alerted'] } }, '-received_time', 20).catch(() => []),
-          base44.asServiceRole.entities.ArbLivePosition.filter({ status: 'Open' }, '-snapshot_time', 50).catch(() => []),
-          base44.asServiceRole.entities.ArbConfig.list('-created_date', 1).catch(() => []),
+          base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 1),
+          base44.asServiceRole.entities.ArbSignal.filter({ status: { $in: ['detected', 'alerted'] } }, '-received_time', 20),
+          base44.asServiceRole.entities.ArbLivePosition.filter({ status: 'Open' }, '-snapshot_time', 100),
+          base44.asServiceRole.entities.ArbConfig.list('-created_date', 1),
         ]);
         setData({
           hb: hbs?.[0] || null,
@@ -31,7 +31,7 @@ export default function Monitor() {
       }
     };
     load();
-    const t = setInterval(load, 5000);
+    const t = setInterval(load, 3000);
     return () => clearInterval(t);
   }, []);
 

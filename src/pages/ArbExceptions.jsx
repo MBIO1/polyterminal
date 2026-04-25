@@ -36,7 +36,9 @@ export default function ArbExceptions() {
 
   const { data: exceptions = [], isLoading } = useQuery({
     queryKey: ['arb-exceptions-all'],
-    queryFn: () => base44.entities.ArbException.list('-exception_date', 500),
+    queryFn: () => base44.asServiceRole.entities.ArbException.list('-exception_date', 500),
+    staleTime: 5_000,
+    refetchInterval: 15_000,
   });
 
   const create = useMutation({
