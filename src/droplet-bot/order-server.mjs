@@ -130,6 +130,36 @@ async function reportResult(payload) {
   }
 }
 
+// ─── Fetch wallet balance ─────────────────────────────────────────────────────
+
+async function fetchBalance() {
+  const timestamp  = Date.now().toString();
+  const recvWindow = '5000';
+  const preSign    = timestamp + API_KEY + recvWindow;
+  const signature  = bybitSign(preSign);
+
+  const res = await fetch(`${BYBIT_BASE}/v5/account/wallet-balance`, {
+    method: 'GET',
+    headers: {
+      'X-BAPI-API-KEY': API_KEY,
+      'X-BAPI-SIGN': signature,
+      'X-BAPI-TIMESTAMP': timestamp,
+      'X-BAPI-RECV-WINDOW': recvWindow,
+    },
+  });
+
+  const json = await res.json().catch(() => null);
+  if (!res.ok || !json) throw new Error(`Bybit HTTP ${res.status}`);
+  if (json.retCode !== 0) throw new Error(`Bybit error: ${json.retMsg}`);
+
+  const account = json.result?.list?.[0] || {};
+  return {
+    totalEquity: parseFloat(account.totalEquity || 0),
+    totalAvailableBalance: parseFloat(account.totalAvailableBalance || 0),
+    coins: account.coin || [],
+  };
+}
+
 // ─── HTTP server ──────────────────────────────────────────────────────────────
 
 const server = http.createServer(async (req, res) => {
@@ -137,6 +167,27 @@ const server = http.createServer(async (req, res) => {
   if (req.method === 'GET' && req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, env: IS_TESTNET ? 'testnet' : 'mainnet', ts: new Date().toISOString() }));
+    return;
+  }
+
+  // Balance endpoint
+  if (req.method === 'GET' && req.url === '/api/balance') {
+    const secret = req.headers['x-droplet-secret'];
+    if (secret !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+
+    try {
+      const balance = await fetchBalance();
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ...balance, testnet: IS_TESTNET }));
+    } catch (e) {
+      console.error('[balance] failed:', e.message);
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
     return;
   }
 
