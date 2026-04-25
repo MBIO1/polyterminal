@@ -34,6 +34,30 @@ Deno.serve(async (req) => {
     const exitOnFlip = config.funding_exit_on_flip !== false;
     const maxPosUsd = Number(config.funding_max_position_usd ?? 200);
 
+    // AUTO-SCALING: Calculate cumulative realized funding gains from closed positions
+    const closedTrades = await base44.asServiceRole.entities.ArbTrade.filter(
+      { status: 'Closed', strategy: 'Funding Capture' },
+      '-exit_timestamp',
+      100
+    );
+    let totalRealizedFunding = 0;
+    const scalingThreshold = maxPosUsd * 0.2; // 20% of current cap
+    for (const t of closedTrades) {
+      const realized = Number(t.realized_funding || 0);
+      if (realized > 0) totalRealizedFunding += realized;
+    }
+    
+    // If gains exceed 20% of cap, scale up by 50%
+    let scaledMaxPosUsd = maxPosUsd;
+    if (totalRealizedFunding >= scalingThreshold && totalRealizedFunding > 0) {
+      scaledMaxPosUsd = Math.round(maxPosUsd * 1.5);
+      // Update config to persist the new cap
+      await base44.asServiceRole.entities.ArbConfig.update(config.id, {
+        funding_max_position_usd: scaledMaxPosUsd,
+      });
+      console.log(`[AUTO-SCALE] Funding cap scaled from $${maxPosUsd} to $${scaledMaxPosUsd} (realized: $${totalRealizedFunding.toFixed(2)})`);
+    }
+
     // Load latest opportunities (most recent snapshot per venue+pair)
     const allOpps = await base44.asServiceRole.entities.ArbFundingOpportunity.list('-snapshot_time', 100);
     const latest = {};
@@ -119,7 +143,7 @@ Deno.serve(async (req) => {
       .slice(0, 3);  // Limit entries per run
 
     for (const opp of entriesToProcess) {
-      const posSize = maxPosUsd;
+      const posSize = scaledMaxPosUsd;
       const mark = Number(opp.mark_price || 0);
       if (!mark) continue;
 
@@ -177,7 +201,11 @@ Deno.serve(async (req) => {
       config_min_apr_bps: minAprBps,
       config_exit_apr_bps: exitAprBps,
       exit_on_flip: exitOnFlip,
-      max_pos_usd: maxPosUsd,
+      max_pos_usd_original: maxPosUsd,
+      max_pos_usd_scaled: scaledMaxPosUsd,
+      auto_scale_triggered: scaledMaxPosUsd > maxPosUsd,
+      total_realized_funding: totalRealizedFunding.toFixed(2),
+      scaling_threshold: scalingThreshold.toFixed(2),
       qualifying_opportunities: qualifyingOpps.length,
       entries: entriesToProcess.length,
       exits: exitsToProcess.length,
