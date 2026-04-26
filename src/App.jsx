@@ -1,82 +1,55 @@
-import { Toaster } from "@/components/ui/toaster"
-import { QueryClientProvider } from '@tanstack/react-query'
-import { queryClientInstance } from '@/lib/query-client'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
-import PageNotFound from './lib/PageNotFound';
-import { AuthProvider, useAuth } from '@/lib/AuthContext';
-import UserNotRegisteredError from '@/components/UserNotRegisteredError';
-import AppLayout from '@/components/layout/AppLayout.jsx';
-import ArbDashboard from '@/pages/ArbDashboard';
-import ArbConfig from '@/pages/ArbConfig';
-import ArbTrades from '@/pages/ArbTrades';
-import ArbTransfers from '@/pages/ArbTransfers';
-import ArbLivePositions from '@/pages/ArbLivePositions';
-import ArbDailySummary from '@/pages/ArbDailySummary';
-import ArbExceptions from '@/pages/ArbExceptions';
-import ArbInstructions from '@/pages/ArbInstructions';
-import ArbMarketScan from '@/pages/ArbMarketScan';
-import ArbSignals from '@/pages/ArbSignals';
-import ArbRebalance from '@/pages/ArbRebalance';
-import ArbFunding from '@/pages/ArbFunding';
+import React from 'react';
+import { BrowserRouter as Router, Route, Routes, Link } from 'react-router-dom';
+import { Toaster } from '@/components/ui/toaster';
+import './index.css';
+
+// Import pages
+import Dashboard from '@/pages/Dashboard';
+import Trades from '@/pages/Trades';
+import Signals from '@/pages/Signals';
 import DropletHealthCheck from '@/pages/DropletHealthCheck';
-import PortfolioManager from '@/pages/PortfolioManager';
-import OKXLiveTest from '@/pages/OKXLiveTest';
-import Monitor from '@/pages/Monitor';
 
-const AuthenticatedApp = () => {
-  const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
-
-  if (isLoadingPublicSettings || isLoadingAuth) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-background">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-2 border-primary/20 border-t-primary rounded-full animate-spin" />
-          <span className="text-xs font-mono text-muted-foreground">Loading...</span>
+// Simple layout component
+const Layout = ({ children }) => (
+  <div className="min-h-screen bg-background">
+    <nav className="border-b bg-card">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <div className="flex justify-between h-16">
+          <div className="flex items-center">
+            <Link to="/" className="text-xl font-bold">
+              MBIO Arbitrage
+            </Link>
+          </div>
+          <div className="flex items-center space-x-4">
+            <Link to="/" className="text-sm font-medium hover:text-primary">Dashboard</Link>
+            <Link to="/trades" className="text-sm font-medium hover:text-primary">Trades</Link>
+            <Link to="/signals" className="text-sm font-medium hover:text-primary">Signals</Link>
+            <Link to="/droplet-health" className="text-sm font-medium hover:text-primary">Health</Link>
+          </div>
         </div>
       </div>
-    );
-  }
-
-  if (authError) {
-    if (authError.type === 'user_not_registered') return <UserNotRegisteredError />;
-    if (authError.type === 'auth_required') { navigateToLogin(); return null; }
-  }
-
-  return (
-    <Routes>
-      <Route element={<AppLayout />}>
-        <Route path="/" element={<ArbDashboard />} />
-        <Route path="/config" element={<ArbConfig />} />
-        <Route path="/trades" element={<ArbTrades />} />
-        <Route path="/transfers" element={<ArbTransfers />} />
-        <Route path="/positions" element={<ArbLivePositions />} />
-        <Route path="/daily" element={<ArbDailySummary />} />
-        <Route path="/exceptions" element={<ArbExceptions />} />
-        <Route path="/instructions" element={<ArbInstructions />} />
-        <Route path="/scan" element={<ArbMarketScan />} />
-        <Route path="/signals" element={<ArbSignals />} />
-        <Route path="/rebalance" element={<ArbRebalance />} />
-        <Route path="/funding" element={<ArbFunding />} />
-        <Route path="/droplet-health" element={<DropletHealthCheck />} />
-        <Route path="/portfolio-manager" element={<PortfolioManager />} />
-        <Route path="/okx-test" element={<OKXLiveTest />} />
-        <Route path="/monitor" element={<Monitor />} />
-      </Route>
-      <Route path="*" element={<PageNotFound />} />
-    </Routes>
-  );
-};
+    </nav>
+    
+    <main className="max-w-7xl mx-auto py-6">
+      {children}
+    </main>
+  </div>
+);
 
 function App() {
   return (
-    <AuthProvider>
-      <QueryClientProvider client={queryClientInstance}>
-        <Router>
-          <AuthenticatedApp />
-        </Router>
-        <Toaster />
-      </QueryClientProvider>
-    </AuthProvider>
+    <Router>
+      <Layout>
+        <Routes>
+          <Route path="/" element={<Dashboard />} />
+          <Route path="/trades" element={<Trades />} />
+          <Route path="/signals" element={<Signals />} />
+          <Route path="/droplet-health" element={<DropletHealthCheck />} />
+          <Route path="*" element={<div className="p-6"><h1>404 - Page Not Found</h1></div>} />
+        </Routes>
+      </Layout>
+      <Toaster />
+    </Router>
   );
 }
 
