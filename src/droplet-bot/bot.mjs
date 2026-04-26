@@ -455,6 +455,44 @@ class ArbitrageEngine {
     };
   }
 
+  // ─── Report heartbeat to Vercel dashboard ─────────────────────────────────
+  async reportHeartbeat(stats) {
+    const VERCEL_DASHBOARD_URL = 'https://mbioarb-hzeufa4ir-mbio1s-projects.vercel.app';
+    const BASE44_FUNCTION_URL = 'https://polytrade.base44.app/functions/ingestHeartbeat';
+    
+    const heartbeatData = {
+      snapshot_time: new Date().toISOString(),
+      evaluations: stats.evaluations || 0,
+      posted: stats.signals || 0,
+      rejected_edge: stats.rejectedEdge || 0,
+      rejected_fillable: stats.rejectedFillable || 0,
+      rejected_stale: stats.rejectedStale || 0,
+      best_edge_bps: stats.bestEdge || 0,
+      best_edge_pair: stats.bestPair || '',
+      memory_mb: process.memoryUsage ? process.memoryUsage().heapUsed / 1024 / 1024 : 0,
+      cpu_percent: 0, // Would need os module for real value
+      fresh_books: stats.freshBooks || 'OKX:0/0 Bybit:0/0',
+      post_errors: stats.errors || 0,
+      post_non_2xx: stats.non2xx || 0,
+    };
+
+    try {
+      // Send to Base44 (for data storage)
+      await fetch(BASE44_FUNCTION_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'x-droplet-auth': process.env.DROPLET_SECRET || '',
+        },
+        body: JSON.stringify(heartbeatData),
+      });
+      
+      console.log('💓 Heartbeat sent to dashboard');
+    } catch (e) {
+      console.warn('⚠️ Failed to send heartbeat:', e.message);
+    }
+  }
+
   // ─── Main loop ───────────────────────────────────────────────────────────
 
   async start(onOpportunity) {
@@ -466,28 +504,55 @@ class ArbitrageEngine {
     console.log(`   Circuit breaker: ${this.config.circuitBreakerLoss} consecutive losses`);
     console.log(`   Learn mode     : ${this.config.learnMode}\n`);
 
+    let evaluations = 0;
+    let signals = 0;
+    let errors = 0;
+
     this._interval = setInterval(async () => {
       if (!this.isRunning) return;
       if (this.isCircuitOpen()) return;
 
-      const prices = await this.fetchPrices();
-      if (!prices) return;
+      evaluations++;
+      
+      try {
+        const prices = await this.fetchPrices();
+        if (!prices) {
+          errors++;
+          return;
+        }
 
-      const spreads = this.detectArbitrage(prices);
-      const now = Date.now();
+        const spreads = this.detectArbitrage(prices);
+        const now = Date.now();
 
-      spreads.forEach(spread => {
-        const lastSignal = this.lastSignals.get(spread.symbol) || 0;
-        if (now - lastSignal < this.config.cooldownMs) return;
+        spreads.forEach(spread => {
+          const lastSignal = this.lastSignals.get(spread.symbol) || 0;
+          if (now - lastSignal < this.config.cooldownMs) return;
 
-        this.lastSignals.set(spread.symbol, now);
-        if (onOpportunity) onOpportunity(spread);
+          this.lastSignals.set(spread.symbol, now);
+          signals++;
+          if (onOpportunity) onOpportunity(spread);
 
-        console.log(
-          `✅ ${spread.symbol} | net: ${spread.netSpread}% (gross: ${spread.grossSpread}%) | ` +
-          `${spread.buyExchange} → ${spread.sellExchange} | confidence: ${spread.confidence}%`
-        );
-      });
+          console.log(
+            `✅ ${spread.symbol} | net: ${spread.netSpread}% (gross: ${spread.grossSpread}%) | ` +
+            `${spread.buyExchange} → ${spread.sellExchange} | confidence: ${spread.confidence}%`
+          );
+        });
+
+        // Report heartbeat every 10 evaluations
+        if (evaluations % 10 === 0) {
+          const stats = this.getStats();
+          await this.reportHeartbeat({
+            evaluations,
+            signals,
+            errors,
+            bestEdge: stats.bestSpread,
+            bestPair: stats.bestPair,
+          });
+        }
+      } catch (e) {
+        errors++;
+        console.error('Error in main loop:', e.message);
+      }
     }, this.config.pollInterval);
   }
 
