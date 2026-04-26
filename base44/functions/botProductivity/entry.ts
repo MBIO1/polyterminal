@@ -1,20 +1,20 @@
 // Aggregates ArbHeartbeat rows to answer: "is the bot being productive when it's silent?"
 //
 // POST body (optional):
-//   { window_hours: 24 }   // default 24
+// { window_hours: 24 } // default 24
 //
 // Returns:
-//   {
-//     window_hours, heartbeat_count, total_evaluations,
-//     peak_edge_bps_1h, peak_edge_bps_4h, peak_edge_bps_24h,
-//     distribution: { b0_5, b5_10, b10_15, b15_20, b20_plus },
-//     by_hour: [ { hour_iso, peak_edge_bps, posted, opps_5_20 } ],
-//     // Shadow-PnL: "what if the floor were lower?"
-//     // Estimates round-trip net PnL bps-weighted, assuming 50% of near-miss edge is retained
-//     // after adverse selection & latency (conservative).
-//     shadow_pnl: [ { floor_bps, opportunities, est_net_bps_per_trade, est_total_bps } ],
-//     verdict: "healthy" | "too_conservative" | "broken" | "market_dead"
-//   }
+// {
+// window_hours, heartbeat_count, total_evaluations,
+// peak_edge_bps_1h, peak_edge_bps_4h, peak_edge_bps_24h,
+// distribution: { b0_5, b5_10, b10_15, b15_20, b20_plus },
+// by_hour: [ { hour_iso, peak_edge_bps, posted, opps_5_20 } ],
+// // Shadow-PnL: "what if the floor were lower?"
+// // Estimates round-trip net PnL bps-weighted, assuming 50% of near-miss edge is retained
+// // after adverse selection & latency (conservative).
+// shadow_pnl: [ { floor_bps, opportunities, est_net_bps_per_trade, est_total_bps } ],
+// verdict: "healthy" | "too_conservative" | "broken" | "market_dead"
+// }
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
@@ -59,7 +59,7 @@ function shadowPnlAt(floorBps, heartbeats) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    
+
     let user = null;
     try {
       user = await base44.auth.me();
@@ -72,7 +72,7 @@ Deno.serve(async (req) => {
         message: 'Authentication failed. Returning empty stats.',
       });
     }
-    
+
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};

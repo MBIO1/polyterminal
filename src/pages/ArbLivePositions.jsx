@@ -43,7 +43,9 @@ export default function ArbLivePositions() {
 
   const { data: positions = [], isLoading } = useQuery({
     queryKey: ['arb-positions-all'],
-    queryFn: () => base44.entities.ArbLivePosition.list('-snapshot_time', 500),
+    queryFn: () => base44.asServiceRole.entities.ArbLivePosition.list('-snapshot_time', 500),
+    staleTime: 3_000,
+    refetchInterval: 10_000,
   });
 
   const persist = useMutation({

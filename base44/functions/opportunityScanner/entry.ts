@@ -118,6 +118,12 @@ Deno.serve(async (req) => {
         ? Date.now() - new Date(recent[0].received_time || recent[0].created_date).getTime()
         : Infinity;
 
+      // Skip injection if net edge is non-positive — nothing to trade after fees.
+      // Prevents flooding ArbSignal with rejected rows that just expire as hard_stale_5min.
+      if (net_edge_bps <= 0) {
+        return;
+      }
+
       if (lastAge >= 30_000) {
         // OKX scanner is same-venue (spot+perp on OKX) so confirmed_exchanges=1 is correct.
         // The executor's sameVenue check (buy_root === sell_root) will require only 1 confirmation.

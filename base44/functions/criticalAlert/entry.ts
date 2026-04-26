@@ -12,6 +12,12 @@ const TELEGRAM_CHAT_ID   = Deno.env.get('TELEGRAM_CHAT_ID');
 const OFFLINE_THRESHOLD_SEC  = 180;  // 3 min = offline
 const CRITICAL_THRESHOLD_SEC = 600;  // 10 min = critical
 
+// Signal-flow thresholds (heartbeat alive but bot not posting)
+const SIGNAL_FLOW_WINDOW_MS    = 60 * 60 * 1000; // 1h lookback
+const SIGNAL_FLOW_GRACE_MS     = 30 * 60 * 1000; // require 30m of healthy heartbeats before flagging
+const MAX_NON_2XX_PER_HOUR     = 5;
+const MAX_POST_ERRORS_PER_HOUR = 3;
+
 async function sendTelegramAlert(message) {
   if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) {
     console.log('[CriticalAlert] Telegram not configured');
@@ -62,6 +68,26 @@ function formatOfflineAlert(offlineSec, isCritical) {
   return msg;
 }
 
+function formatSignalFlowAlert({ signalsLastHour, non2xx, postErrors, evaluations }) {
+  let msg = '🚨 <b>SIGNAL FLOW BLOCKED</b> 🚨\n';
+  msg += '━━━━━━━━━━━━━━━━━━━━━\n\n';
+  msg += '🟢 Droplet heartbeat: <b>healthy</b>\n';
+  msg += '🔴 But signals are not reaching Base44.\n\n';
+  msg += '<b>Last hour:</b>\n';
+  msg += `• Signals ingested: <b>${signalsLastHour}</b>\n`;
+  msg += `• Bot evaluations: ${evaluations}\n`;
+  if (non2xx > 0)     msg += `• Non-2xx responses: <b>${non2xx}</b>\n`;
+  if (postErrors > 0) msg += `• POST errors: <b>${postErrors}</b>\n`;
+  msg += '\n<b>Likely causes:</b>\n';
+  msg += '• Auth token expired/revoked\n';
+  msg += '• ingestSignal endpoint changed\n';
+  msg += '• Edge floor too high vs market\n\n';
+  msg += '<b>Check:</b>\n';
+  msg += '<code>tail -100 /root/arb-ws-bot/bot.log | grep -E "non-2xx|error"</code>\n\n';
+  msg += `<i>Alert time: ${new Date().toUTCString()}</i>`;
+  return msg;
+}
+
 function formatRecoveryAlert(downtimeSec) {
   const minutes = Math.floor(downtimeSec / 60);
   const hours   = Math.floor(minutes / 60);
@@ -85,8 +111,8 @@ Deno.serve(async (req) => {
 
     const now = Date.now();
 
-    // Get latest heartbeats (last 10 for history)
-    const heartbeats = await base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 10);
+    // Get latest heartbeats (last 70 ≈ 70 min @ 1/min, covers 1h flow window + grace)
+    const heartbeats = await base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 70);
     const lastHb     = heartbeats?.[0];
 
     if (!lastHb) {
@@ -138,7 +164,58 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Persist state to config
+    // ─── Signal-flow check (heartbeat alive but no signals reaching Base44) ───
+    let signalFlowAlertSent = false;
+    let signalsLastHour = 0;
+
+    if (currentStatus === 'healthy') {
+      // Need at least 30m of heartbeat history to avoid false positives on cold start
+      const oldestHb = heartbeats[heartbeats.length - 1];
+      const hbHistoryMs = oldestHb ? now - new Date(oldestHb.snapshot_time).getTime() : 0;
+
+      if (hbHistoryMs >= SIGNAL_FLOW_GRACE_MS) {
+        // Aggregate post errors / non-2xx / evaluations from heartbeats in last hour
+        let non2xxLastHour = 0;
+        let postErrorsLastHour = 0;
+        let evaluationsLastHour = 0;
+        for (const hb of heartbeats) {
+          const ts = new Date(hb.snapshot_time).getTime();
+          if (now - ts > SIGNAL_FLOW_WINDOW_MS) continue;
+          non2xxLastHour     += Number(hb.post_non_2xx || 0);
+          postErrorsLastHour += Number(hb.post_errors  || 0);
+          evaluationsLastHour += Number(hb.evaluations || 0);
+        }
+
+        // Count signals ingested in last hour
+        const recentSignals = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 50);
+        signalsLastHour = recentSignals.filter(s => {
+          const ts = new Date(s.received_time || s.created_date).getTime();
+          return now - ts < SIGNAL_FLOW_WINDOW_MS;
+        }).length;
+
+        const blocked =
+          (signalsLastHour === 0 && evaluationsLastHour > 100) ||
+          non2xxLastHour     >= MAX_NON_2XX_PER_HOUR ||
+          postErrorsLastHour >= MAX_POST_ERRORS_PER_HOUR;
+
+        const lastFlowAlertTs = config?.last_signal_flow_alert_ts || 0;
+        const flowCooldownSec = (now - lastFlowAlertTs) / 1000;
+
+        if (blocked && flowCooldownSec >= COOLDOWN_SEC) {
+          const result = await sendTelegramAlert(formatSignalFlowAlert({
+            signalsLastHour,
+            non2xx: non2xxLastHour,
+            postErrors: postErrorsLastHour,
+            evaluations: evaluationsLastHour,
+          }));
+          signalFlowAlertSent = result.sent;
+          configUpdate = { ...configUpdate, last_signal_flow_alert_ts: now };
+          console.log(`[CriticalAlert] SIGNAL FLOW BLOCKED. signals=${signalsLastHour} non2xx=${non2xxLastHour} errors=${postErrorsLastHour}`);
+        }
+      }
+    }
+
+    // Persist state to config (moved here so signal-flow update is included)
     if (config && Object.keys(configUpdate).length > 0) {
       await base44.asServiceRole.entities.ArbConfig.update(config.id, configUpdate).catch(e =>
         console.error('[CriticalAlert] Config update failed:', e.message)
@@ -153,6 +230,8 @@ Deno.serve(async (req) => {
       lastHeartbeat: lastHb.snapshot_time,
       alertSent,
       recoverySent,
+      signalFlowAlertSent,
+      signalsLastHour,
       cooldownRemaining: Math.max(0, COOLDOWN_SEC - timeSinceLast),
     });
 

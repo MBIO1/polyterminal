@@ -21,6 +21,21 @@ export default function ArbDashboard() {
     queryFn: async () => (await base44.entities.ArbConfig.list('-created_date', 1))[0],
     ...qOpts,
   });
+  const { data: bybitBalance = null, isLoading: loadingBalance } = useQuery({
+    queryKey: ['bybit-balance'],
+    queryFn: async () => {
+      try {
+        const res = await base44.functions.invoke('getBybitBalance', {});
+        return res.data;
+      } catch (e) {
+        console.error('Failed to fetch Bybit balance:', e);
+        return null;
+      }
+    },
+    refetchInterval: 10_000,
+    staleTime: 5_000,
+    retry: false,
+  });
   const { data: trades = [] } = useQuery({
     queryKey: ['arb-trades'],
     queryFn: () => base44.entities.ArbTrade.list('-trade_date', 100),
@@ -80,8 +95,14 @@ export default function ArbDashboard() {
       <SystemAuditPanel />
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-        <StatTile label="Capital" value={fmtUSD(totalCapital, 0)} sub="Starting book" />
-        <StatTile
+         <StatTile 
+           label="Live Balance" 
+           value={loadingBalance ? '⟳' : fmtUSD(bybitBalance?.totalEquity || 0, 0)} 
+           sub={bybitBalance?.testnet ? '(Testnet)' : '(Mainnet)'} 
+           tone="primary"
+         />
+         <StatTile label="Config Capital" value={fmtUSD(totalCapital, 0)} sub="Starting book" />
+         <StatTile
           label="Realized PnL"
           value={fmtUSD(realizedPnl)}
           sub={`${returnPct >= 0 ? '+' : ''}${returnPct.toFixed(3)}%`}

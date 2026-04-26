@@ -5,13 +5,19 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    
-    // Read-only endpoint: use service role to bypass user auth
+    // Allow logged-in users OR service-role (droplet/automation) calls
+    let user = null;
+    try { user = await base44.auth.me(); } catch { /* ok — service role path */ }
+    const isDroplet = req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_SECRET') ||
+                      (req.headers.get('x-forwarded-for') || '').split(',')[0].trim() === Deno.env.get('DROPLET_IP');
+    if (!user && !isDroplet) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+
     const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const windowHours = Number(body.window_hours) || 24;
     const cutoff = new Date(Date.now() - windowHours * 3600_000).toISOString();
 
     const all = await base44.asServiceRole.entities.ArbSignal.list('-received_time', 2000);
+    // Note: using asServiceRole to avoid auth issues when called from automation/droplet
     const recent = all.filter(s => (s.received_time || s.created_date) >= cutoff);
     const pairs = body.pair ? [body.pair] : Array.from(new Set(recent.map(s => s.pair)));
 

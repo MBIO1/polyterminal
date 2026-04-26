@@ -111,12 +111,12 @@
     },
     "funding_min_apr_bps": {
       "type": "number",
-      "default": 1000,
+      "default": 500,
       "description": "Minimum annualized funding rate to enter (bps)"
     },
     "funding_exit_apr_bps": {
       "type": "number",
-      "default": 500,
+      "default": 250,
       "description": "Exit when funding drops below this APR (bps)"
     },
     "funding_exit_on_flip": {
