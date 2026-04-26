@@ -1,0 +1,23 @@
+{
+  "version": 2,
+  "name": "polytrade-dashboard",
+  "builds": [
+    {
+      "src": "package.json",
+      "use": "@vercel/static-build",
+      "config": {
+        "distDir": "dist"
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/index.html"
+    }
+  ],
+  "env": {
+    "VITE_BASE44_APP_ID": "@vite_base44_app_id",
+    "VITE_BASE44_APP_BASE_URL": "@vite_base44_app_base_url"
+  }
+}
