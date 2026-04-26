@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { healthApi } from '@/api/vercelClient';
+import { dropletHealthApi } from '@/api/proxyClient';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,7 +55,7 @@ export default function DropletHealthCheck() {
     setLoading(true);
     setError(null);
     try {
-      const data = await healthApi.check();
+      const data = await dropletHealthApi.check();
       setHealth(data);
       setLastCheck(new Date());
     } catch (e) {
