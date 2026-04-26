@@ -18,6 +18,8 @@ const EXCHANGE_FEES = {
   kraken:     0.26,   // 0.26% taker
   coinbase:   0.60,   // 0.60% taker (advanced trade)
   polymarket: 0.00,   // 0 maker/taker on CLOB
+  okx:        0.08,   // 0.08% taker (VIP 0)
+  bybit:      0.10,   // 0.10% taker
 };
 
 // ─── Slippage estimates per exchange (%) ─────────────────────────────────────
@@ -26,6 +28,8 @@ const SLIPPAGE_EST = {
   kraken:     0.10,
   coinbase:   0.10,
   polymarket: 0.15,
+  okx:        0.05,
+  bybit:      0.05,
 };
 
 class ArbitrageEngine {
@@ -156,15 +160,59 @@ class ArbitrageEngine {
     }
   }
 
+  /** OKX — fetch spot and perp prices */
+  async getOKXPrices() {
+    const symbols = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT', 'AVAX-USDT', 'LINK-USDT'];
+    try {
+      const results = await Promise.allSettled(
+        symbols.map(s =>
+          this._fetch(`https://www.okx.com/api/v5/market/ticker?instId=${s}`)
+        )
+      );
+      const prices = {};
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled' && r.value?.data?.[0]?.last)
+          prices[symbols[i]] = parseFloat(r.value.data[0].last);
+      });
+      return prices;
+    } catch (e) {
+      console.warn('⚠️ OKX error:', e.message);
+      return {};
+    }
+  }
+
+  /** Bybit — fetch spot and perp prices */
+  async getBybitPrices() {
+    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'AVAXUSDT', 'LINKUSDT'];
+    try {
+      const results = await Promise.allSettled(
+        symbols.map(s =>
+          this._fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${s}`)
+        )
+      );
+      const prices = {};
+      results.forEach((r, i) => {
+        if (r.status === 'fulfilled' && r.value?.result?.list?.[0]?.lastPrice)
+          prices[symbols[i]] = parseFloat(r.value.result.list[0].lastPrice);
+      });
+      return prices;
+    } catch (e) {
+      console.warn('⚠️ Bybit error:', e.message);
+      return {};
+    }
+  }
+
   async fetchPrices() {
     try {
-      const [binance, kraken, coinbase, polymarket] = await Promise.all([
+      const [binance, kraken, coinbase, polymarket, okx, bybit] = await Promise.all([
         this.getBinancePrices(),
         this.getKrakenPrices(),
         this.getCoinbasePrices(),
         this.getPolymarketPrices(),
+        this.getOKXPrices(),
+        this.getBybitPrices(),
       ]);
-      return { binance, kraken, coinbase, polymarket };
+      return { binance, kraken, coinbase, polymarket, okx, bybit };
     } catch (e) {
       console.error('❌ fetchPrices failed:', e.message);
       return null;
