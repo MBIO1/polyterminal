@@ -2,7 +2,8 @@
 // Route: /api/health
 // Method: GET
 
-import { heartbeats } from '../heartbeat/index.js';
+// Shared memory with heartbeat API
+let heartbeats = [];
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -21,6 +22,12 @@ export default async function handler(req, res) {
 
   try {
     const now = Date.now();
+    
+    // Get heartbeats from global (shared with /api/heartbeat)
+    if (global.heartbeats) {
+      heartbeats = global.heartbeats;
+    }
+    
     const latestHb = heartbeats[0];
     
     let status = 'healthy';
