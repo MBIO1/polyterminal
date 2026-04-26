@@ -4,9 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>MBIO Trade Dashboard</title>
+    <script>
+      // Debug: Log any errors
+      window.onerror = function(msg, url, line) {
+        console.error('Error: ' + msg + '\nURL: ' + url + '\nLine: ' + line);
+        document.body.innerHTML = '<div style="padding: 20px; color: red;"><h2>Error Loading Dashboard</h2><pre>' + msg + '</pre></div>';
+        return false;
+      };
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
+    <noscript>
+      <div style="padding: 20px;">
+        <h2>JavaScript Required</h2>
+        <p>This dashboard requires JavaScript to run. Please enable JavaScript in your browser.</p>
+      </div>
+    </noscript>
   </body>
 </html>
