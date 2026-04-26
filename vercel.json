@@ -1,15 +1,9 @@
 {
   "version": 2,
   "name": "polytrade-dashboard",
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/static-build",
-      "config": {
-        "distDir": "dist"
-      }
-    }
-  ],
+  "buildCommand": "vite build --config vite.config.vercel.js",
+  "outputDirectory": "dist",
+  "framework": "vite",
   "routes": [
     {
       "src": "/(.*)",
