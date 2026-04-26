@@ -35,7 +35,7 @@ const SLIPPAGE_EST = {
 class ArbitrageEngine {
   constructor(config = {}) {
     this.config = {
-      minNetSpreadPct:    config.minNetSpreadPct    || 1.0,   // Net of fees + slippage
+      minNetSpreadPct:    config.minNetSpreadPct    || 0.2,   // 0.2% = 20 bps (was 1.0%)
       noiseThreshold:     config.noiseThreshold     || 0.02,  // CV threshold (relative)
       learnMode:          config.learnMode          !== false,
       pollInterval:       config.pollInterval       || 3000,
@@ -46,6 +46,7 @@ class ArbitrageEngine {
       circuitBreakerMs:   config.circuitBreakerMs   || 60000, // Pause duration
       fetchTimeoutMs:     config.fetchTimeoutMs     || 5000,
       fetchRetries:       config.fetchRetries       || 2,
+      minConfidence:      config.minConfidence      || 60,    // Minimum confidence to signal
       ...config,
     };
 
@@ -319,12 +320,13 @@ class ArbitrageEngine {
       const sellEntry = pricePoints.find(p => p.price === maxP);
 
       const net = this.netSpread(grossSprd, buyEntry.exchange, sellEntry.exchange);
+      const confidence = this.calcConfidence(net, symbol, pricePoints.length);
 
       if (
         !this.isNoiseSignal(symbol, minP) &&
-        net >= this.getSymbolThreshold(symbol)
+        net >= this.getSymbolThreshold(symbol) &&
+        confidence >= this.config.minConfidence
       ) {
-        const confidence = this.calcConfidence(net, symbol, pricePoints.length);
         spreads.push({
           symbol,
           grossSpread:   grossSprd.toFixed(2),
