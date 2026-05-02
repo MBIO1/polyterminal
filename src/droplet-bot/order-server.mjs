@@ -13,7 +13,7 @@
 //   BYBIT_TESTNET=false                 # false = mainnet
 //   ORDER_SERVER_PORT=4001
 //   BASE44_RESULT_URL=https://YOUR_APP.base44.app/functions/ingestTradeResult
-//   BASE44_USER_TOKEN=...
+//   BASE44_API_TOKEN=...
 
 import 'dotenv/config';
 import { createHmac } from 'crypto';
