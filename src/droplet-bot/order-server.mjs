@@ -13,7 +13,7 @@
 //   BYBIT_TESTNET=false                 # false = mainnet
 //   ORDER_SERVER_PORT=4001
 //   BASE44_RESULT_URL=https://YOUR_APP.base44.app/functions/ingestTradeResult
-//   BASE44_API_TOKEN=...
+//   BASE44_USER_TOKEN=...
 
 import 'dotenv/config';
 import { createHmac } from 'crypto';
@@ -25,7 +25,7 @@ const API_SECRET   = process.env.BYBIT_API_SECRET;
 const IS_TESTNET   = (process.env.BYBIT_TESTNET || 'false').toLowerCase() !== 'false';
 const BYBIT_BASE   = IS_TESTNET ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
 const RESULT_URL   = process.env.BASE44_RESULT_URL;
-const TOKEN        = process.env.BASE44_USER_TOKEN;
+const TOKEN        = process.env.BASE44_API_TOKEN;
 const PORT         = Number(process.env.ORDER_SERVER_PORT || 4001);
 
 if (!SECRET || !API_KEY || !API_SECRET) {
