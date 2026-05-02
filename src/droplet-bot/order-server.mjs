@@ -25,7 +25,7 @@ const API_SECRET   = process.env.BYBIT_API_SECRET;
 const IS_TESTNET   = (process.env.BYBIT_TESTNET || 'false').toLowerCase() !== 'false';
 const BYBIT_BASE   = IS_TESTNET ? 'https://api-testnet.bybit.com' : 'https://api.bybit.com';
 const RESULT_URL   = process.env.BASE44_RESULT_URL;
-const TOKEN        = process.env.BASE44_API_TOKEN;
+const TOKEN        = process.env.BASE44_USER_TOKEN;
 const PORT         = Number(process.env.ORDER_SERVER_PORT || 4001);
 
 if (!SECRET || !API_KEY || !API_SECRET) {
