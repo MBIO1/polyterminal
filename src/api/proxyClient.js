@@ -1,10 +1,8 @@
 // API client that uses Vercel proxy to Base44
 // No CORS issues, all requests go through /api/base44/*
 
-const API_BASE = '';
-
 async function apiRequest(functionName, method = 'GET', body = null, token = null) {
-  const url = `${API_BASE}/api/base44/${functionName}`;
+  const url = `/api/base44/${functionName}`;
   
   const options = {
     method,
