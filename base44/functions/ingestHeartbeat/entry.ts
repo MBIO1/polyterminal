@@ -71,7 +71,24 @@ Deno.serve(async (req) => {
 
     console.log(`[ingestHeartbeat] accepted from ${isDroplet ? 'droplet' : 'user'} (${clientIP})`);
 
-    return Response.json({ ok: true, heartbeat_id: heartbeat.id });
+    // Email alert: zero evaluations or high rejected_fillable
+    const zeroEvals = heartbeat.evaluations === 0;
+    const highRejectedFillable = heartbeat.rejected_fillable > 0 && heartbeat.passed_edge_gate > 0
+      && (heartbeat.rejected_fillable / heartbeat.passed_edge_gate) > 0.5;
+
+    if (zeroEvals || highRejectedFillable) {
+      const reason = zeroEvals
+        ? 'Zero evaluations detected — bot may be idle or disconnected.'
+        : `High rejected_fillable: ${heartbeat.rejected_fillable} of ${heartbeat.passed_edge_gate} edge-passing signals rejected for insufficient liquidity.`;
+
+      await base44.asServiceRole.integrations.Core.SendEmail({
+        to: Deno.env.get('BASE44_EMAIL') || '',
+        subject: zeroEvals ? '🚨 MBIO Bot: Zero Evaluations Detected' : '⚠️ MBIO Bot: High Fillable Rejection Rate',
+        body: `Alert triggered at ${now}\n\n${reason}\n\nHeartbeat snapshot time: ${heartbeat.snapshot_time}\nEvaluations: ${heartbeat.evaluations}\nRejected fillable: ${heartbeat.rejected_fillable}\nPassed edge gate: ${heartbeat.passed_edge_gate}`,
+      }).catch(e => console.error('[ingestHeartbeat] email alert failed:', e.message));
+    }
+
+    return Response.json({ ok: true, heartbeat_id: heartbeat.id, alerted: zeroEvals || highRejectedFillable });
 
   } catch (error) {
     console.error('[ingestHeartbeat] error:', error.message);

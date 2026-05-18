@@ -1,10 +1,8 @@
 // API client for Vercel deployment
 // Uses Vercel serverless functions instead of Base44
 
-const API_BASE = '';
-
 async function apiRequest(endpoint, options = {}) {
-  const url = `${API_BASE}/api${endpoint}`;
+  const url = `/api${endpoint}`;
   
   const res = await fetch(url, {
     ...options,

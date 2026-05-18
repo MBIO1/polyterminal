@@ -6,6 +6,7 @@ import {
   Activity, 
   DollarSign,
   BarChart3,
+  TableIcon,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +23,7 @@ export default function Dashboard() {
   const [loading, setLoading] = useState(true);
   const [recentTrades, setRecentTrades] = useState([]);
   const [recentSignals, setRecentSignals] = useState([]);
+  const [strategyPnl, setStrategyPnl] = useState([]);
 
   useEffect(() => {
     loadDashboardData();
@@ -48,6 +50,17 @@ export default function Dashboard() {
       const winRate = closedTrades.length > 0
         ? (winningTrades.length / closedTrades.length) * 100
         : 0;
+
+      // Group P&L by strategy
+      const strategyMap = {};
+      for (const t of trades) {
+        const key = t.strategy || 'Unknown';
+        if (!strategyMap[key]) strategyMap[key] = { strategy: key, pnl: 0, trades: 0, wins: 0 };
+        strategyMap[key].pnl += t.net_pnl || 0;
+        strategyMap[key].trades += 1;
+        if ((t.net_pnl || 0) > 0) strategyMap[key].wins += 1;
+      }
+      setStrategyPnl(Object.values(strategyMap).sort((a, b) => b.pnl - a.pnl));
 
       setStats({
         totalPnl,
@@ -122,6 +135,46 @@ export default function Dashboard() {
           </CardContent>
         </Card>
       </div>
+
+      {/* P&L by Strategy */}
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2">
+          <TableIcon className="h-4 w-4 text-muted-foreground" />
+          <CardTitle>P&L by Strategy</CardTitle>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <p className="text-muted-foreground">Loading...</p>
+          ) : strategyPnl.length === 0 ? (
+            <p className="text-muted-foreground">No trade data yet</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border text-muted-foreground text-left">
+                  <th className="pb-2 font-medium">Strategy</th>
+                  <th className="pb-2 font-medium text-right">Trades</th>
+                  <th className="pb-2 font-medium text-right">Win Rate</th>
+                  <th className="pb-2 font-medium text-right">Net P&L</th>
+                </tr>
+              </thead>
+              <tbody>
+                {strategyPnl.map((row) => (
+                  <tr key={row.strategy} className="border-b border-border/50 hover:bg-secondary/30">
+                    <td className="py-2 font-medium">{row.strategy}</td>
+                    <td className="py-2 text-right text-muted-foreground">{row.trades}</td>
+                    <td className="py-2 text-right text-muted-foreground">
+                      {row.trades > 0 ? ((row.wins / row.trades) * 100).toFixed(0) : 0}%
+                    </td>
+                    <td className={`py-2 text-right font-mono font-semibold ${row.pnl >= 0 ? 'text-green-500' : 'text-red-500'}`}>
+                      {row.pnl >= 0 ? '+' : ''}${row.pnl.toFixed(2)}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </CardContent>
+      </Card>
 
       {/* Recent Activity */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
