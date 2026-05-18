@@ -140,10 +140,15 @@ Deno.serve(async (req) => {
     let recoverySent = false;
     let configUpdate = {};
 
+    // Load alert toggles
+    const alertSettings = (await base44.asServiceRole.entities.AlertThreshold.list('-created_date', 1))[0] || {};
+    const tgDroplet = alertSettings.tg_droplet_offline !== false;
+    const tgSignalFlow = alertSettings.tg_signal_flow_blocked !== false;
+
     // Recovery detection
     if ((lastAlertStatus === 'offline' || lastAlertStatus === 'critical') && currentStatus === 'healthy') {
       const downtime = offlineStartTs ? Math.floor((now - offlineStartTs) / 1000) : offlineSec;
-      const result   = await sendTelegramAlert(formatRecoveryAlert(downtime));
+      const result   = tgDroplet ? await sendTelegramAlert(formatRecoveryAlert(downtime)) : { sent: false };
       recoverySent   = result.sent;
       configUpdate   = { last_alert_ts: now, last_alert_status: 'healthy', offline_start_ts: null };
       console.log(`[CriticalAlert] Recovery alert sent. Downtime: ${downtime}s`);
@@ -153,7 +158,7 @@ Deno.serve(async (req) => {
     if ((currentStatus === 'offline' || currentStatus === 'critical') && timeSinceLast >= COOLDOWN_SEC) {
       const startTs   = offlineStartTs || (now - offlineSec * 1000);
       const isCrit    = currentStatus === 'critical';
-      const result    = await sendTelegramAlert(formatOfflineAlert(offlineSec, isCrit));
+      const result    = tgDroplet ? await sendTelegramAlert(formatOfflineAlert(offlineSec, isCrit)) : { sent: false };
       alertSent       = result.sent;
       configUpdate    = { last_alert_ts: now, last_alert_status: currentStatus, offline_start_ts: startTs };
       console.log(`[CriticalAlert] ${currentStatus.toUpperCase()} alert sent. Offline: ${offlineSec}s`);
@@ -201,7 +206,7 @@ Deno.serve(async (req) => {
         const lastFlowAlertTs = config?.last_signal_flow_alert_ts || 0;
         const flowCooldownSec = (now - lastFlowAlertTs) / 1000;
 
-        if (blocked && flowCooldownSec >= COOLDOWN_SEC) {
+        if (blocked && flowCooldownSec >= COOLDOWN_SEC && tgSignalFlow) {
           const result = await sendTelegramAlert(formatSignalFlowAlert({
             signalsLastHour,
             non2xx: non2xxLastHour,

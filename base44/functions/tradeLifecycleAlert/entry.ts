@@ -78,7 +78,16 @@ Deno.serve(async (req) => {
       ],
     });
 
-    // Telegram alert
+    // Telegram alert — check toggle
+    const alertCfg = (await base44.asServiceRole.entities.AlertThreshold.list('-created_date', 1))[0] || {};
+    const tgEnabled = newStatus === 'Error' || newStatus === 'Cancelled'
+      ? alertCfg.tg_trade_exceptions !== false
+      : alertCfg.tg_trade_lifecycle !== false;
+
+    if (!tgEnabled) {
+      return Response.json({ ok: true, transition: transitionLabel, trade_id: trade.trade_id, tg_skipped: true });
+    }
+
     const tgLines = [
       `${meta.emoji} <b>${meta.label}</b>`,
       '━━━━━━━━━━━━━━━━━━━━',

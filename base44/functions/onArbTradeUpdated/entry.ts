@@ -65,9 +65,14 @@ Hold: ${(trade.hold_hours || 0).toFixed(1)}h
 Time: ${new Date().toISOString()}
 `.trim();
 
-    await sendTelegramMessage(msg);
+    // Check toggle
+    const base44 = createClientFromRequest(req);
+    const alertCfg = (await base44.asServiceRole.entities.AlertThreshold.list('-created_date', 1))[0] || {};
+    if (alertCfg.tg_trade_open_close !== false) {
+      await sendTelegramMessage(msg);
+    }
 
-    return Response.json({ ok: true, notified: true });
+    return Response.json({ ok: true, notified: alertCfg.tg_trade_open_close !== false });
   } catch (error) {
     console.error('onArbTradeUpdated error:', error);
     return Response.json({ ok: false, error: error.message }, { status: 500 });

@@ -59,9 +59,14 @@ Spot Ex: ${trade.spot_exchange || 'â€”'} | Perp Ex: ${trade.perp_exchange || 'â€
 Time: ${new Date().toISOString()}
 `.trim();
 
-    await sendTelegramMessage(msg);
+    // Check toggle
+    const base44 = createClientFromRequest(req);
+    const alertCfg = (await base44.asServiceRole.entities.AlertThreshold.list('-created_date', 1))[0] || {};
+    if (alertCfg.tg_trade_open_close !== false) {
+      await sendTelegramMessage(msg);
+    }
 
-    return Response.json({ ok: true, notified: true });
+    return Response.json({ ok: true, notified: alertCfg.tg_trade_open_close !== false });
   } catch (error) {
     console.error('onArbTradeCreated error:', error);
     return Response.json({ ok: false, error: error.message }, { status: 500 });

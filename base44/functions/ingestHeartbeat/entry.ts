@@ -102,18 +102,21 @@ Deno.serve(async (req) => {
         body: `Alert triggered at ${now}\n\n${reason}\n\nHeartbeat snapshot time: ${heartbeat.snapshot_time}\nEvaluations: ${heartbeat.evaluations}\nRejected fillable: ${heartbeat.rejected_fillable}\nPassed edge gate: ${heartbeat.passed_edge_gate}`,
       }).catch(e => console.error('[ingestHeartbeat] email alert failed:', e.message));
 
-      // Telegram alert
-      const tgText = [
-        zeroEvals ? '🚨 <b>ZERO EVALUATIONS DETECTED</b>' : '⚠️ <b>HIGH FILLABLE REJECTION RATE</b>',
-        '━━━━━━━━━━━━━━━━━━━━',
-        reason,
-        `<b>Snapshot:</b> ${heartbeat.snapshot_time}`,
-        `<b>Evaluations:</b> ${heartbeat.evaluations}`,
-        `<b>Rejected fillable:</b> ${heartbeat.rejected_fillable}`,
-        `<b>Passed edge gate:</b> ${heartbeat.passed_edge_gate}`,
-        `<i>${now}</i>`,
-      ].join('\n');
-      await sendTelegram(tgText);
+      // Telegram alert — check toggle
+      const alertCfg = (await base44.asServiceRole.entities.AlertThreshold.list('-created_date', 1))[0] || {};
+      if (alertCfg.tg_heartbeat_alerts !== false) {
+        const tgText = [
+          zeroEvals ? '🚨 <b>ZERO EVALUATIONS DETECTED</b>' : '⚠️ <b>HIGH FILLABLE REJECTION RATE</b>',
+          '━━━━━━━━━━━━━━━━━━━━',
+          reason,
+          `<b>Snapshot:</b> ${heartbeat.snapshot_time}`,
+          `<b>Evaluations:</b> ${heartbeat.evaluations}`,
+          `<b>Rejected fillable:</b> ${heartbeat.rejected_fillable}`,
+          `<b>Passed edge gate:</b> ${heartbeat.passed_edge_gate}`,
+          `<i>${now}</i>`,
+        ].join('\n');
+        await sendTelegram(tgText);
+      }
     }
 
     return Response.json({ ok: true, heartbeat_id: heartbeat.id, alerted: zeroEvals || highRejectedFillable });
