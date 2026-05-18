@@ -13,6 +13,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { base44 } from '@/api/base44Client';
 import StrategyPerformanceTable from '@/components/dashboard/StrategyPerformanceTable';
+import DailyPnlChart from '@/components/dashboard/DailyPnlChart';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
