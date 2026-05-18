@@ -8,6 +8,7 @@ import Dashboard from '@/pages/Dashboard';
 import Trades from '@/pages/Trades';
 import Signals from '@/pages/Signals';
 import DropletHealthCheck from '@/pages/DropletHealthCheck';
+import AlertSettings from '@/pages/AlertSettings';
 
 // Simple layout component
 const Layout = ({ children }) => (
@@ -25,6 +26,7 @@ const Layout = ({ children }) => (
             <Link to="/trades" className="text-sm font-medium hover:text-primary">Trades</Link>
             <Link to="/signals" className="text-sm font-medium hover:text-primary">Signals</Link>
             <Link to="/droplet-health" className="text-sm font-medium hover:text-primary">Health</Link>
+            <Link to="/alert-settings" className="text-sm font-medium hover:text-primary">Alerts</Link>
           </div>
         </div>
       </div>
@@ -45,6 +47,7 @@ function App() {
           <Route path="/trades" element={<Trades />} />
           <Route path="/signals" element={<Signals />} />
           <Route path="/droplet-health" element={<DropletHealthCheck />} />
+          <Route path="/alert-settings" element={<AlertSettings />} />
           <Route path="*" element={<div className="p-6"><h1>404 - Page Not Found</h1></div>} />
         </Routes>
       </Layout>

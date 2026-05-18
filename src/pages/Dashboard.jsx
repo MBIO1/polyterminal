@@ -165,6 +165,9 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Daily P&L Chart */}
+      <DailyPnlChart trades={strategyPnl} />
+
       {/* Strategy Performance Table */}
       <StrategyPerformanceTable trades={strategyPnl} />
 
