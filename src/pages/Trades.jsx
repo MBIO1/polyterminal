@@ -11,7 +11,7 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { History } from 'lucide-react';
+import { History, Download } from 'lucide-react';
 
 export default function Trades() {
   const [trades, setTrades] = useState([]);
@@ -32,6 +32,29 @@ export default function Trades() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const downloadCSV = () => {
+    const headers = ['Trade ID','Asset','Strategy','Status','Entry Spread (bps)','Exit Spread (bps)','Net P&L','Mode','Entry Date'];
+    const rows = trades.map(t => [
+      t.trade_id || t.id,
+      t.asset || '',
+      t.strategy || '',
+      t.status || '',
+      t.entry_spread_bps?.toFixed(2) ?? '',
+      t.exit_spread_bps?.toFixed(2) ?? '',
+      (t.net_pnl || 0).toFixed(2),
+      t.mode || '',
+      t.created_date ? new Date(t.created_date).toLocaleDateString() : '',
+    ]);
+    const csv = [headers, ...rows].map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trade-history-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const filteredTrades = trades.filter(trade => {
@@ -56,7 +79,12 @@ export default function Trades() {
           </h1>
           <p className="text-muted-foreground mt-1">View all your arbitrage trades</p>
         </div>
-        <Button onClick={loadTrades} variant="outline">Refresh</Button>
+        <div className="flex gap-2">
+          <Button onClick={downloadCSV} variant="outline" disabled={trades.length === 0}>
+            <Download className="w-4 h-4 mr-2" />Export CSV
+          </Button>
+          <Button onClick={loadTrades} variant="outline">Refresh</Button>
+        </div>
       </div>
 
       {/* Stats */}

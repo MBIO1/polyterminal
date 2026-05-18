@@ -7,6 +7,7 @@ import {
   DollarSign,
   BarChart3,
   TableIcon,
+  Cpu,
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -24,6 +25,7 @@ export default function Dashboard() {
   const [recentTrades, setRecentTrades] = useState([]);
   const [recentSignals, setRecentSignals] = useState([]);
   const [strategyPnl, setStrategyPnl] = useState([]);
+  const [botStatus, setBotStatus] = useState('unknown'); // 'ok' | 'alert' | 'unknown'
 
   useEffect(() => {
     loadDashboardData();
@@ -50,6 +52,23 @@ export default function Dashboard() {
       const winRate = closedTrades.length > 0
         ? (winningTrades.length / closedTrades.length) * 100
         : 0;
+
+      // Load latest heartbeat for bot status
+      try {
+        const hb = await base44.entities.ArbHeartbeat.list('-snapshot_time', 1);
+        if (hb.length === 0) {
+          setBotStatus('unknown');
+        } else {
+          const latest = hb[0];
+          const ageMs = Date.now() - new Date(latest.snapshot_time).getTime();
+          const stale = ageMs > 3 * 60 * 1000; // >3 min = stale
+          const zeroEvals = (latest.evaluations || 0) === 0;
+          const highReject = latest.evaluations > 0 && (latest.rejected_fillable || 0) / latest.evaluations > 0.5;
+          setBotStatus(stale || zeroEvals || highReject ? 'alert' : 'ok');
+        }
+      } catch (_) {
+        setBotStatus('unknown');
+      }
 
       // Group P&L by strategy
       const strategyMap = {};
@@ -82,9 +101,27 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground mt-1">Overview of your arbitrage trading performance</p>
         </div>
-        <Button onClick={loadDashboardData} variant="outline">
-          <Activity className="w-4 h-4 mr-2" />Refresh
-        </Button>
+        <div className="flex items-center gap-3">
+          {/* Bot Health Indicator */}
+          <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium ${
+            botStatus === 'ok'
+              ? 'bg-green-500/10 border-green-500/30 text-green-400'
+              : botStatus === 'alert'
+              ? 'bg-red-500/10 border-red-500/30 text-red-400'
+              : 'bg-muted border-border text-muted-foreground'
+          }`}>
+            <Cpu className="w-4 h-4" />
+            <span className={`w-2 h-2 rounded-full ${
+              botStatus === 'ok' ? 'bg-green-400 animate-pulse' :
+              botStatus === 'alert' ? 'bg-red-500 animate-pulse' :
+              'bg-gray-500'
+            }`} />
+            {botStatus === 'ok' ? 'Bot Online' : botStatus === 'alert' ? 'Bot Issue' : 'No Heartbeat'}
+          </div>
+          <Button onClick={loadDashboardData} variant="outline">
+            <Activity className="w-4 h-4 mr-2" />Refresh
+          </Button>
+        </div>
       </div>
 
       {/* Stats Cards */}
