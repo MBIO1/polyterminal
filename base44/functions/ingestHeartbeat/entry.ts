@@ -3,6 +3,19 @@
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
+const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
+const TELEGRAM_CHAT_ID   = Deno.env.get('TELEGRAM_CHAT_ID');
+
+async function sendTelegram(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'HTML' }),
+    signal: AbortSignal.timeout(8000),
+  }).catch(e => console.error('[ingestHeartbeat] Telegram error:', e.message));
+}
+
 function getClientIP(req) {
   return req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ||
          req.headers.get('cf-connecting-ip') ||
@@ -77,15 +90,30 @@ Deno.serve(async (req) => {
       && (heartbeat.rejected_fillable / heartbeat.passed_edge_gate) > 0.5;
 
     if (zeroEvals || highRejectedFillable) {
+      const subject = zeroEvals ? '🚨 MBIO Bot: Zero Evaluations Detected' : '⚠️ MBIO Bot: High Fillable Rejection Rate';
       const reason = zeroEvals
         ? 'Zero evaluations detected — bot may be idle or disconnected.'
         : `High rejected_fillable: ${heartbeat.rejected_fillable} of ${heartbeat.passed_edge_gate} edge-passing signals rejected for insufficient liquidity.`;
 
+      // Email alert
       await base44.asServiceRole.integrations.Core.SendEmail({
         to: Deno.env.get('BASE44_EMAIL') || '',
-        subject: zeroEvals ? '🚨 MBIO Bot: Zero Evaluations Detected' : '⚠️ MBIO Bot: High Fillable Rejection Rate',
+        subject,
         body: `Alert triggered at ${now}\n\n${reason}\n\nHeartbeat snapshot time: ${heartbeat.snapshot_time}\nEvaluations: ${heartbeat.evaluations}\nRejected fillable: ${heartbeat.rejected_fillable}\nPassed edge gate: ${heartbeat.passed_edge_gate}`,
       }).catch(e => console.error('[ingestHeartbeat] email alert failed:', e.message));
+
+      // Telegram alert
+      const tgText = [
+        zeroEvals ? '🚨 <b>ZERO EVALUATIONS DETECTED</b>' : '⚠️ <b>HIGH FILLABLE REJECTION RATE</b>',
+        '━━━━━━━━━━━━━━━━━━━━',
+        reason,
+        `<b>Snapshot:</b> ${heartbeat.snapshot_time}`,
+        `<b>Evaluations:</b> ${heartbeat.evaluations}`,
+        `<b>Rejected fillable:</b> ${heartbeat.rejected_fillable}`,
+        `<b>Passed edge gate:</b> ${heartbeat.passed_edge_gate}`,
+        `<i>${now}</i>`,
+      ].join('\n');
+      await sendTelegram(tgText);
     }
 
     return Response.json({ ok: true, heartbeat_id: heartbeat.id, alerted: zeroEvals || highRejectedFillable });

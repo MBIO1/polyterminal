@@ -1,7 +1,20 @@
 // Entity automation handler for ArbTrade lifecycle transitions.
-// Fires a Slack alert when a trade transitions: Planned → Open → Closed
-// (plus Cancelled / Error). Uses existing slackAlert dispatcher.
+// Fires Slack + Telegram alerts when a trade transitions: Planned → Open → Closed
+// (plus Cancelled / Error).
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
+
+const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
+const TELEGRAM_CHAT_ID   = Deno.env.get('TELEGRAM_CHAT_ID');
+
+async function sendTelegram(text) {
+  if (!TELEGRAM_BOT_TOKEN || !TELEGRAM_CHAT_ID) return;
+  await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chat_id: TELEGRAM_CHAT_ID, text, parse_mode: 'HTML' }),
+    signal: AbortSignal.timeout(8000),
+  }).catch(e => console.error('[tradeLifecycleAlert] Telegram error:', e.message));
+}
 
 const STAGE_META = {
   Planned:   { emoji: '📝', label: 'Trade Planned',   severity: 'Low' },
@@ -42,8 +55,9 @@ Deno.serve(async (req) => {
       ? `Net PnL: ${trade.net_pnl != null ? '$' + Number(trade.net_pnl).toFixed(2) : '—'} (${trade.net_pnl_bps ?? '—'} bps)`
       : '';
 
+    // Slack alert
     await base44.functions.invoke('slackAlert', {
-      alert_type: 'exception', // reuse formatter
+      alert_type: 'exception',
       severity: meta.severity,
       title: `${meta.emoji} ${meta.label} · ${trade.trade_id || ''}`,
       description: [
@@ -63,6 +77,20 @@ Deno.serve(async (req) => {
         { title: 'Mode', value: trade.mode },
       ],
     });
+
+    // Telegram alert
+    const tgLines = [
+      `${meta.emoji} <b>${meta.label}</b>`,
+      '━━━━━━━━━━━━━━━━━━━━',
+      `<b>Trade:</b> ${trade.trade_id || '—'} · ${trade.asset || '—'}`,
+      `<b>Strategy:</b> ${trade.strategy || '—'}`,
+      `<b>Transition:</b> ${transitionLabel}`,
+      pnlLine ? `<b>P&amp;L:</b> ${pnlLine}` : '',
+      trade.exit_reason ? `<b>Exit reason:</b> ${trade.exit_reason}` : '',
+      `<b>Mode:</b> ${trade.mode || '—'}`,
+      `<i>${new Date().toISOString()}</i>`,
+    ].filter(Boolean).join('\n');
+    await sendTelegram(tgLines);
 
     return Response.json({ ok: true, transition: transitionLabel, trade_id: trade.trade_id });
   } catch (error) {
