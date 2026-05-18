@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { base44 } from '@/api/base44Client';
 import StrategyPerformanceTable from '@/components/dashboard/StrategyPerformanceTable';
 import DailyPnlChart from '@/components/dashboard/DailyPnlChart';
+import DrawdownGauge from '@/components/dashboard/DrawdownGauge';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -26,7 +27,8 @@ export default function Dashboard() {
   const [recentTrades, setRecentTrades] = useState([]);
   const [recentSignals, setRecentSignals] = useState([]);
   const [strategyPnl, setStrategyPnl] = useState([]);
-  const [botStatus, setBotStatus] = useState('unknown'); // 'ok' | 'alert' | 'unknown'
+  const [botStatus, setBotStatus] = useState('unknown');
+  const [arbConfig, setArbConfig] = useState(null); // 'ok' | 'alert' | 'unknown'
 
   useEffect(() => {
     loadDashboardData();
@@ -73,6 +75,13 @@ export default function Dashboard() {
 
       setStrategyPnl(trades); // pass raw trades to component
 
+      // Load ArbConfig for drawdown gauge
+      try {
+        const configs = await base44.entities.ArbConfig.list('-created_date', 1);
+        if (configs.length > 0) setArbConfig(configs[0]);
+      } catch (_) {}
+
+
       setStats({
         totalPnl,
         activeTrades,
@@ -116,8 +125,12 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stats Cards */}
+      {/* Drawdown Gauge */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <DrawdownGauge trades={strategyPnl} config={arbConfig} />
+
+        {/* Stats Cards */}
+        <div className="md:col-span-3 grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Total P&L</CardTitle>
@@ -163,6 +176,7 @@ export default function Dashboard() {
             <p className="text-xs text-muted-foreground">Closed trades</p>
           </CardContent>
         </Card>
+        </div>
       </div>
 
       {/* Daily P&L Chart */}

@@ -5,6 +5,8 @@ import Section from '@/components/arb/Section';
 import EmptyState from '@/components/arb/EmptyState';
 import DailyPnlBarChart from '@/components/arb/DailyPnlBarChart';
 import { fmtUSD, computeNetPnl } from '@/lib/arbMath';
+import { Button } from '@/components/ui/button';
+import { Download } from 'lucide-react';
 
 export default function ArbDailySummary() {
   const { data: trades = [], isLoading } = useQuery({
@@ -41,11 +43,36 @@ export default function ArbDailySummary() {
 
   const rows = Object.values(byDate).sort((a, b) => (a.date < b.date ? 1 : -1));
 
+  const downloadCSV = () => {
+    const headers = ['Date','Trades','Wins','Losses','Hit Rate','Net PnL','Fees','Funding','Slippage','Transfers Impact'];
+    const csvRows = rows.map(r => {
+      const closed = r.wins + r.losses;
+      const hit = closed > 0 ? ((r.wins / closed) * 100).toFixed(1) + '%' : '—';
+      return [r.date, r.trades, r.wins, r.losses, hit,
+        r.pnl.toFixed(2), r.fees.toFixed(2), r.funding.toFixed(2),
+        r.slippage.toFixed(2), (r.transfers_net || 0).toFixed(2)].join(',');
+    });
+    const csv = [headers.join(','), ...csvRows].join('\n');
+    const blob = new Blob([csv], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `trade-history-${new Date().toISOString().slice(0,10)}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-4 md:p-6 lg:p-8 max-w-[1400px] mx-auto space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold text-foreground">Daily Summary</h1>
-        <p className="text-sm text-muted-foreground mt-1 font-mono">Aggregated PnL, fees, funding, and rebalance impact by day</p>
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">Daily Summary</h1>
+          <p className="text-sm text-muted-foreground mt-1 font-mono">Aggregated PnL, fees, funding, and rebalance impact by day</p>
+        </div>
+        <Button variant="outline" onClick={downloadCSV} disabled={rows.length === 0}>
+          <Download className="w-4 h-4 mr-2" />
+          Download CSV
+        </Button>
       </div>
 
       <Section title="Daily PnL" subtitle={`Last ${Math.min(30, rows.length)} days of net performance`}>
