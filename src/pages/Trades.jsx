@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { tradesApi } from '@/api/proxyClient';
+import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { History, TrendingUp, TrendingDown } from 'lucide-react';
+import { History } from 'lucide-react';
 
 export default function Trades() {
   const [trades, setTrades] = useState([]);
@@ -25,8 +25,8 @@ export default function Trades() {
   const loadTrades = async () => {
     try {
       setLoading(true);
-      const res = await tradesApi.getAll();
-      setTrades(res.trades || []);
+      const data = await base44.entities.ArbTrade.list('-created_date', 100);
+      setTrades(data);
     } catch (error) {
       console.error('Load trades error:', error);
     } finally {
@@ -117,11 +117,11 @@ export default function Trades() {
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Pair</TableHead>
+                  <TableHead>Asset</TableHead>
+                  <TableHead>Strategy</TableHead>
                   <TableHead>Status</TableHead>
-                  <TableHead>Size</TableHead>
-                  <TableHead>Entry Price</TableHead>
-                  <TableHead>Exit Price</TableHead>
+                  <TableHead>Entry Spread (bps)</TableHead>
+                  <TableHead>Exit Spread (bps)</TableHead>
                   <TableHead>P&L</TableHead>
                   <TableHead>Date</TableHead>
                 </TableRow>
@@ -129,17 +129,17 @@ export default function Trades() {
               <TableBody>
                 {filteredTrades.map((trade) => (
                   <TableRow key={trade.id}>
-                    <TableCell className="font-medium">{trade.pair}</TableCell>
+                    <TableCell className="font-medium">{trade.asset}</TableCell>
+                    <TableCell className="text-sm text-muted-foreground">{trade.strategy}</TableCell>
                     <TableCell>
                       <Badge variant={trade.status === 'Open' ? 'default' : 'secondary'}>
                         {trade.status}
                       </Badge>
                     </TableCell>
-                    <TableCell>${trade.notional_usd?.toFixed(2) || '0.00'}</TableCell>
-                    <TableCell>{trade.entry_price?.toFixed(2) || '-'}</TableCell>
-                    <TableCell>{trade.exit_price?.toFixed(2) || '-'}</TableCell>
+                    <TableCell className="font-mono">{trade.entry_spread_bps?.toFixed(2) || '-'}</TableCell>
+                    <TableCell className="font-mono">{trade.exit_spread_bps?.toFixed(2) || '-'}</TableCell>
                     <TableCell className={`font-mono ${(trade.net_pnl || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
-                      {(trade.net_pnl || 0) >= 0 ? '+' : ''}${trade.net_pnl?.toFixed(2) || '0.00'}
+                      {(trade.net_pnl || 0) >= 0 ? '+' : ''}${(trade.net_pnl || 0).toFixed(2)}
                     </TableCell>
                     <TableCell className="text-muted-foreground">
                       {trade.created_date ? new Date(trade.created_date).toLocaleDateString() : '-'}

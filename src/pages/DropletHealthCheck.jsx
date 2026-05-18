@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { dropletHealthApi } from '@/api/proxyClient';
+import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -55,8 +55,8 @@ export default function DropletHealthCheck() {
     setLoading(true);
     setError(null);
     try {
-      const data = await dropletHealthApi.check();
-      setHealth(data);
+      const res = await base44.functions.invoke('dropletHealth', {});
+      setHealth(res.data);
       setLastCheck(new Date());
     } catch (e) {
       setError(e.message);
@@ -67,11 +67,11 @@ export default function DropletHealthCheck() {
 
   useEffect(() => {
     checkHealth();
-    const interval = setInterval(checkHealth, 30000); // Check every 30s
+    const interval = setInterval(checkHealth, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  if (!health && !error) {
+  if (!health && !error && loading) {
     return (
       <div className="p-6 flex items-center justify-center">
         <RefreshCw className="w-8 h-8 animate-spin" />
@@ -159,12 +159,6 @@ export default function DropletHealthCheck() {
           </Card>
         </div>
       )}
-
-      <Alert>
-        <AlertDescription>
-          ✅ Droplet at 165.245.223.144 is running and sending heartbeats every 60 seconds.
-        </AlertDescription>
-      </Alert>
     </div>
   );
 }

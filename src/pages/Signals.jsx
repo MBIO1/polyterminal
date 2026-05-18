@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { signalsApi } from '@/api/proxyClient';
+import { base44 } from '@/api/base44Client';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import {
   TableHeader, 
   TableRow 
 } from '@/components/ui/table';
-import { Signal, Zap, AlertCircle } from 'lucide-react';
+import { Signal, Zap } from 'lucide-react';
 
 export default function Signals() {
   const [signals, setSignals] = useState([]);
@@ -30,17 +30,15 @@ export default function Signals() {
   const loadSignals = async () => {
     try {
       setLoading(true);
-      const res = await signalsApi.getStats();
-      const signalList = res.signals || [];
+      const signalList = await base44.entities.ArbSignal.list('-received_time', 50);
       setSignals(signalList);
-      
-      // Calculate stats
+
       const executed = signalList.filter(s => s.status === 'executed').length;
       const rejected = signalList.filter(s => s.status === 'rejected').length;
-      const avgEdge = signalList.length > 0 
-        ? signalList.reduce((sum, s) => sum + (s.net_edge_bps || 0), 0) / signalList.length 
+      const avgEdge = signalList.length > 0
+        ? signalList.reduce((sum, s) => sum + (s.net_edge_bps || 0), 0) / signalList.length
         : 0;
-      
+
       setStats({
         total: signalList.length,
         executed,
@@ -118,11 +116,11 @@ export default function Signals() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {signals.slice(0, 50).map((signal) => (
+                {signals.map((signal) => (
                   <TableRow key={signal.id}>
                     <TableCell className="text-muted-foreground">
-                      {signal.received_time 
-                        ? new Date(signal.received_time).toLocaleTimeString() 
+                      {signal.received_time
+                        ? new Date(signal.received_time).toLocaleTimeString()
                         : '-'}
                     </TableCell>
                     <TableCell className="font-medium">{signal.pair}</TableCell>
@@ -130,7 +128,7 @@ export default function Signals() {
                     <TableCell>{signal.buy_exchange}</TableCell>
                     <TableCell>{signal.sell_exchange}</TableCell>
                     <TableCell>
-                      <Badge 
+                      <Badge
                         variant={
                           signal.status === 'executed' ? 'default' :
                           signal.status === 'rejected' ? 'destructive' :

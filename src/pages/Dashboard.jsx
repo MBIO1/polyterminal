@@ -6,12 +6,11 @@ import {
   Activity, 
   DollarSign,
   BarChart3,
-  AlertCircle
 } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { analyticsApi, tradesApi, signalsApi } from '@/api/proxyClient';
+import { base44 } from '@/api/base44Client';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -31,28 +30,25 @@ export default function Dashboard() {
   const loadDashboardData = async () => {
     try {
       setLoading(true);
-      
+
       // Load trades
-      const tradesRes = await tradesApi.getAll();
-      const trades = tradesRes.trades || [];
+      const trades = await base44.entities.ArbTrade.list('-created_date', 50);
       setRecentTrades(trades.slice(0, 5));
-      
-      // Calculate stats
+
       const totalPnl = trades.reduce((sum, t) => sum + (t.net_pnl || 0), 0);
       const activeTrades = trades.filter(t => t.status === 'Open').length;
-      
+
       // Load signals
-      const signalsRes = await signalsApi.getRecent(10);
-      const signals = signalsRes.signals || [];
+      const signals = await base44.entities.ArbSignal.list('-received_time', 10);
       setRecentSignals(signals);
-      
+
       // Calculate win rate
       const closedTrades = trades.filter(t => t.status === 'Closed');
       const winningTrades = closedTrades.filter(t => (t.net_pnl || 0) > 0);
-      const winRate = closedTrades.length > 0 
-        ? (winningTrades.length / closedTrades.length) * 100 
+      const winRate = closedTrades.length > 0
+        ? (winningTrades.length / closedTrades.length) * 100
         : 0;
-      
+
       setStats({
         totalPnl,
         activeTrades,
@@ -134,14 +130,16 @@ export default function Dashboard() {
             <CardTitle>Recent Trades</CardTitle>
           </CardHeader>
           <CardContent>
-            {recentTrades.length === 0 ? (
+            {loading ? (
+              <p className="text-muted-foreground">Loading...</p>
+            ) : recentTrades.length === 0 ? (
               <p className="text-muted-foreground">No trades yet</p>
             ) : (
               <div className="space-y-2">
                 {recentTrades.map((trade) => (
                   <div key={trade.id} className="flex items-center justify-between p-2 bg-secondary rounded">
                     <div>
-                      <div className="font-medium">{trade.pair}</div>
+                      <div className="font-medium">{trade.asset} — {trade.strategy}</div>
                       <div className="text-sm text-muted-foreground">{trade.status}</div>
                     </div>
                     <div className={`font-mono ${(trade.net_pnl || 0) >= 0 ? 'text-green-600' : 'text-red-600'}`}>
@@ -162,7 +160,9 @@ export default function Dashboard() {
             <CardTitle>Recent Signals</CardTitle>
           </CardHeader>
           <CardContent>
-            {recentSignals.length === 0 ? (
+            {loading ? (
+              <p className="text-muted-foreground">Loading...</p>
+            ) : recentSignals.length === 0 ? (
               <p className="text-muted-foreground">No signals yet</p>
             ) : (
               <div className="space-y-2">
@@ -170,7 +170,7 @@ export default function Dashboard() {
                   <div key={signal.id} className="flex items-center justify-between p-2 bg-secondary rounded">
                     <div>
                       <div className="font-medium">{signal.pair}</div>
-                      <div className="text-sm text-muted-foreground">{signal.net_edge_bps} bps</div>
+                      <div className="text-sm text-muted-foreground">{signal.net_edge_bps?.toFixed(2)} bps</div>
                     </div>
                     <Badge variant={signal.status === 'executed' ? 'default' : 'secondary'}>
                       {signal.status}
