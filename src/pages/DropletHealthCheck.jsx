@@ -377,6 +377,7 @@ export default function DropletHealthCheck() {
                 <div className="text-sm mt-2 space-y-1">
                   <div>Bot posted: <b>{health.heartbeat?.total_posted_last_hour}</b></div>
                   <div>Base44 accepted: <b className="text-green-400">{health.connectivity?.signals_accepted_last_hour}</b></div>
+                  <div>Duplicates filtered: <b className="text-blue-400">{health.connectivity?.duplicates_filtered_last_hour ?? 0}</b></div>
                   <div>Rejected (non-2xx): <b className="text-red-400">{health.connectivity?.non_2xx_last_hour}</b></div>
                   <div>Network errors: {health.connectivity?.post_errors_last_hour}</div>
                 </div>
