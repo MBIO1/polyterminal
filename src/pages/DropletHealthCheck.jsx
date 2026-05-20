@@ -20,7 +20,8 @@ import {
   Square,
   Wrench,
   Terminal,
-  FlaskConical
+  FlaskConical,
+  Trash2
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -228,11 +229,24 @@ export default function DropletHealthCheck() {
                 : <FlaskConical className="w-4 h-4 mr-2" />}
               Test Trade ($1)
             </Button>
+
+            <Button
+              onClick={() => runAction('cleanDroplet', 'Clean Droplet')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-red-500/40 text-red-400 hover:bg-red-500/10"
+            >
+              {actionLoading === 'cleanDroplet'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Trash2 className="w-4 h-4 mr-2" />}
+              Clean Droplet
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
             <b>Test Trade ($1)</b> — creates a paper $1 BTC trade, pings order-server, records result in ArbTrades.<br/>
             <b>Fix Bot Env</b> — script to update BASE44_USER_TOKEN + URLs + restart services.<br/>
-            <b>Install PM2</b> — script to install PM2 and run bot reliably.
+            <b>Install PM2</b> — script to install PM2 and run bot reliably.<br/>
+            <b>Clean Droplet</b> — kills all other bots, rewrites env with fresh secrets, restarts only Base44 arb-bot.
           </p>
 
           {/* Test Trade Result */}
@@ -294,7 +308,7 @@ export default function DropletHealthCheck() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className={health.connectivity?.non_2xx_last_hour > 0 ? 'border-red-500/40 bg-red-500/5' : ''}>
             <CardHeader>
               <CardTitle className="text-sm flex items-center gap-2">
                 <Wifi className="w-4 h-4" />Connectivity
@@ -303,8 +317,14 @@ export default function DropletHealthCheck() {
             <CardContent>
               <div className="text-sm space-y-1">
                 <div>POST errors: {health.connectivity?.post_errors_last_hour}</div>
-                <div>Non-2xx: {health.connectivity?.non_2xx_last_hour}</div>
+                <div className={health.connectivity?.non_2xx_last_hour > 0 ? 'text-red-400 font-semibold' : ''}>
+                  Non-2xx: {health.connectivity?.non_2xx_last_hour}
+                  {health.connectivity?.non_2xx_last_hour > 0 && ' ⚠️ signals rejected'}
+                </div>
               </div>
+              {health.connectivity?.non_2xx_last_hour > 0 && (
+                <p className="text-xs text-red-400 mt-2">Bot token may be stale — run <b>Fix Bot Env</b> or <b>Clean Droplet</b></p>
+              )}
             </CardContent>
           </Card>
 
