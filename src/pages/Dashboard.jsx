@@ -17,6 +17,7 @@ import StrategyPerformanceTable from '@/components/dashboard/StrategyPerformance
 import DailyPnlChart from '@/components/dashboard/DailyPnlChart';
 import DrawdownGauge from '@/components/dashboard/DrawdownGauge';
 import BybitBalanceWidget from '@/components/dashboard/BybitBalanceWidget';
+import BotDiagnosticCard from '@/components/dashboard/BotDiagnosticCard';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -121,6 +122,9 @@ export default function Dashboard() {
           </Button>
         </div>
       </div>
+
+      {/* Bot Diagnostics — heartbeat + token auth status */}
+      <BotDiagnosticCard />
 
       {/* Drawdown Gauge + Balance */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
