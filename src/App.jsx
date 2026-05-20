@@ -12,6 +12,7 @@ import Signals from '@/pages/Signals';
 import DropletHealthCheck from '@/pages/DropletHealthCheck';
 import AlertSettings from '@/pages/AlertSettings';
 import ArbConfig from '@/pages/ArbConfig';
+import ArbDailySummary from '@/pages/ArbDailySummary';
 
 // Simple layout component
 const Layout = ({ children }) => (
@@ -29,6 +30,7 @@ const Layout = ({ children }) => (
             <Link to="/trades" className="text-sm font-medium hover:text-primary">Trades</Link>
             <Link to="/signals" className="text-sm font-medium hover:text-primary">Signals</Link>
             <Link to="/droplet-health" className="text-sm font-medium hover:text-primary">Health</Link>
+            <Link to="/daily-summary" className="text-sm font-medium hover:text-primary">Daily Summary</Link>
             <Link to="/config" className="text-sm font-medium hover:text-primary">Config</Link>
             <Link to="/alert-settings" className="text-sm font-medium hover:text-primary">Alerts</Link>
           </div>
@@ -54,6 +56,7 @@ function App() {
           <Route path="/droplet-health" element={<DropletHealthCheck />} />
           <Route path="/alert-settings" element={<AlertSettings />} />
           <Route path="/config" element={<ArbConfig />} />
+          <Route path="/daily-summary" element={<ArbDailySummary />} />
           <Route path="*" element={<div className="p-6"><h1>404 - Page Not Found</h1></div>} />
         </Routes>
       </Layout>
