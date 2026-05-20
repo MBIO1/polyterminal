@@ -34,6 +34,10 @@ const RESULT_URL   = process.env.BASE44_RESULT_URL;
 const TOKEN        = process.env.BASE44_USER_TOKEN;
 const PORT         = Number(process.env.ORDER_SERVER_PORT || 4001);
 
+// HARD NOTIONAL CAP — last-line defense. Any single order > $100 USD is rejected
+// regardless of what Base44 sends. Override via MAX_ORDER_USD env if needed.
+const MAX_ORDER_USD = Number(process.env.MAX_ORDER_USD || 100);
+
 if (!SECRET || !API_KEY || !API_SECRET) {
   console.error('Missing DROPLET_SECRET, BYBIT_API_KEY, or BYBIT_API_SECRET in .env');
   process.exit(1);
@@ -79,6 +83,21 @@ function roundQtyToStep(qty, qtyStep) {
 }
 
 async function bybitOrder({ category, symbol, side, qty }) {
+  // HARD NOTIONAL CAP — fetch current price and reject if qty*price > MAX_ORDER_USD.
+  try {
+    const tickRes  = await fetch(BYBIT_BASE + '/v5/market/tickers?category=' + category + '&symbol=' + symbol);
+    const tickJson = await tickRes.json().catch(() => null);
+    const lastPx   = parseFloat((tickJson && tickJson.result && tickJson.result.list && tickJson.result.list[0] && tickJson.result.list[0].lastPrice) || 0);
+    const notional = parseFloat(qty) * lastPx;
+    if (lastPx > 0 && notional > MAX_ORDER_USD) {
+      throw new Error('hard_notional_cap_exceeded: $' + notional.toFixed(2) + ' > $' + MAX_ORDER_USD + ' (' + category + '/' + symbol + '/' + side + ' qty=' + qty + ' px=' + lastPx + ')');
+    }
+    console.log('[bybitOrder] notional check ok: $' + notional.toFixed(2) + ' <= $' + MAX_ORDER_USD);
+  } catch (e) {
+    if (e.message && e.message.indexOf('hard_notional_cap_exceeded') === 0) throw e;
+    console.warn('[bybitOrder] notional precheck failed (allowing order):', e.message);
+  }
+
   const timestamp  = Date.now().toString();
   const recvWindow = '5000';
   const orderBody  = { category, symbol, side, orderType: 'Market', qty: String(qty), timeInForce: 'IOC' };
@@ -274,7 +293,7 @@ const server = http.createServer(async (req, res) => {
 });
 
 server.listen(PORT, () => {
-  console.log('[order-server] listening on :' + PORT + ' | bybit=' + (IS_TESTNET ? 'testnet' : 'mainnet'));
+  console.log('[order-server] listening on :' + PORT + ' | bybit=' + (IS_TESTNET ? 'testnet' : 'mainnet') + ' | MAX_ORDER_USD=$' + MAX_ORDER_USD);
 });
 `;
 

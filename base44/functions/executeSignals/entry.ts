@@ -13,6 +13,10 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 const DEFAULT_MIN_EDGE = 2.0;
 const FEE_BPS_PER_LEG  = 2;
 
+// HARD NOTIONAL CAP — Base44-side last-line defense. Mirrored in order-server.
+// Any signal sized above this is rejected before hitting the droplet.
+const MAX_LIVE_NOTIONAL_USD = 100;
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function signalAgeMs(signal) {
@@ -280,6 +284,11 @@ Deno.serve(async (req) => {
       let execResult;
       try {
         if (isLive) {
+          // HARD CAP — reject any live order over MAX_LIVE_NOTIONAL_USD
+          const notionalUsd = qty * buyPx;
+          if (notionalUsd > MAX_LIVE_NOTIONAL_USD) {
+            throw new Error(`hard_notional_cap_exceeded: $${notionalUsd.toFixed(2)} > $${MAX_LIVE_NOTIONAL_USD}`);
+          }
           const dropletResult = await executeViaDroplet(sig, qty);
           execResult = {
             mode:  dropletResult.mode || (dropletResult.spotOk && dropletResult.perpOk ? 'live' : 'live_partial'),
