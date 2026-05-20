@@ -18,6 +18,7 @@
 import 'dotenv/config';
 import { createHmac } from 'crypto';
 import http from 'http';
+import { writeFile } from 'fs/promises';
 
 const SECRET       = process.env.DROPLET_SECRET;
 const API_KEY      = process.env.BYBIT_API_KEY;
@@ -248,10 +249,10 @@ const server = http.createServer(async (req, res) => {
           .map(([k, v]) => `${k}=${v}`)
           .join('\n');
         
-        await Deno.writeTextFile('/opt/arb-bot/.env', envContent);
+        await writeFile('/opt/arb-bot/.env', envContent, 'utf8');
 
-        // Write order-server.mjs
-        await Deno.writeTextFile('/opt/arb-bot/order-server.mjs', orderServerCode);
+        // Write bot code (bot.mjs — the WS scanner)
+        await writeFile('/opt/arb-bot/bot.mjs', orderServerCode, 'utf8');
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ 

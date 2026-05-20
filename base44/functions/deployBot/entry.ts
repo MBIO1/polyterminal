@@ -56,17 +56,16 @@ Deno.serve(async (req) => {
       PAIRS:              'BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,AVAX-USDT',
     };
 
-    // Send bot code + full env to droplet
-    const deployRes = await fetch(`http://${dropletIp}:${orderServerPort}/deploy-bot`, {
+    // Send bot code + full env to droplet's /setup endpoint
+    const deployRes = await fetch(`http://${dropletIp}:${orderServerPort}/setup`, {
       method: 'POST',
       headers: {
-        'X-Droplet-Secret': dropletSecret,
+        'x-droplet-secret': dropletSecret,
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        botCode,
+        orderServerCode: botCode,
         envVars,
-        action: 'deploy-and-start',
       }),
     });
 
@@ -83,6 +82,7 @@ Deno.serve(async (req) => {
     
     return Response.json({
       status: 'bot_deployed',
+      message: 'Bot code + env written to droplet via /setup. Restart the arb-bot service to apply.',
       dropletIp,
       result,
       timestamp: new Date().toISOString()

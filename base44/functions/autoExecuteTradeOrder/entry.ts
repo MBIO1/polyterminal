@@ -30,25 +30,17 @@ Deno.serve(async (req) => {
       }, { status: 400 });
     }
 
-    // Fetch active TradingParameters
-    const params = await base44.asServiceRole.entities.TradingParameters.list('-updated_date', 1);
-    const activeParam = params?.[0];
-
-    if (!activeParam) {
-      return Response.json({
-        error: 'No active TradingParameters preset',
-        tradeId,
-        action: 'manual_review_required',
-      }, { status: 400 });
-    }
+    // Fetch ArbConfig for mode (paper vs live)
+    const configs = await base44.asServiceRole.entities.ArbConfig.list('-updated_date', 1);
+    const config = configs?.[0];
 
     // Prepare trade update data
     // IMPORTANT: Keep notes field small. For large content, upload and store URL.
     const updateData = {
       status: 'Open',
       entry_timestamp: new Date().toISOString(),
-      mode: activeParam.mode || 'paper',
-      entry_order_type: activeParam.order_type || 'Market',
+      mode: config?.paper_trading === false ? 'live' : 'paper',
+      entry_order_type: 'Market',
       entry_fee_type: 'Taker',
     };
 
@@ -66,7 +58,7 @@ Deno.serve(async (req) => {
       tradeId,
       status: 'Open',
       timestamp: new Date().toISOString(),
-      mode: activeParam.mode,
+      mode: updateData.mode,
     });
   } catch (error) {
     console.error('autoExecuteTradeOrder error:', error);
