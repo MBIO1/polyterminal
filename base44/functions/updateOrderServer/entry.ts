@@ -66,7 +66,9 @@ async function getInstrumentInfo(category, symbol) {
   if (!inst) throw new Error('instrument_not_found ' + category + '/' + symbol);
 
   const lot = inst.lotSizeFilter || {};
-  const qtyStep = parseFloat(lot.qtyStep || lot.basePrecision || '0.000001');
+  // Store as STRING to preserve decimal precision for rounding logic.
+  const qtyStepRaw = lot.qtyStep || lot.basePrecision || '0.000001';
+  const qtyStep = String(qtyStepRaw);
   const minQty  = parseFloat(lot.minOrderQty || '0');
 
   const info = { qtyStep: qtyStep, minQty: minQty, ts: Date.now() };
@@ -76,10 +78,11 @@ async function getInstrumentInfo(category, symbol) {
 }
 
 function roundQtyToStep(qty, qtyStep) {
-  if (!qtyStep || qtyStep <= 0) return String(qty);
-  const rounded = Math.floor(qty / qtyStep) * qtyStep;
-  const stepStr = qtyStep.toString();
-  const decimals = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
+  var step = Number(qtyStep);
+  if (!step || step <= 0) return String(qty);
+  var rounded = Math.floor(qty / step) * step;
+  var stepStr = String(qtyStep);
+  var decimals = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
   return rounded.toFixed(decimals);
 }
 
