@@ -302,11 +302,12 @@ Deno.serve(async (req) => {
       }
 
       // Pre-check: ensure qty clears typical Bybit minimums before sending to droplet.
-      // Bybit actual minimums: BTC spot 0.000001 (~$0.08), ETH spot 0.0001 (~$0.21),
-      // SOL spot 0.01 (~$0.86), SOL perp 0.1 (~$8.6), ETH perp 0.01 (~$21).
-      // Use perp minimums (the binding constraint) as USD floors.
-      const assetMinUsd = { BTC: 1, ETH: 22, SOL: 9, DOGE: 1, ADA: 1, APT: 2, XRP: 1, FLOKI: 1, BONK: 1, PEPE: 1 };
-      const minUsdForAsset = assetMinUsd[sig.asset] || 1;
+      // Use perp minimums for signals with a perp leg, spot minimums for spot-only.
+      const hasPerpLeg = /perp|swap|linear/i.test(sig.buy_exchange || '') || /perp|swap|linear/i.test(sig.sell_exchange || '');
+      const assetMinSpot = { BTC: 1, ETH: 1, SOL: 1, DOGE: 1, ADA: 1, APT: 2, XRP: 1 };
+      const assetMinPerp = { BTC: 1, ETH: 22, SOL: 9, DOGE: 1, ADA: 1, APT: 2, XRP: 1 };
+      const minTable = hasPerpLeg ? assetMinPerp : assetMinSpot;
+      const minUsdForAsset = minTable[sig.asset] || 1;
       if (sizeUsd < minUsdForAsset) {
         console.log(`[executeSignals] SKIP ${sig.pair}: sizeUsd=$${sizeUsd} < asset min $${minUsdForAsset} (capital too small for ${sig.asset})`);
         await base44.asServiceRole.entities.ArbSignal.update(sig.id, {

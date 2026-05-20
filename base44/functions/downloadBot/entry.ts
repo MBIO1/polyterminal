@@ -33,7 +33,7 @@ const STATS_URL       = process.env.BASE44_STATS_URL;
 // ingestSignal and ingestHeartbeat authenticate via DROPLET_SECRET (Bearer token)
 const TOKEN           = process.env.DROPLET_SECRET || process.env.BASE44_USER_TOKEN;
 
-const PAIRS = (process.env.PAIRS || 'DOGE-USDT,ADA-USDT,APT-USDT,XRP-USDT,FLOKI-USDT,BONK-USDT,PEPE-USDT').split(',');
+const PAIRS = (process.env.PAIRS || 'DOGE-USDT,ADA-USDT,APT-USDT,XRP-USDT,SOL-USDT').split(',');
 
 // TAKER_FEE_BPS: per-leg taker fee. MUST match ArbConfig.taker_fee_bps_per_leg in Base44 (default 2).
 const TAKER_FEE_BPS     = Number(process.env.TAKER_FEE_BPS || 2);
