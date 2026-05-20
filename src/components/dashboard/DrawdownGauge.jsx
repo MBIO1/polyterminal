@@ -34,19 +34,18 @@ export default function DrawdownGauge({ trades = [], config = null }) {
         </CardTitle>
       </CardHeader>
       <CardContent className="pt-0 flex flex-col items-center">
-        <div className="relative w-full" style={{ height: 130 }}>
-          <ResponsiveContainer width="100%" height={130}>
+        <div className="w-full" style={{ height: 110 }}>
+          <ResponsiveContainer width="100%" height="100%">
             <RadialBarChart
               cx="50%"
-              cy="85%"
-              innerRadius="60%"
-              outerRadius="90%"
+              cy="95%"
+              innerRadius="70%"
+              outerRadius="100%"
               startAngle={180}
               endAngle={0}
               data={data}
               barSize={14}
             >
-              {/* background arc */}
               <RadialBar
                 dataKey="value"
                 cornerRadius={6}
@@ -54,17 +53,17 @@ export default function DrawdownGauge({ trades = [], config = null }) {
               />
             </RadialBarChart>
           </ResponsiveContainer>
-          {/* Center label */}
-          <div className="absolute inset-0 flex flex-col items-center justify-end pb-2">
-            <span className="text-2xl font-bold font-mono" style={{ color }}>
-              {currentDrawdown.toFixed(2)}%
-            </span>
-            <span className="text-[10px] font-mono text-muted-foreground">
-              of {maxAllowed.toFixed(2)}% limit
-            </span>
-          </div>
         </div>
-        <div className="flex items-center gap-2 mt-1">
+        {/* Value labels — below the arc, no overlap */}
+        <div className="flex flex-col items-center -mt-1">
+          <span className="text-2xl font-bold font-mono leading-none" style={{ color }}>
+            {currentDrawdown.toFixed(2)}%
+          </span>
+          <span className="text-[10px] font-mono text-muted-foreground mt-1">
+            of {maxAllowed.toFixed(2)}% limit
+          </span>
+        </div>
+        <div className="flex items-center gap-2 mt-2">
           <span
             className="text-xs font-mono font-semibold px-2 py-0.5 rounded"
             style={{ backgroundColor: `${color}22`, color }}
