@@ -1,18 +1,25 @@
-// Droplet Health Monitor - Telegram Alerts
+// Droplet Health Monitor - High-Priority Telegram Alerts
 // 
-// Monitors droplet heartbeat and sends Telegram alerts when:
-// - Heartbeat is stale (> 3 minutes)
-// - WebSocket books are stale
-// - POST errors detected
-// - Bot is not running
+// Monitors droplet heartbeat and sends INSTANT Telegram alerts when:
+// - Heartbeat is stale (> 3 minutes) → 🟡 warning
+// - Heartbeat is critical (> 10 minutes) → 🔴 CRASH alert
+// - WebSocket books degraded (< 70% fresh)
+// - POST errors / non-2xx spikes
+// - Bot recovery detected → 🟢 RECOVERED
 //
-// Can be triggered by:
-// 1. Scheduled cron job (every minute)
-// 2. Manual invocation
-// 3. Webhook from monitoring service
+// Scheduled every 5 minutes (platform minimum) via the
+// "🚨 Droplet Crash Alert" automation.
 
 import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
-import { auditLog } from '../lib/auditLogger.ts';
+
+// Inline audit log helper (cannot import local files in backend functions)
+async function auditLog(base44, entry) {
+  try {
+    console.log(`[${entry.severity || 'INFO'}] ${entry.eventType}: ${entry.message}`, entry.details || {});
+  } catch (e) {
+    // swallow — audit logging must never break the function
+  }
+}
 
 const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
 const TELEGRAM_CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID');
