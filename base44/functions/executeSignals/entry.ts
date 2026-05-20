@@ -131,9 +131,9 @@ Deno.serve(async (req) => {
     const internalSecret = String(body.internal_secret || '');
     const expectedSecret = Deno.env.get('BOT_SECRET') || Deno.env.get('DROPLET_SECRET') || '';
     const isInternalCall = !!internalSecret && internalSecret === expectedSecret;
-    let user = null;
-    try { user = await base44.auth.me(); } catch { /* unauthenticated */ }
     if (!isInternalCall) {
+      let user = null;
+      try { user = await base44.auth.me(); } catch { /* unauthenticated */ }
       if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
       if (user.role !== 'admin') return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
     }

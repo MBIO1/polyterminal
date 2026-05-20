@@ -233,26 +233,60 @@ Deno.serve(async (req) => {
     }
 
     // Slack alert on any tradeable signal (net edge >= 5 bps)
+    // Post directly to Slack webhook — avoids 403 from asServiceRole.functions.invoke
+    // which fails when SDK client was initialized from a stripped-header droplet request.
     if (netEdge >= 5) {
-      await base44.asServiceRole.functions.invoke('slackAlert', {
-        alert_type:  'spot_spread',
-        severity:    netEdge >= 25 ? 'High' : netEdge >= 10 ? 'Medium' : 'Low',
-        title:       `${body.pair} ${netEdge.toFixed(1)} bps · ${body.buy_exchange}→${body.sell_exchange}`,
-        description: `Buy ${body.buy_exchange} @ ${Number(body.buy_price).toFixed(4)} · Sell ${body.sell_exchange} @ ${Number(body.sell_price).toFixed(4)}. Fillable ~$${Math.round(body.fillable_size_usd||0).toLocaleString()}.`,
-      }).catch(e => console.error('slackAlert:', e.message));
+      const slackUrl = Deno.env.get('SLACK_WEBHOOK_URL');
+      if (slackUrl) {
+        const sevLabel = netEdge >= 25 ? 'High' : netEdge >= 10 ? 'Medium' : 'Low';
+        const slackTitle = `⚡ Spot Spread Signal — ${sevLabel} · ${body.pair} ${netEdge.toFixed(1)} bps · ${body.buy_exchange}→${body.sell_exchange}`;
+        fetch(slackUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: slackTitle,
+            attachments: [{
+              color: netEdge >= 25 ? '#ef4444' : netEdge >= 10 ? '#f59e0b' : '#94a3b8',
+              title: slackTitle,
+              text: `Buy ${body.buy_exchange} @ ${Number(body.buy_price).toFixed(4)} · Sell ${body.sell_exchange} @ ${Number(body.sell_price).toFixed(4)}. Fillable ~$${Math.round(body.fillable_size_usd||0).toLocaleString()}.`,
+              footer: 'Arb Desk',
+              ts: Math.floor(Date.now() / 1000),
+            }],
+          }),
+          signal: AbortSignal.timeout(5000),
+        }).catch(e => console.error('slack direct post:', e.message));
+      }
     }
 
     // ⚡ INSTANT EXECUTION — trigger executeSignals immediately for this specific signal.
     // Sub-second cadence vs. waiting up to 5 min for the scheduled run.
     // Fire-and-forget: don't block the ingest response on execution.
+    // NOTE: We cannot use base44.asServiceRole.functions.invoke() here because the
+    // SDK client was initialized from a stripped-header request (droplet calls),
+    // which causes a 403 "app is private" error on function invokes.
+    // Instead, we use the BASE44_USER_TOKEN to make a direct authenticated call.
     if (netEdge > 0) {
-      base44.asServiceRole.functions.invoke('executeSignals', {
-        signal_id:        signal.id,
-        max_signals:      1,
-        signal_ttl_ms:    60_000,
-        dry_run:          body.dry_run === true,
-        internal_secret:  Deno.env.get('BOT_SECRET') || Deno.env.get('DROPLET_SECRET') || '',
-      }).catch(e => console.error('[ingestSignal] executeSignals trigger failed:', e.message));
+      const userToken = Deno.env.get('BASE44_USER_TOKEN');
+      const appUrl    = Deno.env.get('BASE44_APP_URL');
+      if (userToken && appUrl) {
+        const execUrl = `${appUrl.replace(/\/$/, '')}/api/functions/executeSignals`;
+        fetch(execUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${userToken}`,
+          },
+          body: JSON.stringify({
+            signal_id:     signal.id,
+            max_signals:   1,
+            signal_ttl_ms: 60_000,
+            dry_run:       body.dry_run === true,
+          }),
+          signal: AbortSignal.timeout(30000),
+        }).catch(e => console.error('[ingestSignal] executeSignals trigger failed:', e.message));
+      } else {
+        console.warn('[ingestSignal] BASE44_USER_TOKEN or BASE44_APP_URL not set — skipping instant execution');
+      }
     }
 
     return Response.json({ ok: true, signal_id: signal.id });

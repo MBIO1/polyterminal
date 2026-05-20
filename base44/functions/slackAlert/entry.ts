@@ -19,6 +19,7 @@ const ALERT_META = {
   funding_anomaly:        { emoji: '📈', label: 'Funding Anomaly',          default: 'High' },
   missing_run:            { emoji: '⏰', label: 'Missing Scheduled Run',    default: 'High' },
   transfer_stuck:         { emoji: '🔁', label: 'Transfer Not Confirmed',   default: 'High' },
+  spot_spread:            { emoji: '⚡', label: 'Spot Spread Signal',       default: 'Medium' },
 };
 
 async function postToTelegram({ alertType, severity, title, description, fields }) {
