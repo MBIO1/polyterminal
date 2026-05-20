@@ -113,7 +113,12 @@ Deno.serve(async (req) => {
     const bearerToken   = authHeader.replace(/^Bearer\s+/i, '').trim();
     const dropletSecret = Deno.env.get('DROPLET_SECRET') || '';
     const botSecret     = Deno.env.get('BOT_SECRET') || '';
-    const isDroplet     = !!bearerToken && (bearerToken === dropletSecret || bearerToken === botSecret);
+    const userToken     = Deno.env.get('BASE44_USER_TOKEN') || '';
+    const isDroplet     = !!bearerToken && (
+      bearerToken === dropletSecret ||
+      bearerToken === botSecret ||
+      bearerToken === userToken
+    );
 
     if (!user && !isDroplet) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
