@@ -326,10 +326,10 @@ if systemctl is-active --quiet order-server 2>/dev/null; then
   systemctl restart order-server
   echo "✅ Restarted via systemd"
 elif pm2 list 2>/dev/null | grep -q order-server; then
-  pm2 restart order-server
-  echo "✅ Restarted via pm2"
+  pm2 restart order-server --update-env
+  echo "✅ Restarted via pm2 (with --update-env, re-reads .env)"
 else
-  cd /opt/arb-bot && pm2 start order-server.mjs --name order-server
+  cd /opt/arb-bot && pm2 start order-server.mjs --name order-server --update-env
   echo "✅ Started via pm2 (first time)"
 fi
 
