@@ -82,6 +82,9 @@ async function bybitOrder({ category, symbol, side, qty }) {
   const timestamp  = Date.now().toString();
   const recvWindow = '5000';
   const orderBody  = { category, symbol, side, orderType: 'Market', qty: String(qty), timeInForce: 'IOC' };
+  // Spot market orders default to quote-coin qty. We always pass base-coin qty,
+  // so force marketUnit=baseCoin on spot to match. Linear ignores this field.
+  if (category === 'spot') orderBody.marketUnit = 'baseCoin';
   const bodyStr    = JSON.stringify(orderBody);
   const preSign    = timestamp + API_KEY + recvWindow + bodyStr;
   const signature  = bybitSign(preSign);
