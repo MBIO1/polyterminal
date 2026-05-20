@@ -38,11 +38,18 @@ Deno.serve(async (req) => {
       500
     );
 
-    // Fetch recent signals
+    // Fetch recent signals (last hour for rates, last 5 min for "is it working NOW")
     const recentSignals = await base44.asServiceRole.entities.ArbSignal.filter(
       { received_time: { $gte: oneHourAgo } },
       '-received_time'
     );
+    const fiveMinAgoMs = now - 5 * 60 * 1000;
+    const signalsLast5Min = recentSignals.filter(s => {
+      const t = new Date(s.received_time || s.created_date || 0).getTime();
+      return Number.isFinite(t) && t >= fiveMinAgoMs;
+    }).length;
+    // If signals are flowing right now, suppress stale 1-hour rejection noise from before the fix.
+    const authIsHealthyNow = signalsLast5Min > 0;
 
     // === HEARTBEAT STATUS ===
     const lastHeartbeatMs = latestHeartbeat
@@ -80,7 +87,7 @@ Deno.serve(async (req) => {
     if (totalPostErrors > 0) {
       connectivityStatus.issues.push(`${totalPostErrors} POST network errors`);
     }
-    if (totalNon2xx > 0) {
+    if (totalNon2xx > 0 && !authIsHealthyNow) {
       const rejectionRate = totalPosted > 0 ? Math.round((totalNon2xx / totalPosted) * 100) : 0;
       connectivityStatus.issues.push(
         `${totalNon2xx}/${totalPosted} signals rejected by Base44 (${rejectionRate}% rejection rate) — likely BOT_SECRET mismatch`
@@ -137,8 +144,9 @@ Deno.serve(async (req) => {
       issues.push('No heartbeat data available');
     }
 
-    // CRITICAL: non-2xx is more important than just "warning" — bot can't ship signals
-    if (totalNon2xx > 5) {
+    // CRITICAL: non-2xx is more important than just "warning" — bot can't ship signals.
+    // BUT: suppress if signals are flowing again in the last 5 min (rolling stats are stale).
+    if (totalNon2xx > 5 && !authIsHealthyNow) {
       overallStatus = 'critical';
       issues.push(`Base44 rejecting signals (${totalNon2xx}/hr non-2xx) — auth/secret issue`);
     } else if (totalPostErrors > 5) {
@@ -178,7 +186,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (totalNon2xx > 5) {
+    if (totalNon2xx > 5 && !authIsHealthyNow) {
       recommendations.push({
         priority: 'P0',
         action: 'BOT_SECRET on droplet does not match Base44',
