@@ -19,7 +19,8 @@ import {
   Terminal,
   FlaskConical,
   Trash2,
-  Key
+  Key,
+  Rocket
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -61,7 +62,6 @@ export default function DropletHealthCheck() {
   const [actionLoading, setActionLoading] = useState(null);
   const [scriptModal, setScriptModal] = useState(null); // { title, script }
   const [testTradeResult, setTestTradeResult] = useState(null);
-  const [liveOrderResult, setLiveOrderResult] = useState(null);
 
   const runAction = async (fnName, label) => {
     setActionLoading(fnName);
@@ -98,28 +98,6 @@ export default function DropletHealthCheck() {
     } catch (e) {
       toast.error(`Test trade failed: ${e.message}`);
       setTestTradeResult({ error: e.message });
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const runLiveBybitOrder = async () => {
-    if (!confirm('⚠️ This will place a REAL $6 Bybit market order using your live API keys. Continue?')) return;
-    setActionLoading('placeBybitTestOrder');
-    setLiveOrderResult(null);
-    try {
-      const res = await base44.functions.invoke('placeBybitTestOrder', {
-        symbol: 'BTCUSDT', side: 'Buy', usd_amount: 6, category: 'spot',
-      });
-      setLiveOrderResult(res.data);
-      if (res.data?.ok) {
-        toast.success(`✅ Bybit order filled! ID: ${res.data?.bybit?.orderId || '?'}`);
-      } else {
-        toast.error(`Order rejected: ${res.data?.error || 'unknown'}`);
-      }
-    } catch (e) {
-      toast.error(`Live order failed: ${e.message}`);
-      setLiveOrderResult({ error: e.message });
     } finally {
       setActionLoading(null);
     }
@@ -224,15 +202,15 @@ export default function DropletHealthCheck() {
             </Button>
 
             <Button
-              onClick={runLiveBybitOrder}
+              onClick={() => runAction('downloadRunner', 'Deploy Latest Runner')}
               disabled={!!actionLoading}
               variant="outline"
-              className="border-green-500/60 text-green-300 hover:bg-green-500/10 font-bold"
+              className="border-cyan-500/60 text-cyan-300 hover:bg-cyan-500/10 font-bold"
             >
-              {actionLoading === 'placeBybitTestOrder'
+              {actionLoading === 'downloadRunner'
                 ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <FlaskConical className="w-4 h-4 mr-2" />}
-              💵 Place $6 Bybit Order (LIVE)
+                : <Rocket className="w-4 h-4 mr-2" />}
+              🚀 Deploy Latest Runner
             </Button>
 
             <Button
@@ -251,30 +229,9 @@ export default function DropletHealthCheck() {
             <b>Restart Bot</b> — pm2 restart on droplet. First thing to try.<br/>
             <b>Fix Env Now</b> — regenerates .env with correct BOT_SECRET when auth fails.<br/>
             <b>Test Trade ($1 paper)</b> — paper-records a fake $1 BTC trade end-to-end.<br/>
-            <b>Place $6 Bybit Order (LIVE)</b> — places a REAL $6 BTCUSDT order on Bybit.<br/>
+            <b>🚀 Deploy Latest Runner</b> — pulls newest runner.mjs (with live config polling) onto droplet.<br/>
             <b>Kill Systemd Crash Loop</b> — emergency: stops systemd-managed bot restarting forever.
           </p>
-
-          {/* Live Bybit Order Result */}
-          {liveOrderResult && (
-            <div className={`mt-4 p-3 rounded text-xs font-mono ${liveOrderResult.error || !liveOrderResult.ok ? 'bg-red-500/10 border border-red-500/30 text-red-300' : 'bg-green-500/10 border border-green-500/30 text-green-200'}`}>
-              {liveOrderResult.error ? (
-                <div className="space-y-1">
-                  <div>❌ <b>Error:</b> {liveOrderResult.error}</div>
-                  {liveOrderResult.hint && <div className="text-yellow-300">💡 {liveOrderResult.hint}</div>}
-                  {liveOrderResult.details && <div className="text-xs opacity-70">{JSON.stringify(liveOrderResult.details)}</div>}
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  <div>✅ <b>Bybit Order ID:</b> {liveOrderResult.bybit?.orderId}</div>
-                  <div>📋 <b>Trade ID:</b> {liveOrderResult.trade_id}</div>
-                  <div>💱 <b>{liveOrderResult.side} {liveOrderResult.symbol}</b> qty={liveOrderResult.qty?.toFixed?.(8)} @ ${liveOrderResult.price?.toFixed?.(2)} ({liveOrderResult.category})</div>
-                  <div>🌐 <b>Env:</b> {liveOrderResult.bybit?.env}</div>
-                  <div className="text-muted-foreground mt-1">→ Check <b>Trades</b> page + your Bybit account.</div>
-                </div>
-              )}
-            </div>
-          )}
 
           {/* Test Trade Result */}
           {testTradeResult && (
