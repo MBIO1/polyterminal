@@ -54,15 +54,13 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
 
-    // The droplet sends Bearer DROPLET_SECRET, not a real user session.
-    // We must inject the real user token so asServiceRole calls succeed.
-    const userToken = Deno.env.get('BASE44_USER_TOKEN') || '';
-    if (userToken && bearerToken !== userToken) {
-      const headers = new Headers(req.headers);
-      headers.set('Authorization', `Bearer ${userToken}`);
-      req = new Request(req.url, { method: req.method, headers });
-    }
-    const base44 = createClientFromRequest(req);
+    // The droplet sends Bearer DROPLET_SECRET which is NOT a valid user token.
+    // Strip the Authorization header so the SDK initializes without user auth.
+    // asServiceRole works on its own inside Base44-hosted functions.
+    const headers = new Headers(req.headers);
+    headers.delete('Authorization');
+    const cleanReq = new Request(req.url, { method: req.method, headers });
+    const base44 = createClientFromRequest(cleanReq);
 
     const now = new Date().toISOString();
 

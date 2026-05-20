@@ -29,11 +29,12 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => null);
     if (!body) return Response.json({ error: 'invalid_json' }, { status: 400 });
 
-    // If droplet call, inject real user token so asServiceRole works
+    // If droplet call, strip the invalid secret from Authorization header.
+    // asServiceRole works on its own inside Base44-hosted functions without user auth.
     let initReq = req;
-    if (isDroplet && userToken && token !== userToken) {
+    if (isDroplet) {
       const headers = new Headers(req.headers);
-      headers.set('Authorization', `Bearer ${userToken}`);
+      headers.delete('Authorization');
       initReq = new Request(req.url, { method: req.method, headers });
     }
     const base44 = createClientFromRequest(initReq);
