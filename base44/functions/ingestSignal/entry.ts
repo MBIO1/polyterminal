@@ -222,10 +222,11 @@ Deno.serve(async (req) => {
     // Fire-and-forget: don't block the ingest response on execution.
     if (netEdge > 0) {
       base44.asServiceRole.functions.invoke('executeSignals', {
-        signal_id:     signal.id,
-        max_signals:   1,
-        signal_ttl_ms: 60_000,
-        dry_run:       false,
+        signal_id:        signal.id,
+        max_signals:      1,
+        signal_ttl_ms:    60_000,
+        dry_run:          body.dry_run === true,
+        internal_secret:  Deno.env.get('BOT_SECRET') || Deno.env.get('DROPLET_SECRET') || '',
       }).catch(e => console.error('[ingestSignal] executeSignals trigger failed:', e.message));
     }
 

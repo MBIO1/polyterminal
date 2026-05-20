@@ -53,12 +53,16 @@ function recomputeNetEdge(signal, config, sizeUsd) {
 }
 
 function computeSizeUsd(signal, config, confidence) {
-  const totalCap   = Number(config.total_capital || 0);
-  const spotBucket = totalCap * Number(config.spot_allocation_pct || 0.35);
-  const perTradeCap= spotBucket * 0.10;
-  const fillable   = Number(signal.fillable_size_usd || 0);
-  const mult       = sizeMultiplier(confidence);
-  return Math.max(0, Math.floor(Math.min(perTradeCap, fillable * 0.20) * mult));
+  const totalCap      = Number(config.total_capital || 0);
+  const spotBucket    = totalCap * Number(config.spot_allocation_pct || 0.35);
+  const perTradeCap   = spotBucket * 0.10;
+  const fillable      = Number(signal.fillable_size_usd || 0);
+  const minExecutable = Math.max(7, Number(config.min_fillable_usd || 7));
+  const mult          = sizeMultiplier(confidence);
+  if (mult <= 0 || fillable < minExecutable) return 0;
+
+  const riskSize = Math.min(perTradeCap, fillable * 0.20) * mult;
+  return Math.min(Math.max(minExecutable, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD);
 }
 
 function paperFill(signal, sizeUsd) {
@@ -115,15 +119,19 @@ async function executeViaDroplet(signal, qty) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    // Allow service-role calls (e.g. from ingestSignal) to bypass user-auth check.
-    // service-role requests don't carry a user identity.
-    let user = null;
-    try { user = await base44.auth.me(); } catch { /* service role */ }
-    const isServiceRole = !user; // createClientFromRequest with no user header = service role context
-    if (user && user.role !== 'admin') return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
-    if (!user && !isServiceRole) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    const body = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
 
-    const body       = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
+    // Allow admins and trusted internal function calls from ingestSignal; block everyone else.
+    const internalSecret = String(body.internal_secret || '');
+    const expectedSecret = Deno.env.get('BOT_SECRET') || Deno.env.get('DROPLET_SECRET') || '';
+    const isInternalCall = !!internalSecret && internalSecret === expectedSecret;
+    let user = null;
+    try { user = await base44.auth.me(); } catch { /* unauthenticated */ }
+    if (!isInternalCall) {
+      if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      if (user.role !== 'admin') return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
+    }
+
     const dryRun     = body.dry_run === true;
     const forceId    = body.signal_id || null;
     const ttlMs      = Number(body.signal_ttl_ms) || 60_000;
