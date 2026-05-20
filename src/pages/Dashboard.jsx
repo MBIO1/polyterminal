@@ -60,19 +60,13 @@ export default function Dashboard() {
         ? (winningTrades.length / closedTrades.length) * 100
         : 0;
 
-      // Load latest heartbeat for bot status
+      // Use dropletHealth as single source of truth (same logic as /droplet-health page)
       try {
-        const hb = await base44.entities.ArbHeartbeat.list('-snapshot_time', 1);
-        if (hb.length === 0) {
-          setBotStatus('unknown');
-        } else {
-          const latest = hb[0];
-          const ageMs = Date.now() - new Date(latest.snapshot_time).getTime();
-          const stale = ageMs > 3 * 60 * 1000; // >3 min = stale
-          const zeroEvals = (latest.evaluations || 0) === 0;
-          const highReject = latest.evaluations > 0 && (latest.rejected_fillable || 0) / latest.evaluations > 0.5;
-          setBotStatus(stale || zeroEvals || highReject ? 'alert' : 'ok');
-        }
+        const res = await base44.functions.invoke('dropletHealth', {});
+        const overall = res?.data?.overall_status;
+        if (overall === 'healthy') setBotStatus('ok');
+        else if (overall === 'critical' || overall === 'warning') setBotStatus('alert');
+        else setBotStatus('unknown');
       } catch (_) {
         setBotStatus('unknown');
       }
@@ -114,7 +108,7 @@ export default function Dashboard() {
           }`}>
             <Cpu className="w-4 h-4" />
             <span className={`w-2 h-2 rounded-full ${botStatus === 'ok' ? 'bg-green-400 animate-pulse' : botStatus === 'alert' ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
-            {botStatus === 'ok' ? 'Bot Online' : botStatus === 'alert' ? 'Bot Issue' : 'No Heartbeat'}
+            {botStatus === 'ok' ? 'Bot Healthy' : botStatus === 'alert' ? 'Bot Critical' : 'Unknown'}
           </div>
           <BotControls config={arbConfig} onUpdated={loadDashboardData} />
           <Button onClick={loadDashboardData} variant="outline" size="sm">
