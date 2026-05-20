@@ -57,6 +57,11 @@
       "default": 3,
       "description": "Minimum expected net edge ETH (bps)"
     },
+    "sol_min_edge_bps": {
+      "type": "number",
+      "default": 3,
+      "description": "Minimum expected net edge SOL (bps)"
+    },
     "min_fillable_usd": {
       "type": "number",
       "default": 500,
@@ -217,11 +222,7 @@
         "role": "admin"
       }
     },
-    "read": {
-      "user_condition": {
-        "role": "admin"
-      }
-    },
+    "read": {},
     "update": {
       "user_condition": {
         "role": "admin"

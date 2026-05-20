@@ -27,16 +27,25 @@ const GROUPS = [
     fields: [
       { key: 'max_daily_drawdown_pct', label: 'Max Daily Drawdown %', step: 0.001 },
       { key: 'max_single_trade_loss_pct', label: 'Max Single Trade Loss %', step: 0.0001 },
-      { key: 'max_net_delta_drift_pct', label: 'Max Net Delta Drift %', step: 0.0001 },
-      { key: 'max_margin_utilization_pct', label: 'Max Margin Utilization %', step: 0.01 },
     ],
   },
   {
-    title: 'Edge Thresholds',
+    title: 'Signal Selectivity — Basis & Liquidity',
+    subtitle: 'Higher values = bot accepts fewer, higher-quality signals. Lower = more signals, more noise.',
     fields: [
-      { key: 'btc_min_edge_bps', label: 'BTC Min Edge (bps)', step: 1 },
-      { key: 'eth_min_edge_bps', label: 'ETH Min Edge (bps)', step: 1 },
-      { key: 'stress_slippage_multiplier', label: 'Stress Slippage ×', step: 0.1 },
+      { key: 'btc_min_edge_bps', label: 'BTC Min Edge (bps)', step: 1, hint: 'Min net edge required for BTC signals' },
+      { key: 'eth_min_edge_bps', label: 'ETH Min Edge (bps)', step: 1, hint: 'Min net edge required for ETH signals' },
+      { key: 'sol_min_edge_bps', label: 'SOL Min Edge (bps)', step: 1, hint: 'Min net edge required for SOL signals' },
+      { key: 'min_fillable_usd', label: 'Min Fillable Liquidity (USD)', step: 50, hint: 'Reject signals with thinner books than this' },
+      { key: 'stress_slippage_multiplier', label: 'Stress Slippage ×', step: 0.1, hint: 'Multiplier applied to expected slippage' },
+    ],
+  },
+  {
+    title: 'Delta Thresholds',
+    subtitle: 'Caps on net directional exposure. Tighter = more selective on hedged-pair entries.',
+    fields: [
+      { key: 'max_net_delta_drift_pct', label: 'Max Net Delta Drift %', step: 0.0001, hint: 'Allowed |spot − perp| vs total capital' },
+      { key: 'max_margin_utilization_pct', label: 'Max Margin Utilization %', step: 0.01, hint: 'Cap on initial margin used after entry' },
     ],
   },
   {
@@ -127,9 +136,9 @@ export default function ArbConfig() {
       </Section>
 
       {GROUPS.map(g => (
-        <Section key={g.title} title={g.title}>
+        <Section key={g.title} title={g.title} subtitle={g.subtitle}>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-            {g.fields.map(({ key, label, step, isSwitch }) => (
+            {g.fields.map(({ key, label, step, isSwitch, hint }) => (
               <div key={key}>
                 <Label className="text-xs font-mono text-muted-foreground">{label}</Label>
                 {isSwitch ? (
@@ -143,6 +152,7 @@ export default function ArbConfig() {
                     className="font-mono mt-1"
                   />
                 )}
+                {hint && <p className="text-[10px] font-mono text-muted-foreground/70 mt-1">{hint}</p>}
               </div>
             ))}
           </div>
