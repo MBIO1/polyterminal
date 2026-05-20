@@ -289,12 +289,24 @@ export default function DropletHealthCheck() {
               onClick={() => runAction('getFixScript', 'Fix Env Now')}
               disabled={!!actionLoading}
               variant="outline"
-              className="border-green-500/40 text-green-400 hover:bg-green-500/10 col-span-2 md:col-span-1"
+              className="border-green-500/40 text-green-400 hover:bg-green-500/10"
             >
               {actionLoading === 'getFixScript'
                 ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                 : <Key className="w-4 h-4 mr-2" />}
               🔑 Fix Env Now
+            </Button>
+
+            <Button
+              onClick={() => runAction('killSystemdBot', 'Kill Systemd Crash Loop')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-red-500/60 text-red-300 hover:bg-red-500/10 col-span-2 md:col-span-2 font-bold"
+            >
+              {actionLoading === 'killSystemdBot'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Trash2 className="w-4 h-4 mr-2" />}
+              🚨 Kill Systemd Crash Loop (Run This!)
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
