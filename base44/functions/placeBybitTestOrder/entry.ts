@@ -39,24 +39,25 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'DROPLET_IP or DROPLET_SECRET not configured' }, { status: 500 });
     }
 
-    // 1) Fetch current price (public Bybit API works from Base44 for ticker? No — geo-blocked.
-    //    Use droplet's /price proxy if it exists, otherwise try CoinGecko as a price oracle).
-    // CoinGecko mapping for popular symbols
-    const cgMap = { BTCUSDT: 'bitcoin', ETHUSDT: 'ethereum', SOLUSDT: 'solana',
-                    XRPUSDT: 'ripple', DOGEUSDT: 'dogecoin', ADAUSDT: 'cardano' };
+    // 1) Fetch current price via the droplet (which has direct Bybit access).
+    //    Base44 egress is geo-blocked from Bybit and rate-limited by CoinGecko,
+    //    so we route through the droplet's /price proxy.
     let price = 0;
     try {
-      const cgId = cgMap[symbol];
-      if (cgId) {
-        const r = await fetch(`https://api.coingecko.com/api/v3/simple/price?ids=${cgId}&vs_currencies=usd`);
-        const j = await r.json();
-        price = Number(j?.[cgId]?.usd || 0);
-      }
+      const priceRes = await fetch(`http://${dropletIp}:${port}/price?symbol=${symbol}&category=${category}`, {
+        headers: { 'Authorization': `Bearer ${dropletSecret}` },
+        signal:  AbortSignal.timeout(5000),
+      });
+      const priceJson = await priceRes.json().catch(() => ({}));
+      price = Number(priceJson?.price || 0);
     } catch (e) {
-      console.warn('[placeBybitTestOrder] price fetch failed:', e.message);
+      console.warn('[placeBybitTestOrder] droplet /price failed:', e.message);
     }
     if (!price) {
-      return Response.json({ error: `Could not fetch price for ${symbol}` }, { status: 500 });
+      return Response.json({
+        error: `Could not fetch price for ${symbol} from droplet`,
+        hint: 'Make sure order-server /price endpoint is deployed. Run deployOrderServer.',
+      }, { status: 500 });
     }
 
     // 2) Compute qty (in base asset). For spot Buy with marketUnit=quoteCoin, Bybit accepts USD amount directly.
