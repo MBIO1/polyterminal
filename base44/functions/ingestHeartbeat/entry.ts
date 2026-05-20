@@ -87,7 +87,7 @@ Deno.serve(async (req) => {
     // Email alert: zero evaluations or high rejected_fillable
     const zeroEvals = heartbeat.evaluations === 0;
     const highRejectedFillable = heartbeat.rejected_fillable > 0 && heartbeat.passed_edge_gate > 0
-      && (heartbeat.rejected_fillable / heartbeat.passed_edge_gate) > 0.5;
+      && (heartbeat.rejected_fillable / heartbeat.passed_edge_gate) > 0.8;
 
     if (zeroEvals || highRejectedFillable) {
       const subject = zeroEvals ? '🚨 MBIO Bot: Zero Evaluations Detected' : '⚠️ MBIO Bot: High Fillable Rejection Rate';

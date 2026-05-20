@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
           BASE44_APP_URL: baseUrl,
           MIN_NET_EDGE_BPS: '2',
           ALERT_EDGE_BPS: '20',
-          MIN_FILLABLE_USD: '500',
+          MIN_FILLABLE_USD: '50',
           DISABLE_BINANCE: 'true',
           PAIRS: 'BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,AVAX-USDT',
         },
