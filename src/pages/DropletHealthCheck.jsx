@@ -17,7 +17,9 @@ import {
   RotateCcw,
   Settings,
   Upload,
-  Square
+  Square,
+  Wrench,
+  Terminal
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -56,14 +58,21 @@ export default function DropletHealthCheck() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastCheck, setLastCheck] = useState(new Date());
-  const [actionLoading, setActionLoading] = useState(null); // track which button is loading
+  const [actionLoading, setActionLoading] = useState(null);
+  const [scriptModal, setScriptModal] = useState(null); // { title, script }
 
   const runAction = async (fnName, label) => {
     setActionLoading(fnName);
     try {
       const res = await base44.functions.invoke(fnName, {});
-      toast.success(`${label}: ${res.data?.status || res.data?.message || 'Done'}`);
-      setTimeout(checkHealth, 2000); // refresh health after action
+      // If the response contains a shell script, show it in a modal
+      if (res.data?.script) {
+        setScriptModal({ title: label, script: res.data.script, message: res.data.message });
+        toast.info(`${label}: Script ready — copy and run on droplet`);
+      } else {
+        toast.success(`${label}: ${res.data?.status || res.data?.message || 'Done'}`);
+      }
+      setTimeout(checkHealth, 2000);
     } catch (e) {
       toast.error(`${label} failed: ${e.message}`);
     } finally {
@@ -166,11 +175,35 @@ export default function DropletHealthCheck() {
                 : <Wifi className="w-4 h-4 mr-2" />}
               Test Connection
             </Button>
+
+            <Button
+              onClick={() => runAction('fixBotEnv', 'Fix Bot Env')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
+            >
+              {actionLoading === 'fixBotEnv'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Wrench className="w-4 h-4 mr-2" />}
+              Fix Bot Env
+            </Button>
+
+            <Button
+              onClick={() => runAction('installPm2', 'Install PM2')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
+            >
+              {actionLoading === 'installPm2'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Terminal className="w-4 h-4 mr-2" />}
+              Install PM2
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
-            <b>Deploy Bot</b> — pushes latest bot code + env vars + restarts service. Use after any code change.<br/>
-            <b>Restart Bot</b> — restarts the running bot process without re-deploying code.<br/>
-            <b>Setup Droplet</b> — writes .env + order-server.mjs for first-time setup.
+            <b>Fix Bot Env</b> — generates a script to update BASE44_USER_TOKEN + URLs in all .env files and restart services.<br/>
+            <b>Install PM2</b> — generates a script to install PM2, stop old systemd bot services, and run bot reliably.<br/>
+            <b>Deploy Bot</b> — pushes latest bot code. <b>Restart Bot</b> — restarts process only.
           </p>
         </CardContent>
       </Card>
@@ -237,6 +270,34 @@ export default function DropletHealthCheck() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {/* Script Modal */}
+      {scriptModal && (
+        <Card className="border-yellow-500/30 bg-yellow-500/5">
+          <CardHeader className="flex flex-row items-center justify-between pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Terminal className="w-4 h-4 text-yellow-400" />
+              {scriptModal.title} — Run on Droplet
+            </CardTitle>
+            <Button variant="ghost" size="sm" onClick={() => setScriptModal(null)}>✕</Button>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {scriptModal.message && (
+              <p className="text-sm text-muted-foreground">{scriptModal.message}</p>
+            )}
+            <pre className="bg-secondary/80 rounded p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto text-green-300">
+              {scriptModal.script}
+            </pre>
+            <Button
+              size="sm"
+              onClick={() => { navigator.clipboard.writeText(scriptModal.script); toast.success('Script copied to clipboard'); }}
+              className="bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30"
+            >
+              Copy Script
+            </Button>
+          </CardContent>
+        </Card>
       )}
     </div>
   );
