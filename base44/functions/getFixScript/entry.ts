@@ -23,10 +23,6 @@ Deno.serve(async (req) => {
     const heartbeatUrl = `${baseUrl}/functions/ingestHeartbeat`;
     const resultUrl    = `${baseUrl}/functions/ingestTradeResult`;
 
-    // Use a variable name alias so bash $SVC doesn't conflict with JS template literals
-    const svc = '$SVC';
-    const restarted = '$RESTARTED';
-
     const script = `# ── PASTE THIS ENTIRE BLOCK INTO YOUR DROPLET SHELL ──
 
 # 1. Write fresh .env
@@ -55,28 +51,38 @@ for D in /root/arb-ws-bot /opt/arb-bot /opt/base44-bot; do
 done
 
 # 3. Write systemd overrides (fixes hardcoded tokens in service files)
-for ${svc} in arb-bot arb-bot-v2 arb-base44-bot base44-bot; do
-  if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}.service"; then
-    mkdir -p /etc/systemd/system/${svc}.service.d
-    printf '[Service]\\nEnvironment="BASE44_USER_TOKEN=${userToken}"\\nEnvironment="DROPLET_SECRET=${dropletSecret}"\\nEnvironment="BOT_SECRET=${dropletSecret}"\\nEnvironment="BASE44_INGEST_URL=${ingestUrl}"\\nEnvironment="BASE44_HEARTBEAT_URL=${heartbeatUrl}"\\n' \\
-      > /etc/systemd/system/${svc}.service.d/override.conf
-    echo "override written: ${svc}"
+for SVC in arb-bot arb-bot-v2 arb-base44-bot base44-bot; do
+  if systemctl list-unit-files 2>/dev/null | grep -q "^$SVC.service"; then
+    mkdir -p "/etc/systemd/system/$SVC.service.d"
+    cat > "/etc/systemd/system/$SVC.service.d/override.conf" << OVERRIDEEOF
+[Service]
+Environment="BASE44_USER_TOKEN=${userToken}"
+Environment="DROPLET_SECRET=${dropletSecret}"
+Environment="BOT_SECRET=${dropletSecret}"
+Environment="BASE44_INGEST_URL=${ingestUrl}"
+Environment="BASE44_HEARTBEAT_URL=${heartbeatUrl}"
+Environment="BASE44_RESULT_URL=${resultUrl}"
+Environment="BASE44_APP_URL=${baseUrl}"
+Environment="BASE44_EMAIL=${Deno.env.get('BASE44_EMAIL') || ''}"
+Environment="BASE44_PASSWORD=${Deno.env.get('BASE44_PASSWORD') || ''}"
+OVERRIDEEOF
+    echo "override written: $SVC"
   fi
 done
 systemctl daemon-reload
 
 # 4. Restart ALL known services (systemd first, PM2 fallback)
-${restarted}=0
-for ${svc} in arb-bot-v2 arb-bot arb-base44-bot base44-bot; do
-  if systemctl list-unit-files 2>/dev/null | grep -q "^${svc}.service"; then
-    systemctl restart "${svc}" && echo "restarted ${svc}"
-    ${restarted}=$(( ${restarted} + 1 ))
+RESTARTED=0
+for SVC in arb-bot-v2 arb-bot arb-base44-bot base44-bot; do
+  if systemctl list-unit-files 2>/dev/null | grep -q "^$SVC.service"; then
+    systemctl restart "$SVC" && echo "restarted $SVC"
+    RESTARTED=$(( RESTARTED + 1 ))
   fi
 done
 
-if [ "${restarted}" -eq 0 ]; then
+if [ "$RESTARTED" -eq 0 ]; then
   if pm2 list 2>/dev/null | grep -qE 'arb|bot'; then
-    pm2 restart all && echo "PM2: restarted all"
+    pm2 restart all --update-env && echo "PM2: restarted all"
   else
     echo "WARNING: No bot found via systemd or PM2"
   fi
