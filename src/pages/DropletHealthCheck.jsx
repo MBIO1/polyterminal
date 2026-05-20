@@ -333,6 +333,18 @@ export default function DropletHealthCheck() {
             </Button>
 
             <Button
+              onClick={() => runAction('writeOrderServerEnv', 'Write Order-Server .env')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
+            >
+              {actionLoading === 'writeOrderServerEnv'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Key className="w-4 h-4 mr-2" />}
+              🔐 Write .env (BOT_SECRET)
+            </Button>
+
+            <Button
               onClick={() => runAction('updateOrderServer', 'Update Order-Server')}
               disabled={!!actionLoading}
               variant="outline"
