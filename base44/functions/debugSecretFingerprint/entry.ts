@@ -6,11 +6,23 @@ Deno.serve(async (req) => {
   if (!user || user.role !== 'admin') {
     return Response.json({ error: 'Unauthorized' }, { status: 403 });
   }
-  const s = Deno.env.get('DROPLET_SECRET') || '';
+  const droplet = Deno.env.get('DROPLET_SECRET') || '';
+  const bot     = Deno.env.get('BOT_SECRET') || '';
   return Response.json({
-    first8: s.slice(0, 8),
-    length: s.length,
-    has_whitespace: /\s/.test(s),
-    has_quotes: /["']/.test(s),
+    DROPLET_SECRET: {
+      first8: droplet.slice(0, 8),
+      last4:  droplet.slice(-4),
+      length: droplet.length,
+      has_whitespace: /\s/.test(droplet),
+      has_quotes: /["']/.test(droplet),
+    },
+    BOT_SECRET: {
+      first8: bot.slice(0, 8),
+      last4:  bot.slice(-4),
+      length: bot.length,
+      has_whitespace: /\s/.test(bot),
+      has_quotes: /["']/.test(bot),
+    },
+    secrets_match: droplet === bot,
   });
 });
