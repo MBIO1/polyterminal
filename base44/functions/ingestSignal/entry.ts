@@ -108,11 +108,12 @@ Deno.serve(async (req) => {
     }
 
     // SECURITY: require explicit shared secret in Authorization header for droplet calls.
-    // Do NOT trust x-forwarded-for (spoofable). User session OR Bearer DROPLET_SECRET only.
+    // Do NOT trust x-forwarded-for (spoofable). User session OR Bearer (DROPLET_SECRET | BOT_SECRET).
     const authHeader    = req.headers.get('authorization') || '';
     const bearerToken   = authHeader.replace(/^Bearer\s+/i, '').trim();
-    const dropletSecret = Deno.env.get('DROPLET_SECRET');
-    const isDroplet     = !!(dropletSecret && bearerToken && bearerToken === dropletSecret);
+    const dropletSecret = Deno.env.get('DROPLET_SECRET') || '';
+    const botSecret     = Deno.env.get('BOT_SECRET') || '';
+    const isDroplet     = !!bearerToken && (bearerToken === dropletSecret || bearerToken === botSecret);
 
     if (!user && !isDroplet) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
