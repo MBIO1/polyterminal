@@ -19,7 +19,8 @@ import {
   Upload,
   Square,
   Wrench,
-  Terminal
+  Terminal,
+  FlaskConical
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -60,6 +61,7 @@ export default function DropletHealthCheck() {
   const [lastCheck, setLastCheck] = useState(new Date());
   const [actionLoading, setActionLoading] = useState(null);
   const [scriptModal, setScriptModal] = useState(null); // { title, script }
+  const [testTradeResult, setTestTradeResult] = useState(null);
 
   const runAction = async (fnName, label) => {
     setActionLoading(fnName);
@@ -75,6 +77,21 @@ export default function DropletHealthCheck() {
       setTimeout(checkHealth, 2000);
     } catch (e) {
       toast.error(`${label} failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const runTestTrade = async () => {
+    setActionLoading('triggerTestTrade');
+    setTestTradeResult(null);
+    try {
+      const res = await base44.functions.invoke('triggerTestTrade', {});
+      setTestTradeResult(res.data);
+      toast.success(`Test trade created: ${res.data.tradeId} — ${res.data.finalStatus}`);
+    } catch (e) {
+      toast.error(`Test trade failed: ${e.message}`);
+      setTestTradeResult({ error: e.message });
     } finally {
       setActionLoading(null);
     }
@@ -199,12 +216,45 @@ export default function DropletHealthCheck() {
                 : <Terminal className="w-4 h-4 mr-2" />}
               Install PM2
             </Button>
+
+            <Button
+              onClick={runTestTrade}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-purple-500/40 text-purple-400 hover:bg-purple-500/10"
+            >
+              {actionLoading === 'triggerTestTrade'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <FlaskConical className="w-4 h-4 mr-2" />}
+              Test Trade ($1)
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
-            <b>Fix Bot Env</b> — generates a script to update BASE44_USER_TOKEN + URLs in all .env files and restart services.<br/>
-            <b>Install PM2</b> — generates a script to install PM2, stop old systemd bot services, and run bot reliably.<br/>
-            <b>Deploy Bot</b> — pushes latest bot code. <b>Restart Bot</b> — restarts process only.
+            <b>Test Trade ($1)</b> — creates a paper $1 BTC trade, pings order-server, records result in ArbTrades.<br/>
+            <b>Fix Bot Env</b> — script to update BASE44_USER_TOKEN + URLs + restart services.<br/>
+            <b>Install PM2</b> — script to install PM2 and run bot reliably.
           </p>
+
+          {/* Test Trade Result */}
+          {testTradeResult && (
+            <div className={`mt-4 p-3 rounded text-xs font-mono ${testTradeResult.error ? 'bg-red-500/10 border border-red-500/30 text-red-300' : 'bg-purple-500/10 border border-purple-500/30 text-purple-200'}`}>
+              {testTradeResult.error ? (
+                <span>❌ {testTradeResult.error}</span>
+              ) : (
+                <div className="space-y-1">
+                  <div>✅ <b>Trade ID:</b> {testTradeResult.tradeId}</div>
+                  <div>📋 <b>Status:</b> {testTradeResult.finalStatus}</div>
+                  {testTradeResult.dropletResult && (
+                    <div>🔗 <b>Droplet:</b> {JSON.stringify(testTradeResult.dropletResult)}</div>
+                  )}
+                  {testTradeResult.error && (
+                    <div>⚠️ {testTradeResult.error}</div>
+                  )}
+                  <div className="text-muted-foreground mt-1">→ Check the <b>Trades</b> page for this record.</div>
+                </div>
+              )}
+            </div>
+          )}
         </CardContent>
       </Card>
 
