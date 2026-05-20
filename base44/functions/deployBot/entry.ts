@@ -9,17 +9,20 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const dropletIp = Deno.env.get('DROPLET_IP');
+    const dropletIp     = Deno.env.get('DROPLET_IP');
     const dropletSecret = Deno.env.get('DROPLET_SECRET');
     const orderServerPort = Deno.env.get('ORDER_SERVER_PORT') || '4001';
-    const baseUrl = Deno.env.get('BASE44_APP_URL');
-    const userToken = Deno.env.get('BASE44_USER_TOKEN');
+    const baseUrl       = Deno.env.get('BASE44_APP_URL');
+    const userToken     = Deno.env.get('BASE44_USER_TOKEN');
+    const bybitApiKey   = Deno.env.get('BYBIT_API_KEY');
+    const bybitApiSecret= Deno.env.get('BYBIT_API_SECRET');
+    const bybitTestnet  = Deno.env.get('BYBIT_TESTNET') || 'false';
 
     if (!dropletIp || !dropletSecret) {
       return Response.json({ error: 'Missing DROPLET_IP or DROPLET_SECRET' }, { status: 500 });
     }
 
-    // Fetch bot code from the downloadBot endpoint
+    // Fetch latest WS bot code
     const botCodeRes = await fetch(`${baseUrl}/functions/downloadBot`, {
       headers: { 'Authorization': `Bearer ${userToken}` }
     });
@@ -33,7 +36,27 @@ Deno.serve(async (req) => {
 
     const botCode = await botCodeRes.text();
 
-    // Send bot code to droplet for deployment
+    // Full env for the bot
+    const envVars = {
+      DROPLET_SECRET:     dropletSecret,
+      BYBIT_API_KEY:      bybitApiKey || '',
+      BYBIT_API_SECRET:   bybitApiSecret || '',
+      BYBIT_TESTNET:      bybitTestnet,
+      ORDER_SERVER_PORT:  orderServerPort,
+      BASE44_RESULT_URL:  `${baseUrl}/functions/ingestTradeResult`,
+      BASE44_USER_TOKEN:  userToken,
+      BASE44_INGEST_URL:  `${baseUrl}/functions/ingestSignal`,
+      BASE44_HEARTBEAT_URL: `${baseUrl}/functions/ingestHeartbeat`,
+      BASE44_STATS_URL:   `${baseUrl}/functions/signalStats`,
+      BASE44_APP_URL:     baseUrl,
+      MIN_NET_EDGE_BPS:   '2',
+      ALERT_EDGE_BPS:     '20',
+      MIN_FILLABLE_USD:   '500',
+      DISABLE_BINANCE:    'true',
+      PAIRS:              'BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,AVAX-USDT',
+    };
+
+    // Send bot code + full env to droplet
     const deployRes = await fetch(`http://${dropletIp}:${orderServerPort}/deploy-bot`, {
       method: 'POST',
       headers: {
@@ -42,7 +65,8 @@ Deno.serve(async (req) => {
       },
       body: JSON.stringify({
         botCode,
-        action: 'deploy-and-start'
+        envVars,
+        action: 'deploy-and-start',
       }),
     });
 

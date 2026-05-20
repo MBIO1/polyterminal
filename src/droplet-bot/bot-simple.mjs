@@ -1,58 +1,42 @@
 #!/usr/bin/env node
 /**
- * Simple Arbitrage Bot with Heartbeat
- * Sends heartbeats to dashboard every minute
+ * MBIO Arb Launcher — downloads the latest bot from Base44 and runs it.
+ * Env: DROPLET_SECRET, BASE44_APP_URL
+ * This file is only a fallback launcher. The real signal engine is in downloadBot.
  */
 
-const BASE44_URL = 'https://polytrade.base44.app/functions/ingestHeartbeat';
+import 'dotenv/config';
+import { spawn } from 'child_process';
+import { writeFileSync } from 'fs';
 
-// Simple heartbeat sender
-async function sendHeartbeat() {
-  const data = {
-    snapshot_time: new Date().toISOString(),
-    evaluations: Math.floor(Math.random() * 1000) + 1000,
-    posted: Math.floor(Math.random() * 10),
-    rejected_edge: 0,
-    rejected_fillable: 0,
-    rejected_stale: 0,
-    best_edge_bps: (Math.random() * 20 + 10).toFixed(2),
-    best_edge_pair: 'BTC-USDT',
-    memory_mb: 45.2,
-    cpu_percent: 12.5,
-    fresh_books: 'OKX:5/5 Bybit:5/5',
-    post_errors: 0,
-    post_non_2xx: 0,
-  };
+const APP_URL       = process.env.BASE44_APP_URL || 'https://polytrade.base44.app';
+const USER_TOKEN    = process.env.BASE44_USER_TOKEN || '';
+const DOWNLOAD_URL  = `${APP_URL}/functions/downloadBot`;
+const BOT_PATH      = '/opt/arb-bot/bot.mjs';
 
+async function downloadAndStart() {
+  console.log('📥 Downloading latest bot from Base44...');
   try {
-    const res = await fetch(BASE44_URL, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-droplet-auth': process.env.DROPLET_SECRET || '',
-      },
-      body: JSON.stringify(data),
+    const res = await fetch(DOWNLOAD_URL, {
+      headers: USER_TOKEN ? { 'Authorization': `Bearer ${USER_TOKEN}` } : {},
     });
-    
-    if (res.ok) {
-      console.log('💓 Heartbeat sent:', new Date().toISOString());
-    } else {
-      console.log('⚠️ Heartbeat failed:', res.status);
-    }
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const code = await res.text();
+    writeFileSync(BOT_PATH, code, 'utf8');
+    console.log(`✅ Bot downloaded (${code.length} bytes) → ${BOT_PATH}`);
   } catch (e) {
-    console.log('❌ Heartbeat error:', e.message);
+    console.error('❌ Download failed:', e.message);
+    console.log('⚠️  Running existing bot at', BOT_PATH);
   }
+
+  const proc = spawn('node', [BOT_PATH], {
+    stdio: 'inherit',
+    env: process.env,
+  });
+  proc.on('exit', (code) => {
+    console.log(`Bot exited (code ${code}), restarting in 5s...`);
+    setTimeout(downloadAndStart, 5000);
+  });
 }
 
-// Main loop
-console.log('🚀 Simple Arbitrage Bot Started');
-console.log('📡 Sending heartbeats every 60 seconds...');
-
-// Send first heartbeat immediately
-sendHeartbeat();
-
-// Then every 60 seconds
-setInterval(sendHeartbeat, 60000);
-
-// Keep alive
-console.log('✅ Bot is running. Press Ctrl+C to stop.');
+downloadAndStart();

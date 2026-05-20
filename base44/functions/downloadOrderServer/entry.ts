@@ -290,6 +290,77 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Deploy bot endpoint — writes bot.mjs + .env, then restarts bot process
+  if (req.method === 'POST' && req.url === '/deploy-bot') {
+    const secret = req.headers['x-droplet-secret'];
+    if (secret !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      try {
+        const { writeFileSync, existsSync, mkdirSync } = await import('fs');
+        const { execSync } = await import('child_process');
+
+        const payload = JSON.parse(body);
+        const { botCode, envVars } = payload;
+
+        const BOT_DIR = '/opt/arb-bot';
+        if (!existsSync(BOT_DIR)) mkdirSync(BOT_DIR, { recursive: true });
+
+        // Write bot code
+        if (botCode) {
+          writeFileSync(BOT_DIR + '/bot.mjs', botCode, 'utf8');
+          console.log('[deploy-bot] bot.mjs written (' + botCode.length + ' bytes)');
+        }
+
+        // Merge env vars into existing .env (don't wipe existing keys)
+        if (envVars && Object.keys(envVars).length > 0) {
+          let existingEnv = '';
+          try { existingEnv = require('fs').readFileSync(BOT_DIR + '/.env', 'utf8'); } catch {}
+          const envMap = {};
+          for (const line of existingEnv.split('\\n')) {
+            const eq = line.indexOf('=');
+            if (eq > 0) envMap[line.slice(0, eq).trim()] = line.slice(eq + 1).trim();
+          }
+          for (const [k, v] of Object.entries(envVars)) {
+            if (v !== undefined && v !== null && v !== '') envMap[k] = String(v);
+          }
+          const envContent = Object.entries(envMap).map(([k, v]) => k + '=' + v).join('\\n');
+          writeFileSync(BOT_DIR + '/.env', envContent, 'utf8');
+          console.log('[deploy-bot] .env written (' + Object.keys(envMap).length + ' vars)');
+        }
+
+        // Restart arb-bot systemd service (or pm2 if systemd not available)
+        let restartMsg = '';
+        try {
+          execSync('systemctl restart arb-bot 2>&1', { timeout: 10000 });
+          restartMsg = 'systemctl restart arb-bot: ok';
+        } catch {
+          try {
+            execSync('pm2 restart arb-bot 2>&1', { timeout: 10000 });
+            restartMsg = 'pm2 restart arb-bot: ok';
+          } catch {
+            restartMsg = 'no process manager found — restart manually';
+          }
+        }
+        console.log('[deploy-bot]', restartMsg);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, restart: restartMsg, ts: new Date().toISOString() }));
+      } catch (e) {
+        console.error('[deploy-bot] error:', e.message);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: e.message }));
+      }
+    });
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'application/json' });
   res.end(JSON.stringify({ error: 'not_found' }));
 });

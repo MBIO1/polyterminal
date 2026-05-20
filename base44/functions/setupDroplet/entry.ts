@@ -54,6 +54,16 @@ Deno.serve(async (req) => {
           ORDER_SERVER_PORT: orderServerPort,
           BASE44_RESULT_URL: `${baseUrl}/functions/ingestTradeResult`,
           BASE44_USER_TOKEN: userToken,
+          // Bot signal engine env vars
+          BASE44_INGEST_URL: `${baseUrl}/functions/ingestSignal`,
+          BASE44_HEARTBEAT_URL: `${baseUrl}/functions/ingestHeartbeat`,
+          BASE44_STATS_URL: `${baseUrl}/functions/signalStats`,
+          BASE44_APP_URL: baseUrl,
+          MIN_NET_EDGE_BPS: '2',
+          ALERT_EDGE_BPS: '20',
+          MIN_FILLABLE_USD: '500',
+          DISABLE_BINANCE: 'true',
+          PAIRS: 'BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,AVAX-USDT',
         },
       }),
     });
