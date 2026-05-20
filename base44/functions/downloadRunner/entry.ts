@@ -13,11 +13,11 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
-    const dropletIp = Deno.env.get('DROPLET_IP');
-    const baseUrl = Deno.env.get('BASE44_APP_URL');
-    const dropletSecret = Deno.env.get('DROPLET_SECRET');
-    const minNetEdgeBps = Deno.env.get('MIN_NET_EDGE_BPS') || '20';
-    const minFillableUsd = Deno.env.get('MIN_FILLABLE_USD') || '500';
+    const dropletIp = Deno.env.get('DROPLET_IP') || '<droplet-ip>';
+    const baseUrl = Deno.env.get('BASE44_APP_URL') || 'https://polytrade.base44.app';
+    // These are runtime defaults baked into the runner — actual values come from droplet .env
+    const minNetEdgeBps = '20';
+    const minFillableUsd = '500';
 
     const runnerCode = `/**
  * Arbitrage Bot Runner — connects detection engine to Base44
@@ -140,7 +140,9 @@ process.on('SIGINT', () => { engine.stop(); process.exit(0); });
 process.on('SIGTERM', () => { engine.stop(); process.exit(0); });
 `;
 
-    const oneLiner = `echo '${Buffer.from(runnerCode).toString('base64')}' | base64 -d > /root/arb-ws-bot/runner.mjs && chmod +x /root/arb-ws-bot/runner.mjs && echo "✅ runner.mjs downloaded" && pm2 restart arb-bot`;
+    // Deno-safe base64 encoding (no Node Buffer)
+    const b64 = btoa(unescape(encodeURIComponent(runnerCode)));
+    const oneLiner = `echo '${b64}' | base64 -d > /root/arb-ws-bot/runner.mjs && chmod +x /root/arb-ws-bot/runner.mjs && echo "✅ runner.mjs downloaded" && pm2 restart arb-bot`;
 
     const fullScript = `#!/bin/bash
 set -e
