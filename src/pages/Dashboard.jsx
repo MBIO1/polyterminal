@@ -7,11 +7,8 @@ import {
   DollarSign,
   BarChart3,
   Cpu,
-  Play,
-  Square,
-  FlaskConical,
-  Zap,
 } from 'lucide-react';
+import BotControls from '@/components/arb/BotControls';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -33,7 +30,7 @@ export default function Dashboard() {
   const [strategyPnl, setStrategyPnl] = useState([]);
   const [botStatus, setBotStatus] = useState('unknown');
   const [arbConfig, setArbConfig] = useState(null);
-  const [botControlLoading, setBotControlLoading] = useState(false);
+
 
   useEffect(() => {
     loadDashboardData();
@@ -100,116 +97,29 @@ export default function Dashboard() {
     }
   };
 
-  const setBotFlag = async (key, value) => {
-    if (!arbConfig?.id) return;
-    setBotControlLoading(true);
-    try {
-      await base44.entities.ArbConfig.update(arbConfig.id, { [key]: value });
-      setArbConfig(prev => ({ ...prev, [key]: value }));
-    } catch (e) {
-      console.error('Bot control error:', e);
-    } finally {
-      setBotControlLoading(false);
-    }
-  };
-
-  const isRunning = arbConfig?.bot_running && !arbConfig?.kill_switch_active;
-  const isPaper = arbConfig?.paper_trading;
-  const isKilled = arbConfig?.kill_switch_active;
-
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-bold">Dashboard</h1>
           <p className="text-muted-foreground mt-1">Overview of your arbitrage trading performance</p>
         </div>
-        <div className="flex items-center gap-3">
-          {/* Bot Health Indicator */}
+        <div className="flex items-center gap-3 flex-wrap">
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium ${
-            botStatus === 'ok'
-              ? 'bg-green-500/10 border-green-500/30 text-green-400'
-              : botStatus === 'alert'
-              ? 'bg-red-500/10 border-red-500/30 text-red-400'
-              : 'bg-muted border-border text-muted-foreground'
+            botStatus === 'ok' ? 'bg-green-500/10 border-green-500/30 text-green-400'
+            : botStatus === 'alert' ? 'bg-red-500/10 border-red-500/30 text-red-400'
+            : 'bg-muted border-border text-muted-foreground'
           }`}>
             <Cpu className="w-4 h-4" />
-            <span className={`w-2 h-2 rounded-full ${
-              botStatus === 'ok' ? 'bg-green-400 animate-pulse' :
-              botStatus === 'alert' ? 'bg-red-500 animate-pulse' :
-              'bg-gray-500'
-            }`} />
+            <span className={`w-2 h-2 rounded-full ${botStatus === 'ok' ? 'bg-green-400 animate-pulse' : botStatus === 'alert' ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
             {botStatus === 'ok' ? 'Bot Online' : botStatus === 'alert' ? 'Bot Issue' : 'No Heartbeat'}
           </div>
-          <Button onClick={loadDashboardData} variant="outline">
+          <BotControls config={arbConfig} onUpdated={loadDashboardData} />
+          <Button onClick={loadDashboardData} variant="outline" size="sm">
             <Activity className="w-4 h-4 mr-2" />Refresh
           </Button>
         </div>
       </div>
-
-      {/* Bot Control Panel */}
-      <Card className={`border ${isKilled ? 'border-red-500/40 bg-red-500/5' : isRunning ? 'border-green-500/40 bg-green-500/5' : 'border-border'}`}>
-        <CardContent className="pt-4 pb-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2 flex-1 min-w-[180px]">
-              <Cpu className="w-5 h-5 text-muted-foreground" />
-              <div>
-                <p className="text-sm font-semibold">
-                  {isKilled ? '🔴 Kill Switch Active' : isRunning ? '🟢 Bot Running' : '⚪ Bot Stopped'}
-                </p>
-                <p className="text-xs text-muted-foreground">{isPaper ? 'Paper trading mode' : 'Live trading mode'}</p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                disabled={botControlLoading || !arbConfig || (isRunning && !isKilled)}
-                onClick={() => {
-                  setBotFlag('bot_running', true);
-                  if (isKilled) setBotFlag('kill_switch_active', false);
-                }}
-                className="bg-green-600 hover:bg-green-700 text-white"
-              >
-                <Play className="w-4 h-4 mr-1" />Start
-              </Button>
-
-              <Button
-                size="sm"
-                variant="destructive"
-                disabled={botControlLoading || !arbConfig || !isRunning}
-                onClick={() => setBotFlag('bot_running', false)}
-              >
-                <Square className="w-4 h-4 mr-1" />Stop
-              </Button>
-
-              <Button
-                size="sm"
-                variant={isPaper ? 'default' : 'outline'}
-                disabled={botControlLoading || !arbConfig}
-                onClick={() => setBotFlag('paper_trading', !isPaper)}
-              >
-                <FlaskConical className="w-4 h-4 mr-1" />
-                {isPaper ? 'Paper Mode' : 'Live Mode'}
-              </Button>
-
-              <Button
-                size="sm"
-                variant={isKilled ? 'destructive' : 'outline'}
-                disabled={botControlLoading || !arbConfig}
-                onClick={() => setBotFlag('kill_switch_active', !isKilled)}
-              >
-                <Zap className="w-4 h-4 mr-1" />
-                {isKilled ? 'Release Kill' : 'Kill Switch'}
-              </Button>
-            </div>
-
-            {!arbConfig && (
-              <p className="text-xs text-muted-foreground font-mono">No config found — create one in <Link to="/config" className="underline">Config</Link></p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Drawdown Gauge */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">

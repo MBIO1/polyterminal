@@ -1,39 +1,41 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { base44 } from '@/api/base44Client';
 import Section from '@/components/arb/Section';
 import StatTile from '@/components/arb/StatTile';
 import StatusBadge from '@/components/arb/StatusBadge';
 import EmptyState from '@/components/arb/EmptyState';
+import BotControls from '@/components/arb/BotControls';
 import { Zap, Activity } from 'lucide-react';
 
 export default function Monitor() {
   const [data, setData] = useState({ hb: null, signals: [], positions: [], config: null, loading: true });
 
-  useEffect(() => {
-    const load = async () => {
-      try {
-        const [hbs, sigs, pos, cfg] = await Promise.all([
-          base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 1),
-          base44.asServiceRole.entities.ArbSignal.list('-received_time', 50),
-          base44.asServiceRole.entities.ArbLivePosition.list('-snapshot_time', 100),
-          base44.asServiceRole.entities.ArbConfig.list('-created_date', 1),
-        ]);
-        setData({
-          hb: hbs?.[0] || null,
-          signals: sigs || [],
-          positions: pos || [],
-          config: cfg?.[0] || null,
-          loading: false,
-        });
-      } catch (e) {
-        console.error('load error', e);
-        setData(prev => ({ ...prev, loading: false }));
-      }
-    };
-    load();
-    const t = setInterval(load, 3000);
-    return () => clearInterval(t);
+  const load = useCallback(async () => {
+    try {
+      const [hbs, sigs, pos, cfg] = await Promise.all([
+        base44.entities.ArbHeartbeat.list('-snapshot_time', 1),
+        base44.entities.ArbSignal.list('-received_time', 50),
+        base44.entities.ArbLivePosition.list('-snapshot_time', 100),
+        base44.entities.ArbConfig.list('-created_date', 1),
+      ]);
+      setData({
+        hb: hbs?.[0] || null,
+        signals: sigs || [],
+        positions: pos || [],
+        config: cfg?.[0] || null,
+        loading: false,
+      });
+    } catch (e) {
+      console.error('load error', e);
+      setData(prev => ({ ...prev, loading: false }));
+    }
   }, []);
+
+  useEffect(() => {
+    load();
+    const t = setInterval(load, 5000);
+    return () => clearInterval(t);
+  }, [load]);
 
   if (data.loading) {
     return <div className="min-h-screen bg-background flex items-center justify-center"><div className="text-foreground">Loading...</div></div>;
@@ -45,7 +47,10 @@ export default function Monitor() {
   return (
     <div className="min-h-screen bg-background p-6">
       <div className="max-w-7xl mx-auto space-y-6">
-        <h1 className="text-3xl font-bold text-foreground">Live Monitor</h1>
+        <div className="flex items-center justify-between flex-wrap gap-3">
+          <h1 className="text-3xl font-bold text-foreground">Live Monitor</h1>
+          <BotControls config={data.config} onUpdated={load} />
+        </div>
         
         <div className="grid grid-cols-4 gap-3">
           <StatTile label="Posted" value={data.hb?.posted || 0} tone="primary" />
@@ -63,7 +68,7 @@ export default function Monitor() {
                 {data.signals.slice(0, 10).map(s => (
                   <div key={s.id} className="p-2 rounded bg-secondary/30 text-xs">
                     <p className="font-mono text-foreground">{s.pair}</p>
-                    <p className="text-muted-foreground text-2xs">{s.buy_exchange} → {s.sell_exchange} | {s.net_edge_bps?.toFixed(1)}bps</p>
+                    <p className="text-muted-foreground">{s.buy_exchange} → {s.sell_exchange} | {s.net_edge_bps?.toFixed(1)}bps</p>
                   </div>
                 ))}
               </div>
@@ -79,7 +84,7 @@ export default function Monitor() {
                   <div key={p.id} className="p-2 rounded bg-secondary/30 text-xs flex justify-between items-center">
                     <div>
                       <p className="font-mono text-foreground">{p.asset}</p>
-                      <p className="text-muted-foreground text-2xs">Δ: ${Math.abs(p.net_delta_usd || 0).toFixed(0)}</p>
+                      <p className="text-muted-foreground">Δ: ${Math.abs(p.net_delta_usd || 0).toFixed(0)}</p>
                     </div>
                     <StatusBadge status={p.status} />
                   </div>
