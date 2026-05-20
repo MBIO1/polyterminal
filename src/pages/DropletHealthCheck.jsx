@@ -262,6 +262,18 @@ export default function DropletHealthCheck() {
             </Button>
 
             <Button
+              onClick={() => runAction('fixBotExport', 'Fix bot.mjs Export')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-pink-500/40 text-pink-400 hover:bg-pink-500/10"
+            >
+              {actionLoading === 'fixBotExport'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Wrench className="w-4 h-4 mr-2" />}
+              🔧 Fix bot.mjs Export
+            </Button>
+
+            <Button
               onClick={() => runAction('cleanDroplet', 'Clean Droplet')}
               disabled={!!actionLoading}
               variant="outline"

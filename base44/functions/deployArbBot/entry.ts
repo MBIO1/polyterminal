@@ -367,9 +367,7 @@ class ArbitrageEngine {
   getOpportunities() { return this.opportunities; }
 }
 
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = ArbitrageEngine;
-}
+export default ArbitrageEngine;
 BOTEOF
 
 # Step 4: Download runner.mjs (signal poster)
