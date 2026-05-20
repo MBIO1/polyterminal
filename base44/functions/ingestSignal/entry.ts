@@ -204,6 +204,18 @@ Deno.serve(async (req) => {
       }).catch(e => console.error('slackAlert:', e.message));
     }
 
+    // ⚡ INSTANT EXECUTION — trigger executeSignals immediately for this specific signal.
+    // Sub-second cadence vs. waiting up to 5 min for the scheduled run.
+    // Fire-and-forget: don't block the ingest response on execution.
+    if (netEdge > 0) {
+      base44.asServiceRole.functions.invoke('executeSignals', {
+        signal_id:     signal.id,
+        max_signals:   1,
+        signal_ttl_ms: 60_000,
+        dry_run:       false,
+      }).catch(e => console.error('[ingestSignal] executeSignals trigger failed:', e.message));
+    }
+
     return Response.json({ ok: true, signal_id: signal.id });
 
   } catch (error) {

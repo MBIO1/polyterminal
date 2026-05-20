@@ -115,9 +115,13 @@ async function executeViaDroplet(signal, qty) {
 Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
-    const user   = await base44.auth.me();
-    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    if (user.role !== 'admin') return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
+    // Allow service-role calls (e.g. from ingestSignal) to bypass user-auth check.
+    // service-role requests don't carry a user identity.
+    let user = null;
+    try { user = await base44.auth.me(); } catch { /* service role */ }
+    const isServiceRole = !user; // createClientFromRequest with no user header = service role context
+    if (user && user.role !== 'admin') return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
+    if (!user && !isServiceRole) return Response.json({ error: 'Unauthorized' }, { status: 401 });
 
     const body       = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
     const dryRun     = body.dry_run === true;
