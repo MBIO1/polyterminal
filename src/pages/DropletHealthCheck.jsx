@@ -241,12 +241,24 @@ export default function DropletHealthCheck() {
               onClick={() => runAction('deployArbBot', 'Deploy Arb Bot')}
               disabled={!!actionLoading}
               variant="outline"
-              className="border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10 col-span-2 md:col-span-1"
+              className="border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"
             >
               {actionLoading === 'deployArbBot'
                 ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                 : <Download className="w-4 h-4 mr-2" />}
               🚀 Deploy Arb Bot
+            </Button>
+
+            <Button
+              onClick={() => runAction('downloadRunner', 'Download runner.mjs')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-orange-500/40 text-orange-400 hover:bg-orange-500/10"
+            >
+              {actionLoading === 'downloadRunner'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Download className="w-4 h-4 mr-2" />}
+              📄 Download runner.mjs
             </Button>
 
             <Button
@@ -274,9 +286,9 @@ export default function DropletHealthCheck() {
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
-            <b>🚀 Deploy Arb Bot</b> — creates directory, downloads bot files, sets up .env, starts PM2 (recommended).<br/>
+            <b>📄 Download runner.mjs</b> — quick fix when runner.mjs is missing (PM2 error).<br/>
+            <b>🚀 Deploy Arb Bot</b> — full deployment: creates directory, downloads bot files, sets up .env, starts PM2.<br/>
             <b>Test Trade ($1)</b> — creates a paper $1 BTC trade, pings order-server, records result in ArbTrades.<br/>
-            <b>Fix Bot Env</b> — script to update BASE44_USER_TOKEN + URLs + restart services.<br/>
             <b>Clean Droplet</b> — kills all other bots, rewrites env with fresh secrets, restarts only Base44 arb-bot.
           </p>
 

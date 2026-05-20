@@ -1,0 +1,166 @@
+/**
+ * Download only the runner.mjs file to the droplet
+ * Quick fix when runner.mjs is missing
+ */
+
+import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
+
+Deno.serve(async (req) => {
+  try {
+    const base44 = createClientFromRequest(req);
+    const user = await base44.auth.me();
+    if (!user || user.role !== 'admin') {
+      return Response.json({ error: 'Unauthorized' }, { status: 403 });
+    }
+
+    const dropletIp = Deno.env.get('DROPLET_IP');
+    const baseUrl = Deno.env.get('BASE44_APP_URL');
+    const dropletSecret = Deno.env.get('DROPLET_SECRET');
+    const minNetEdgeBps = Deno.env.get('MIN_NET_EDGE_BPS') || '20';
+    const minFillableUsd = Deno.env.get('MIN_FILLABLE_USD') || '500';
+
+    const runnerCode = `/**
+ * Arbitrage Bot Runner — connects detection engine to Base44
+ */
+
+import ArbitrageEngine from './bot.mjs';
+
+const BASE44_INGEST_URL = process.env.BASE44_INGEST_URL || '${baseUrl}/functions/ingestSignal';
+const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
+const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || ${minNetEdgeBps};
+const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || ${minFillableUsd};
+
+const lastSignalTime = new Map();
+const DEDUPE_WINDOW_MS = 30_000;
+
+async function postSignal(spread) {
+  const pair = spread.symbol;
+  const route = \`\${spread.buyExchange}->\${spread.sellExchange}\`;
+  const key = \`\${pair}:\${route}\`;
+  
+  const lastTime = lastSignalTime.get(key) || 0;
+  if (Date.now() - lastTime < DEDUPE_WINDOW_MS) return;
+  
+  const netEdgeBps = parseFloat(spread.netSpread) * 100;
+  const rawSpreadBps = parseFloat(spread.grossSpread) * 100;
+  const fillableSize = MIN_FILLABLE_USD * 1.5;
+  
+  const payload = {
+    signal_time: new Date().toISOString(),
+    pair: pair,
+    asset: pair.split('-')[0] || 'Other',
+    buy_exchange: spread.buyExchange,
+    sell_exchange: spread.sellExchange,
+    buy_price: parseFloat(spread.buyPrice),
+    sell_price: parseFloat(spread.sellPrice),
+    raw_spread_bps: rawSpreadBps,
+    net_edge_bps: netEdgeBps,
+    buy_depth_usd: fillableSize,
+    sell_depth_usd: fillableSize,
+    fillable_size_usd: fillableSize,
+    signal_age_ms: Date.now() - new Date(spread.timestamp).getTime(),
+    exchange_latency_ms: 100,
+    confirmed_exchanges: spread.exchangeCount,
+    notes: \`Confidence: \${spread.confidence}%\`,
+  };
+  
+  try {
+    const response = await fetch(BASE44_INGEST_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': \`Bearer \${BOT_SECRET}\`,
+      },
+      body: JSON.stringify(payload),
+    });
+    
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error(\`❌ Signal rejected (\${response.status}): \${errorText}\`);
+      return false;
+    }
+    
+    const result = await response.json();
+    if (result.signal_id) {
+      console.log(\`✅ Signal posted: \${pair} \${netEdgeBps.toFixed(1)} bps → \${result.signal_id}\`);
+      lastSignalTime.set(key, Date.now());
+      return true;
+    } else if (result.duplicate) {
+      console.log(\`🔇 Duplicate skipped: \${pair}\`);
+    } else if (result.rejected) {
+      console.log(\`⚠️ Rejected: \${result.reason}\`);
+    }
+    return true;
+  } catch (error) {
+    console.error(\`❌ Failed to post: \${error.message}\`);
+    return false;
+  }
+}
+
+const engine = new ArbitrageEngine({
+  minNetSpreadPct: MIN_NET_EDGE_BPS / 100,
+  noiseThreshold: 0.02,
+  pollInterval: 3000,
+  minConfidence: 60,
+  cooldownMs: 10000,
+});
+
+engine.start(async (spread) => {
+  const netEdgeBps = parseFloat(spread.netSpread) * 100;
+  if (netEdgeBps >= MIN_NET_EDGE_BPS) {
+    await postSignal(spread);
+  } else {
+    console.log(\`📊 \${spread.symbol} \${netEdgeBps.toFixed(1)} bps — below \${MIN_NET_EDGE_BPS} bps floor\`);
+  }
+});
+
+process.on('SIGINT', () => { engine.stop(); process.exit(0); });
+process.on('SIGTERM', () => { engine.stop(); process.exit(0); });
+`;
+
+    const oneLiner = `echo '${Buffer.from(runnerCode).toString('base64')}' | base64 -d > /root/arb-ws-bot/runner.mjs && chmod +x /root/arb-ws-bot/runner.mjs && echo "✅ runner.mjs downloaded" && pm2 restart arb-bot`;
+
+    const fullScript = `#!/bin/bash
+set -e
+
+echo "=== Downloading runner.mjs ==="
+
+cd /root/arb-ws-bot
+
+# Write runner.mjs
+cat > /root/arb-ws-bot/runner.mjs << 'RUNNEREOF'
+${runnerCode}
+RUNNEREOF
+
+chmod +x /root/arb-ws-bot/runner.mjs
+
+echo "✅ runner.mjs downloaded"
+
+# Restart the bot
+echo "🔄 Restarting arb-bot..."
+pm2 restart arb-bot
+
+echo ""
+echo "=== Done ==="
+pm2 status
+echo ""
+echo "Monitor: pm2 logs arb-bot --lines 50"
+`;
+
+    return Response.json({
+      status: 'ready',
+      message: 'Download runner.mjs to fix the missing file error',
+      script: fullScript,
+      one_liner: oneLiner,
+      instructions: [
+        '1. SSH into your droplet: ssh root@' + dropletIp,
+        '2. Copy and run the one-liner above (quick fix)',
+        '3. Or copy the full script for detailed output',
+        '4. Check status: pm2 status arb-bot',
+      ],
+    });
+
+  } catch (error) {
+    return Response.json({ error: error.message }, { status: 500 });
+  }
+});
