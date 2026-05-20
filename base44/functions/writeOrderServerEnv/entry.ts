@@ -40,6 +40,9 @@ BYBIT_TESTNET=${BYBIT_TESTNET}
 ORDER_SERVER_PORT=${ORDER_PORT}
 BASE44_USER_TOKEN=${BASE44_TOKEN}
 BASE44_RESULT_URL=${BASE44_APP_URL}/functions/ingestTradeResult
+MIN_FILLABLE_USD=5
+BASE44_INGEST_URL=${BASE44_APP_URL}/functions/ingestSignal
+BASE44_HEARTBEAT_URL=${BASE44_APP_URL}/functions/ingestHeartbeat
 `;
 
     // base64-encode so we don't have to escape quotes/special chars in the shell

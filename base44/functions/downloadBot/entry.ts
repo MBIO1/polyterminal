@@ -47,7 +47,7 @@ const MIN_NET_EDGE_BPS  = Number(process.env.MIN_NET_EDGE_BPS || 2);
 const ALERT_EDGE_BPS    = Number(process.env.ALERT_EDGE_BPS || 20);
 
 const MAX_SIGNAL_AGE_MS = Number(process.env.MAX_SIGNAL_AGE_MS || 1500);
-const MIN_FILLABLE_USD  = Number(process.env.MIN_FILLABLE_USD || 50);
+const MIN_FILLABLE_USD  = Number(process.env.MIN_FILLABLE_USD || 5);
 const HEARTBEAT_MS      = Number(process.env.HEARTBEAT_MS || 60_000);
 const CONFIRM_MIN_RATIO = Number(process.env.CONFIRM_MIN_RATIO || 0.5);
 
