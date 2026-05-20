@@ -18,6 +18,7 @@ import DailyPnlChart from '@/components/dashboard/DailyPnlChart';
 import DrawdownGauge from '@/components/dashboard/DrawdownGauge';
 import BybitBalanceWidget from '@/components/dashboard/BybitBalanceWidget';
 import BotDiagnosticCard from '@/components/dashboard/BotDiagnosticCard';
+import SignalAcceptanceChart from '@/components/dashboard/SignalAcceptanceChart';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -177,6 +178,9 @@ export default function Dashboard() {
 
       {/* Daily P&L Chart */}
       <DailyPnlChart trades={strategyPnl} />
+
+      {/* Signal Acceptance — last 24h */}
+      <SignalAcceptanceChart />
 
       {/* Strategy Performance Table */}
       <StrategyPerformanceTable trades={strategyPnl} />
