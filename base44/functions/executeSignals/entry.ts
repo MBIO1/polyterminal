@@ -61,14 +61,18 @@ function recomputeNetEdge(signal, config, sizeUsd) {
 function computeSizeUsd(signal, config, confidence) {
   const totalCap      = Number(config.total_capital || 0);
   const spotBucket    = totalCap * Number(config.spot_allocation_pct || 0.35);
-  const perTradeCap   = spotBucket * 0.10;
+  // Small accounts: use up to 50% of spot bucket per trade (vs 10% for large accounts).
+  // Threshold: if spotBucket < $100, use aggressive sizing so orders clear exchange minimums.
+  const perTradePct   = spotBucket < 100 ? 0.50 : spotBucket < 500 ? 0.25 : 0.10;
+  const perTradeCap   = spotBucket * perTradePct;
   const fillable      = Number(signal.fillable_size_usd || 0);
-  const minExecutable = Math.max(7, Number(config.min_fillable_usd || 7));
+  const minExecutable = Math.max(5, Number(config.min_fillable_usd || 5));
   const mult          = sizeMultiplier(confidence);
   if (mult <= 0 || fillable < minExecutable) return 0;
 
   const riskSize = Math.min(perTradeCap, fillable * 0.20) * mult;
-  return Math.min(Math.max(minExecutable, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD);
+  // Floor at $7 to clear Bybit minimums (SOL ~$5, ETH ~$10 at typical prices)
+  return Math.min(Math.max(7, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD);
 }
 
 function paperFill(signal, sizeUsd) {
@@ -294,6 +298,20 @@ Deno.serve(async (req) => {
       const sellPx   = Number(sig.sell_price) || 0;
       if (!buyPx) {
         results.push({ signal_id: sig.id, pair: sig.pair, decision: 'error', error: 'missing_buy_price' });
+        continue;
+      }
+
+      // Pre-check: ensure qty clears typical Bybit minimums before sending to droplet.
+      // Bybit minimums: BTC 0.000001, ETH 0.01, SOL 0.01 — expressed as USD floor.
+      const assetMinUsd = { BTC: 1, ETH: 40, SOL: 1 };
+      const minUsdForAsset = assetMinUsd[sig.asset] || 5;
+      if (sizeUsd < minUsdForAsset) {
+        console.log(`[executeSignals] SKIP ${sig.pair}: sizeUsd=$${sizeUsd} < asset min $${minUsdForAsset} (capital too small for ${sig.asset})`);
+        await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
+          status: 'rejected',
+          rejection_reason: `capital_too_small: $${sizeUsd} < $${minUsdForAsset} min for ${sig.asset}`,
+        });
+        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'rejected', reason: `capital_too_small_for_${sig.asset}` });
         continue;
       }
 
