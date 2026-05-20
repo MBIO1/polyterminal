@@ -1,6 +1,8 @@
 import React from 'react';
 import { BrowserRouter as Router, Route, Routes, Link } from 'react-router-dom';
 import { Toaster } from '@/components/ui/toaster';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { queryClientInstance } from '@/lib/query-client';
 import './index.css';
 
 // Import pages
@@ -42,6 +44,7 @@ const Layout = ({ children }) => (
 
 function App() {
   return (
+    <QueryClientProvider client={queryClientInstance}>
     <Router>
       <Layout>
         <Routes>
@@ -56,6 +59,7 @@ function App() {
       </Layout>
       <Toaster />
     </Router>
+    </QueryClientProvider>
   );
 }
 
