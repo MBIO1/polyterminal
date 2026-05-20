@@ -344,8 +344,8 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     
-    // Optional: Check auth for manual triggers
-    const user = await base44.auth.me();
+    // Auth is optional — scheduled automations run without a user session.
+    // asServiceRole works on its own inside Base44-hosted functions.
     
     const result = await checkAndAlert(base44);
     

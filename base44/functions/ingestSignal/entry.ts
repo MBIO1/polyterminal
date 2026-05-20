@@ -111,31 +111,26 @@ Deno.serve(async (req) => {
       bearerToken === userToken
     );
 
-    // Try user auth first
-    let user = null;
-    let initReq = req;
-    try {
-      const tempBase44 = createClientFromRequest(req);
-      user = await tempBase44.auth.me();
-    } catch {
-      // Not a real user session — check droplet secret
-    }
-
-    if (!user && !isDroplet) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
-
-    // Read body before potentially swapping the request object
+    // Read body before swapping the request object
     let body;
     try { body = await req.json(); }
     catch { return Response.json({ error: 'Invalid JSON body' }, { status: 400 }); }
 
-    // If droplet call, strip the invalid secret from Authorization header.
-    // asServiceRole works on its own inside Base44-hosted functions without user auth.
-    if (!user && isDroplet) {
-      const headers = new Headers(req.headers);
-      headers.delete('Authorization');
-      initReq = new Request(req.url, { method: req.method, headers });
+    // For droplet calls: strip the invalid secret from Authorization so SDK initializes clean.
+    // For user calls: keep the Authorization header so auth.me() works.
+    let initReq = req;
+    if (isDroplet) {
+      const cleanHeaders = new Headers(req.headers);
+      cleanHeaders.delete('Authorization');
+      initReq = new Request(req.url, { method: req.method, headers: cleanHeaders });
+    } else {
+      // Not a droplet — must be an authenticated admin user
+      const tempBase44 = createClientFromRequest(req);
+      let user = null;
+      try { user = await tempBase44.auth.me(); } catch {}
+      if (!user || user.role !== 'admin') {
+        return Response.json({ error: 'Unauthorized' }, { status: 401 });
+      }
     }
     const base44 = createClientFromRequest(initReq);
 

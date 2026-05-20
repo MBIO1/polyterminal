@@ -4,25 +4,8 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
 
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch (authError) {
-      console.warn('dropletHealth: auth check failed');
-      return Response.json({
-        overall_status: 'unknown',
-        issues: ['authentication_unavailable'],
-        heartbeat: { status: 'unknown', last_seen_sec: null },
-        connectivity: { post_errors_last_hour: 0, non_2xx_last_hour: 0, issues: [] },
-        signal_flow: { status: 'unknown', signals_ingested_last_hour: 0 },
-        websocket_books: { status: 'unknown', details: 'Auth failed' },
-        recommendations: [],
-        diagnostics: null,
-        checked_at: new Date().toISOString(),
-      });
-    }
-
-    if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    // Auth is optional — allow scheduled automations and unauthenticated calls.
+    // asServiceRole works on its own inside Base44-hosted functions.
 
     const now = Date.now();
     const oneHourAgo = new Date(now - 60 * 60 * 1000).toISOString();
