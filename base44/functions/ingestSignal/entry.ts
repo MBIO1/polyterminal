@@ -142,6 +142,21 @@ Deno.serve(async (req) => {
       return Response.json({ ok: true, rejected: true, reason: 'net_edge_bps <= 0' });
     }
 
+    // VENUE FILTER: We only have a Bybit execution path. Reject signals that
+    // don't include Bybit on at least one leg — they are untradeable noise
+    // (e.g. OKX-perp → OKX-spot internal-basis signals).
+    const buyEx  = String(body.buy_exchange  || '').toLowerCase();
+    const sellEx = String(body.sell_exchange || '').toLowerCase();
+    const buyIsBybit  = buyEx.includes('bybit');
+    const sellIsBybit = sellEx.includes('bybit');
+    if (!buyIsBybit && !sellIsBybit) {
+      return Response.json({
+        ok: true,
+        rejected: true,
+        reason: 'no_bybit_leg — execution path is Bybit-only',
+      });
+    }
+
     // Fuzzy duplicate detection
     const dupCheck = await checkFuzzyDuplicate(base44, body);
     if (dupCheck.isDuplicate) {
