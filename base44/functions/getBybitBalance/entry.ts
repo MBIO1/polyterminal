@@ -34,10 +34,10 @@ Deno.serve(async (req) => {
     }
 
     // Now fetch balance
-    const response = await fetch(`http://${dropletIp}:${orderServerPort}/api/balance`, {
+    const response = await fetch(`http://${dropletIp}:${orderServerPort}/balance`, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${dropletSecret}`,
+        'X-Droplet-Secret': dropletSecret,
         'Content-Type': 'application/json',
       },
       signal: AbortSignal.timeout(8000),
@@ -50,8 +50,7 @@ Deno.serve(async (req) => {
         details: errorText,
         dropletIp,
         port: orderServerPort,
-        statusCode: response.status,
-        hint: response.status === 404 ? 'Order server not running on droplet' : undefined
+        statusCode: response.status
       }, { status: response.status });
     }
 
