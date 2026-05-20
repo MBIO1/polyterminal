@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { toast } from 'sonner';
 import { 
   CheckCircle2, 
   XCircle, 
@@ -11,7 +12,12 @@ import {
   RefreshCw,
   Wifi,
   Signal,
-  Clock
+  Clock,
+  Play,
+  RotateCcw,
+  Settings,
+  Upload,
+  Square
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -50,6 +56,20 @@ export default function DropletHealthCheck() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [lastCheck, setLastCheck] = useState(new Date());
+  const [actionLoading, setActionLoading] = useState(null); // track which button is loading
+
+  const runAction = async (fnName, label) => {
+    setActionLoading(fnName);
+    try {
+      const res = await base44.functions.invoke(fnName, {});
+      toast.success(`${label}: ${res.data?.status || res.data?.message || 'Done'}`);
+      setTimeout(checkHealth, 2000); // refresh health after action
+    } catch (e) {
+      toast.error(`${label} failed: ${e.message}`);
+    } finally {
+      setActionLoading(null);
+    }
+  };
 
   const checkHealth = async () => {
     setLoading(true);
@@ -85,16 +105,75 @@ export default function DropletHealthCheck() {
 
   return (
     <div className="p-6 max-w-6xl mx-auto space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-3xl font-bold">Droplet Health Check</h1>
-          <p className="text-muted-foreground mt-1">Monitor the arbitrage bot droplet status</p>
+          <h1 className="text-3xl font-bold">Droplet Health</h1>
+          <p className="text-muted-foreground mt-1">Monitor and control the arbitrage bot droplet</p>
         </div>
         <Button onClick={checkHealth} disabled={loading} variant="outline">
           <RefreshCw className={`w-4 h-4 mr-2 ${loading ? 'animate-spin' : ''}`} />
           {loading ? 'Checking...' : 'Refresh'}
         </Button>
       </div>
+
+      {/* Bot Action Buttons */}
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-sm">Bot Controls</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <Button
+              onClick={() => runAction('deployBot', 'Deploy Bot')}
+              disabled={!!actionLoading}
+              className="bg-primary hover:bg-primary/90"
+            >
+              {actionLoading === 'deployBot'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Upload className="w-4 h-4 mr-2" />}
+              Deploy Bot
+            </Button>
+
+            <Button
+              onClick={() => runAction('restartDroplet', 'Restart Bot')}
+              disabled={!!actionLoading}
+              variant="secondary"
+            >
+              {actionLoading === 'restartDroplet'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <RotateCcw className="w-4 h-4 mr-2" />}
+              Restart Bot
+            </Button>
+
+            <Button
+              onClick={() => runAction('setupDroplet', 'Setup Droplet')}
+              disabled={!!actionLoading}
+              variant="outline"
+            >
+              {actionLoading === 'setupDroplet'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Settings className="w-4 h-4 mr-2" />}
+              Setup Droplet
+            </Button>
+
+            <Button
+              onClick={() => runAction('testDropletConnection', 'Test Connection')}
+              disabled={!!actionLoading}
+              variant="outline"
+            >
+              {actionLoading === 'testDropletConnection'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Wifi className="w-4 h-4 mr-2" />}
+              Test Connection
+            </Button>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3 font-mono">
+            <b>Deploy Bot</b> — pushes latest bot code + env vars + restarts service. Use after any code change.<br/>
+            <b>Restart Bot</b> — restarts the running bot process without re-deploying code.<br/>
+            <b>Setup Droplet</b> — writes .env + order-server.mjs for first-time setup.
+          </p>
+        </CardContent>
+      </Card>
 
       {error && (
         <Alert variant="destructive">
