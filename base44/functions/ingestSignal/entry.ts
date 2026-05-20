@@ -174,15 +174,9 @@ Deno.serve(async (req) => {
 
     console.log(`[ingestSignal] ${body.pair} net=${netEdge.toFixed(2)}bps fill=$${Math.round(body.fillable_size_usd||0)} → ${signal.id}`);
 
-    // Telegram alerts
+    // Telegram alerts — only on tradeable signals (≥20 bps). Near-miss alerts muted.
     if (netEdge >= TELEGRAM_ALERT_MIN_BPS) {
       await pushTelegramAlert({ ...body, ...signal }, 'full');
-    } else if (netEdge >= TELEGRAM_NEAR_MISS_MIN_BPS) {
-      const last = lastNearMissByPair.get(body.pair) || 0;
-      if (Date.now() - last >= NEAR_MISS_COOLDOWN_MS) {
-        lastNearMissByPair.set(body.pair, Date.now());
-        await pushTelegramAlert({ ...body, ...signal }, 'near_miss');
-      }
     }
 
     // Slack alert on any tradeable signal (net edge >= 5 bps)
