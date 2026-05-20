@@ -302,8 +302,10 @@ Deno.serve(async (req) => {
       }
 
       // Pre-check: ensure qty clears typical Bybit minimums before sending to droplet.
-      // Bybit minimums: BTC 0.000001, ETH 0.01, SOL 0.01 — expressed as USD floor.
-      const assetMinUsd = { BTC: 1, ETH: 40, SOL: 1 };
+      // Bybit actual minimums: BTC spot 0.000001 (~$0.08), ETH spot 0.0001 (~$0.21),
+      // SOL spot 0.01 (~$0.86), SOL perp 0.1 (~$8.6), ETH perp 0.01 (~$21).
+      // Use perp minimums (the binding constraint) as USD floors.
+      const assetMinUsd = { BTC: 1, ETH: 22, SOL: 9 };
       const minUsdForAsset = assetMinUsd[sig.asset] || 5;
       if (sizeUsd < minUsdForAsset) {
         console.log(`[executeSignals] SKIP ${sig.pair}: sizeUsd=$${sizeUsd} < asset min $${minUsdForAsset} (capital too small for ${sig.asset})`);
