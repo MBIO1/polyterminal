@@ -15,23 +15,24 @@ Deno.serve(async (req) => {
 
     const dropletIp = Deno.env.get('DROPLET_IP');
 
-    // One-liner: replace the CommonJS export block with ES module export
-    const oneLiner = `cd /root/arb-ws-bot && sed -i '/if (typeof module/,/^}$/d' bot.mjs && echo 'export default ArbitrageEngine;' >> bot.mjs && tail -5 bot.mjs && pm2 restart arb-bot && sleep 3 && pm2 logs arb-bot --lines 20 --nostream`;
+    // One-liner: idempotent — strips ALL existing exports (CJS block + any export default lines), then appends ONE clean ES export
+    const oneLiner = `cd /root/arb-ws-bot && sed -i '/if (typeof module/,/^}$/d; /^export default /d' bot.mjs && echo 'export default ArbitrageEngine;' >> bot.mjs && tail -5 bot.mjs && pm2 restart arb-bot && sleep 3 && pm2 logs arb-bot --lines 20 --nostream`;
 
     const fullScript = `#!/bin/bash
 set -e
 
-echo "=== Fixing bot.mjs export ==="
+echo "=== Fixing bot.mjs export (idempotent) ==="
 
 cd /root/arb-ws-bot
 
 # Backup current bot.mjs
 cp bot.mjs bot.mjs.bak
 
-# Remove the CommonJS export block (if typeof module... }) at the end
-sed -i '/if (typeof module/,/^}$/d' bot.mjs
+# Strip BOTH the CommonJS export block AND any existing 'export default' lines
+# (safe to run repeatedly without creating duplicate exports)
+sed -i '/if (typeof module/,/^}$/d; /^export default /d' bot.mjs
 
-# Append proper ES module export
+# Append exactly one clean ES module export
 echo "" >> bot.mjs
 echo "export default ArbitrageEngine;" >> bot.mjs
 
