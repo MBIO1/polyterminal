@@ -10,10 +10,12 @@ export default function BybitBalanceWidget() {
   const [loading, setLoading] = useState(true);
   const [status, setStatus] = useState('loading'); // 'ok' | 'error' | 'loading'
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [errorDetails, setErrorDetails] = useState(null);
 
   const fetchBalance = async () => {
     setLoading(true);
     setStatus('loading');
+    setErrorDetails(null);
     try {
       const res = await base44.functions.invoke('getBybitBalance', {});
       setBalance(res.data);
@@ -21,6 +23,7 @@ export default function BybitBalanceWidget() {
       setLastUpdated(new Date());
     } catch (e) {
       setStatus('error');
+      setErrorDetails(e.response?.data || { error: e.message });
     } finally {
       setLoading(false);
     }
@@ -51,9 +54,24 @@ export default function BybitBalanceWidget() {
       </CardHeader>
       <CardContent>
         {status === 'error' ? (
-          <div className="flex items-center gap-2 text-red-400">
-            <AlertCircle className="h-4 w-4" />
-            <span className="text-sm">Connection failed</span>
+          <div className="space-y-2">
+            <div className="flex items-center gap-2 text-red-400">
+              <AlertCircle className="h-4 w-4" />
+              <span className="text-sm font-medium">{errorDetails?.error || 'Connection failed'}</span>
+            </div>
+            {errorDetails?.details && (
+              <div className="text-xs text-red-300 font-mono bg-red-950/30 rounded p-2">
+                {errorDetails.details}
+              </div>
+            )}
+            {errorDetails?.dropletIp && (
+              <div className="text-xs text-muted-foreground">
+                Droplet: {errorDetails.dropletIp}:{errorDetails.port || '?'}
+              </div>
+            )}
+            {errorDetails?.hint && (
+              <div className="text-xs text-yellow-400 italic">{errorDetails.hint}</div>
+            )}
           </div>
         ) : loading && !balance ? (
           <div className="text-muted-foreground text-sm animate-pulse">Fetching from Bybit...</div>
