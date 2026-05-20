@@ -68,6 +68,10 @@ async function refreshConfig() {
         console.log(\`🔄 MIN_NET_EDGE_BPS \${MIN_NET_EDGE_BPS} → \${j.min_net_edge_bps}\`);
       }
       MIN_NET_EDGE_BPS = j.min_net_edge_bps;
+      // Push the new threshold into the live engine so it actually surfaces lower-edge opportunities.
+      if (typeof engine !== 'undefined' && engine && engine.config) {
+        engine.config.minNetSpreadPct = MIN_NET_EDGE_BPS / 100;
+      }
     }
     if (Number.isFinite(j.min_fillable_usd) && j.min_fillable_usd > 0) {
       if (j.min_fillable_usd !== MIN_FILLABLE_USD) {
@@ -84,10 +88,6 @@ console.log(\`🔧 Config: INGEST_URL=\${BASE44_INGEST_URL}\`);
 console.log(\`🔧 Config: CONFIG_URL=\${BASE44_CONFIG_URL}\`);
 console.log(\`🔧 Config: BOT_SECRET=\${BOT_SECRET ? BOT_SECRET.slice(0, 8) + '...' : 'MISSING'}\`);
 console.log(\`🔧 Config: MIN_NET_EDGE_BPS=\${MIN_NET_EDGE_BPS} (initial)\`);
-
-// Pull live thresholds at startup, then refresh every 60s
-await refreshConfig();
-setInterval(refreshConfig, 60_000);
 
 const lastSignalTime = new Map();
 const DEDUPE_WINDOW_MS = 30_000;
@@ -164,6 +164,11 @@ const engine = new ArbitrageEngine({
   minConfidence: 40,
   cooldownMs: 5000,
 });
+
+// Pull live thresholds at startup, then refresh every 60s.
+// Engine is now defined so refreshConfig can update engine.config.minNetSpreadPct.
+await refreshConfig();
+setInterval(refreshConfig, 60_000);
 
 engine.start(async (spread) => {
   const netEdgeBps = parseFloat(spread.netSpread) * 100;
