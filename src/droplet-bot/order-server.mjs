@@ -118,6 +118,41 @@ async function executeBothLegs(signal) {
   const buyIsPerp  = /perp|swap|linear/i.test(signal.buy_exchange  || '');
   const sellIsPerp = /perp|swap|linear/i.test(signal.sell_exchange || '');
 
+  // CROSS-VENUE SPOT/SPOT: Both legs are spot (e.g. OKX-spot → Bybit-spot)
+  // Only execute the Bybit leg (hedging side). The other leg is assumed filled on external venue.
+  if (!buyIsPerp && !sellIsPerp) {
+    const isBuyBybit = signal.buy_exchange?.toLowerCase().includes('bybit');
+    const isSellBybit = signal.sell_exchange?.toLowerCase().includes('bybit');
+    
+    if (!isBuyBybit && !isSellBybit) {
+      throw new Error('no_bybit_leg_cross_venue_spot');
+    }
+
+    const spotInfo = await getInstrumentInfo('spot', symbol);
+    const spotQty = roundQtyToStep(rawQty, spotInfo.qtyStep);
+    
+    if (parseFloat(spotQty) < spotInfo.minQty) {
+      throw new Error(`spot_qty_below_min ${symbol}: ${spotQty} < ${spotInfo.minQty}`);
+    }
+
+    const side = isBuyBybit ? 'Buy' : 'Sell';
+    console.log(`[execute_cross_venue_spot] ${symbol} side=${side} qty=${spotQty} env=${IS_TESTNET ? 'testnet' : 'mainnet'}`);
+
+    const spotRes = await bybitOrder({ category: 'spot', symbol, side, qty: spotQty });
+    
+    return {
+      spotOk: true,
+      perpOk: true, // N/A for cross-venue spot
+      spotOrderId: spotRes.orderId,
+      perpOrderId: null,
+      symbol,
+      spotSide: side,
+      perpSide: null,
+      mode: 'live_cross_venue_spot',
+    };
+  }
+
+  // SAME-VENUE SPOT/PERP or CROSS-VENUE PERP/PERP
   let spotSide, perpSide;
   if (!buyIsPerp && sellIsPerp) {
     spotSide = 'Buy';  perpSide = 'Sell';  // contango
