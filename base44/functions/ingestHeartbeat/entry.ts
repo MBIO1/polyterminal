@@ -31,9 +31,12 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'POST only' }, { status: 405 });
     }
 
-    // Droplet auth only: IP or secret header
+    // Droplet auth: IP match, x-droplet-auth header, or Authorization: Bearer <DROPLET_SECRET>
+    const bearerToken = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '').trim();
+    const dropletSecret = Deno.env.get('DROPLET_SECRET');
     const isDroplet = clientIP === Deno.env.get('DROPLET_IP') ||
-                      req.headers.get('x-droplet-auth') === Deno.env.get('DROPLET_SECRET');
+                      req.headers.get('x-droplet-auth') === dropletSecret ||
+                      (dropletSecret && bearerToken === dropletSecret);
 
     if (!isDroplet) {
       return Response.json({ error: 'Unauthorized: droplet or user token required' }, { status: 401 });

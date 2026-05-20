@@ -30,7 +30,8 @@ import WebSocket from 'ws';
 const INGEST_URL      = process.env.BASE44_INGEST_URL;
 const HEARTBEAT_URL   = process.env.BASE44_HEARTBEAT_URL;
 const STATS_URL       = process.env.BASE44_STATS_URL;
-const TOKEN           = process.env.BASE44_USER_TOKEN;
+// ingestSignal and ingestHeartbeat authenticate via DROPLET_SECRET (Bearer token)
+const TOKEN           = process.env.DROPLET_SECRET || process.env.BASE44_USER_TOKEN;
 
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT,AVAX-USDT,LINK-USDT,DOGE-USDT,ADA-USDT,ATOM-USDT,APT-USDT,SUI-USDT,ARB-USDT,OP-USDT,INJ-USDT,SEI-USDT,TIA-USDT').split(',');
 
