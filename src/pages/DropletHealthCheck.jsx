@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Alert, AlertDescription } from '@/components/ui/alert';
 import { toast } from 'sonner';
+import { Copy } from 'lucide-react';
 import { 
   CheckCircle2, 
   XCircle, 
@@ -13,15 +14,14 @@ import {
   Wifi,
   Signal,
   Clock,
-  Play,
   RotateCcw,
   Settings,
   Upload,
-  Square,
   Wrench,
   Terminal,
   FlaskConical,
-  Trash2
+  Trash2,
+  Key
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -68,9 +68,15 @@ export default function DropletHealthCheck() {
     setActionLoading(fnName);
     try {
       const res = await base44.functions.invoke(fnName, {});
-      // If the response contains a shell script, show it in a modal
-      if (res.data?.script) {
-        setScriptModal({ title: label, script: res.data.script, message: res.data.message });
+      // If the response contains a shell script or one_liner, show it in a modal
+      if (res.data?.script || res.data?.full_script || res.data?.one_liner) {
+        setScriptModal({ 
+          title: label, 
+          script: res.data.full_script || res.data.script, 
+          one_liner: res.data.one_liner,
+          message: res.data.message,
+          instructions: res.data.instructions,
+        });
         toast.info(`${label}: Script ready — copy and run on droplet`);
       } else {
         toast.success(`${label}: ${res.data?.status || res.data?.message || 'Done'}`);
@@ -241,6 +247,18 @@ export default function DropletHealthCheck() {
                 : <Trash2 className="w-4 h-4 mr-2" />}
               Clean Droplet
             </Button>
+
+            <Button
+              onClick={() => runAction('getFixScript', 'Fix Env Now')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-green-500/40 text-green-400 hover:bg-green-500/10 col-span-2 md:col-span-1"
+            >
+              {actionLoading === 'getFixScript'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Key className="w-4 h-4 mr-2" />}
+              🔑 Fix Env Now
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
             <b>Test Trade ($1)</b> — creates a paper $1 BTC trade, pings order-server, records result in ArbTrades.<br/>
@@ -323,7 +341,20 @@ export default function DropletHealthCheck() {
                 </div>
               </div>
               {health.connectivity?.non_2xx_last_hour > 0 && (
-                <p className="text-xs text-red-400 mt-2">Bot token may be stale — run <b>Fix Bot Env</b> or <b>Clean Droplet</b></p>
+                <div className="mt-3 space-y-2">
+                  <p className="text-xs text-red-400">Token mismatch — bot can't authenticate to Base44</p>
+                  <Button
+                    size="sm"
+                    onClick={() => runAction('getFixScript', 'Fix Env Now')}
+                    disabled={!!actionLoading}
+                    className="bg-green-500/20 text-green-300 hover:bg-green-500/30 border border-green-500/30 w-full text-xs"
+                  >
+                    {actionLoading === 'getFixScript'
+                      ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                      : <Key className="w-3 h-3 mr-1" />}
+                    Get Fix Script
+                  </Button>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -344,28 +375,55 @@ export default function DropletHealthCheck() {
 
       {/* Script Modal */}
       {scriptModal && (
-        <Card className="border-yellow-500/30 bg-yellow-500/5">
+        <Card className="border-green-500/30 bg-green-500/5">
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
-              <Terminal className="w-4 h-4 text-yellow-400" />
+              <Terminal className="w-4 h-4 text-green-400" />
               {scriptModal.title} — Run on Droplet
             </CardTitle>
             <Button variant="ghost" size="sm" onClick={() => setScriptModal(null)}>✕</Button>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             {scriptModal.message && (
-              <p className="text-sm text-muted-foreground">{scriptModal.message}</p>
+              <p className="text-sm text-yellow-300 font-semibold">{scriptModal.message}</p>
             )}
-            <pre className="bg-secondary/80 rounded p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap max-h-80 overflow-y-auto text-green-300">
-              {scriptModal.script}
-            </pre>
-            <Button
-              size="sm"
-              onClick={() => { navigator.clipboard.writeText(scriptModal.script); toast.success('Script copied to clipboard'); }}
-              className="bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30 border border-yellow-500/30"
-            >
-              Copy Script
-            </Button>
+
+            {scriptModal.instructions && (
+              <ol className="text-xs text-muted-foreground space-y-1 list-decimal list-inside">
+                {scriptModal.instructions.map((s, i) => <li key={i}>{s}</li>)}
+              </ol>
+            )}
+
+            {scriptModal.one_liner && (
+              <div className="space-y-1">
+                <p className="text-xs text-green-400 font-semibold">⚡ Quick Fix (one-liner):</p>
+                <div className="flex gap-2 items-start">
+                  <pre className="bg-secondary/80 rounded p-3 text-xs font-mono overflow-x-auto flex-1 text-green-300 whitespace-pre-wrap">
+                    {scriptModal.one_liner}
+                  </pre>
+                  <Button size="sm" variant="ghost" className="text-green-400 shrink-0"
+                    onClick={() => { navigator.clipboard.writeText(scriptModal.one_liner); toast.success('One-liner copied!'); }}>
+                    <Copy className="w-4 h-4" />
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            {scriptModal.script && (
+              <div className="space-y-1">
+                <p className="text-xs text-yellow-400 font-semibold">📋 Full script (recommended):</p>
+                <pre className="bg-secondary/80 rounded p-4 text-xs font-mono overflow-x-auto whitespace-pre-wrap max-h-96 overflow-y-auto text-green-200">
+                  {scriptModal.script}
+                </pre>
+                <Button
+                  size="sm"
+                  onClick={() => { navigator.clipboard.writeText(scriptModal.script); toast.success('Full script copied!'); }}
+                  className="bg-green-500/20 text-green-300 hover:bg-green-500/30 border border-green-500/30"
+                >
+                  <Copy className="w-4 h-4 mr-2" />Copy Full Script
+                </Button>
+              </div>
+            )}
           </CardContent>
         </Card>
       )}
