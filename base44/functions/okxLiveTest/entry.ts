@@ -295,19 +295,22 @@ Deno.serve(async (req) => {
   try {
     const base44 = createClientFromRequest(req);
     
-    // Auth check
+    // Auth check — admin only
     const user = await base44.auth.me();
     if (!user) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
+    if (user.role !== 'admin') {
+      return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
+    }
     
     const body = await req.json().catch(() => ({}));
     
-    // Get credentials from request or environment
+    // Credentials are ONLY sourced from server env — never accept from request body.
     const credentials: OKXCredentials = {
-      apiKey: body.apiKey || Deno.env.get('OKX_API_KEY') || '',
-      apiSecret: body.apiSecret || Deno.env.get('OKX_API_SECRET') || '',
-      passphrase: body.passphrase || Deno.env.get('OKX_PASSPHRASE') || '',
+      apiKey: Deno.env.get('OKX_API_KEY') || '',
+      apiSecret: Deno.env.get('OKX_API_SECRET') || '',
+      passphrase: Deno.env.get('OKX_PASSPHRASE') || '',
       isDemo: body.isDemo ?? true,
     };
     

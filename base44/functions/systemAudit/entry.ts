@@ -16,7 +16,9 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
     if (!user) return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    // Allow both admin and regular users to view audit (read-only)
+    if (user.role !== 'admin') {
+      return Response.json({ error: 'Forbidden: admin only' }, { status: 403 });
+    }
 
     const now = Date.now();
     const oneHourAgo = now - 3_600_000;
