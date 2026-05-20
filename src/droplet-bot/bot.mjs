@@ -455,10 +455,10 @@ class ArbitrageEngine {
     };
   }
 
-  // ─── Report heartbeat to Vercel dashboard ─────────────────────────────────
+  // ─── Report heartbeat to Base44 ─────────────────────────────────
   async reportHeartbeat(stats) {
-    const VERCEL_DASHBOARD_URL = 'https://mbioarb-hzeufa4ir-mbio1s-projects.vercel.app';
-    const BASE44_FUNCTION_URL = 'https://polytrade.base44.app/functions/ingestHeartbeat';
+    const BASE44_HEARTBEAT_URL = process.env.BASE44_HEARTBEAT_URL || 'https://polytrade.base44.app/functions/ingestHeartbeat';
+    const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
     
     const heartbeatData = {
       snapshot_time: new Date().toISOString(),
@@ -470,24 +470,23 @@ class ArbitrageEngine {
       best_edge_bps: stats.bestEdge || 0,
       best_edge_pair: stats.bestPair || '',
       memory_mb: process.memoryUsage ? process.memoryUsage().heapUsed / 1024 / 1024 : 0,
-      cpu_percent: 0, // Would need os module for real value
+      cpu_percent: 0,
       fresh_books: stats.freshBooks || 'OKX:0/0 Bybit:0/0',
       post_errors: stats.errors || 0,
       post_non_2xx: stats.non2xx || 0,
     };
 
     try {
-      // Send to Base44 (for data storage)
-      await fetch(BASE44_FUNCTION_URL, {
+      await fetch(BASE44_HEARTBEAT_URL, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'x-droplet-auth': process.env.DROPLET_SECRET || '',
+          'Authorization': `Bearer ${BOT_SECRET}`,
         },
         body: JSON.stringify(heartbeatData),
       });
       
-      console.log('💓 Heartbeat sent to dashboard');
+      console.log('💓 Heartbeat sent to Base44');
     } catch (e) {
       console.warn('⚠️ Failed to send heartbeat:', e.message);
     }
