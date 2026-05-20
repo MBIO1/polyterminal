@@ -224,6 +224,18 @@ export default function DropletHealthCheck() {
                 : <Trash2 className="w-4 h-4 mr-2" />}
               🚨 Kill Systemd Crash Loop
             </Button>
+
+            <Button
+              onClick={() => runAction('updateOrderServer', 'Update Order-Server')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-orange-500/60 text-orange-300 hover:bg-orange-500/10 font-bold"
+            >
+              {actionLoading === 'updateOrderServer'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Terminal className="w-4 h-4 mr-2" />}
+              📦 Update Order-Server
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
             <b>Restart Bot</b> — pm2 restart on droplet. First thing to try.<br/>
