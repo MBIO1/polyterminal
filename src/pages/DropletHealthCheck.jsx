@@ -346,68 +346,161 @@ export default function DropletHealthCheck() {
       </Card>
 
       {health && (
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Clock className="w-4 h-4" />Heartbeat
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Badge>{health.heartbeat?.status}</Badge>
-              <div className="text-sm mt-2 space-y-1">
-                <div>Last seen: {health.heartbeat?.last_seen_sec}s ago</div>
-                <div>Heartbeats: {health.heartbeat?.heartbeats_last_hour}/hr</div>
-                <div>Evaluations: {health.heartbeat?.total_evaluations_last_hour?.toLocaleString()}</div>
-              </div>
-            </CardContent>
-          </Card>
+        <>
+          {/* Issues Summary */}
+          {health.issues?.length > 0 && (
+            <Card className="border-yellow-500/40 bg-yellow-500/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2 text-yellow-300">
+                  <AlertTriangle className="w-4 h-4" />Issues Detected
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm space-y-1 list-disc list-inside text-yellow-200">
+                  {health.issues.map((issue, i) => <li key={i}>{issue}</li>)}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
 
-          <Card className={health.connectivity?.non_2xx_last_hour > 0 ? 'border-red-500/40 bg-red-500/5' : ''}>
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Wifi className="w-4 h-4" />Connectivity
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-sm space-y-1">
-                <div>POST errors: {health.connectivity?.post_errors_last_hour}</div>
-                <div className={health.connectivity?.non_2xx_last_hour > 0 ? 'text-red-400 font-semibold' : ''}>
-                  Non-2xx: {health.connectivity?.non_2xx_last_hour}
-                  {health.connectivity?.non_2xx_last_hour > 0 && ' ⚠️ signals rejected'}
+          {/* Recommendations */}
+          {health.recommendations?.length > 0 && (
+            <Card className="border-blue-500/40 bg-blue-500/5">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm flex items-center gap-2 text-blue-300">
+                  <Wrench className="w-4 h-4" />Recommended Actions
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ul className="text-sm space-y-2">
+                  {health.recommendations.map((rec, i) => (
+                    <li key={i} className="text-blue-200">
+                      <span className="font-mono text-xs bg-blue-500/20 px-1.5 py-0.5 rounded mr-2">{rec.priority}</span>
+                      <b>{rec.action}</b>
+                      <div className="text-xs text-blue-300/80 ml-12 mt-0.5 font-mono">{rec.details}</div>
+                    </li>
+                  ))}
+                </ul>
+              </CardContent>
+            </Card>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className={health.heartbeat?.status === 'critical' ? 'border-red-500/40 bg-red-500/5' : ''}>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Clock className="w-4 h-4" />Heartbeat
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Badge variant={health.heartbeat?.status === 'healthy' ? 'default' : 'destructive'}>
+                  {health.heartbeat?.status}
+                </Badge>
+                <div className="text-sm mt-2 space-y-1">
+                  <div>Last seen: <b>{health.heartbeat?.last_seen_sec}s ago</b></div>
+                  <div>Heartbeats: {health.heartbeat?.heartbeats_last_hour}/hr</div>
+                  <div>Evaluations: {health.heartbeat?.total_evaluations_last_hour?.toLocaleString()}</div>
+                  <div>Bot posted: {health.heartbeat?.total_posted_last_hour}/hr</div>
                 </div>
-              </div>
-              {health.connectivity?.non_2xx_last_hour > 0 && (
-                <div className="mt-3 space-y-2">
-                  <p className="text-xs text-red-400">Token mismatch — bot can't authenticate to Base44</p>
+              </CardContent>
+            </Card>
+
+            <Card className={health.connectivity?.non_2xx_last_hour > 0 ? 'border-red-500/40 bg-red-500/5' : ''}>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Wifi className="w-4 h-4" />Ingest Success
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {health.connectivity?.ingest_success_rate_pct ?? '—'}%
+                  <span className="text-xs text-muted-foreground ml-2">accepted</span>
+                </div>
+                <div className="text-sm mt-2 space-y-1">
+                  <div>Bot posted: <b>{health.heartbeat?.total_posted_last_hour}</b></div>
+                  <div>Base44 accepted: <b className="text-green-400">{health.connectivity?.signals_accepted_last_hour}</b></div>
+                  <div>Rejected (non-2xx): <b className="text-red-400">{health.connectivity?.non_2xx_last_hour}</b></div>
+                  <div>Network errors: {health.connectivity?.post_errors_last_hour}</div>
+                </div>
+                {health.connectivity?.non_2xx_last_hour > 5 && (
                   <Button
                     size="sm"
                     onClick={() => runAction('getFixScript', 'Fix Env Now')}
                     disabled={!!actionLoading}
-                    className="bg-green-500/20 text-green-300 hover:bg-green-500/30 border border-green-500/30 w-full text-xs"
+                    className="bg-green-500/20 text-green-300 hover:bg-green-500/30 border border-green-500/30 w-full text-xs mt-3"
                   >
                     {actionLoading === 'getFixScript'
                       ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
                       : <Key className="w-3 h-3 mr-1" />}
-                    Get Fix Script
+                    Get Fix Script (BOT_SECRET)
                   </Button>
-                </div>
-              )}
-            </CardContent>
-          </Card>
+                )}
+              </CardContent>
+            </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-sm flex items-center gap-2">
-                <Signal className="w-4 h-4" />Signals
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Badge variant="secondary">{health.signal_flow?.status}</Badge>
-              <div className="text-sm mt-2">{health.signal_flow?.signals_ingested_last_hour} signals/hr</div>
-            </CardContent>
-          </Card>
-        </div>
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-sm flex items-center gap-2">
+                  <Signal className="w-4 h-4" />Signal Flow
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <Badge variant={health.signal_flow?.status === 'flowing' ? 'default' : 'secondary'}>
+                  {health.signal_flow?.status}
+                </Badge>
+                <div className="text-sm mt-2 space-y-1">
+                  <div>Accepted: <b>{health.signal_flow?.signals_ingested_last_hour}</b>/hr</div>
+                  <div>Posted by bot: {health.signal_flow?.signals_posted_by_bot_last_hour}/hr</div>
+                  {health.signal_flow?.last_signal_at && (
+                    <div className="text-xs text-muted-foreground">
+                      Last: {new Date(health.signal_flow.last_signal_at).toLocaleTimeString()}
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Diagnostics */}
+          {health.diagnostics && (
+            <Card>
+              <CardHeader className="pb-2">
+                <CardTitle className="text-sm">Latest Heartbeat Diagnostics</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                  <div>
+                    <div className="text-muted-foreground">Best edge</div>
+                    <div className="font-mono font-bold">{health.diagnostics.best_edge_bps?.toFixed(2)} bps</div>
+                    <div className="text-muted-foreground text-[10px]">{health.diagnostics.best_edge_pair}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Venue checks</div>
+                    <div className="font-mono">{health.diagnostics.venue_pair_checks?.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Rejected (edge)</div>
+                    <div className="font-mono text-yellow-400">{health.diagnostics.rejected_edge?.toLocaleString()}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground">Rejected (fillable)</div>
+                    <div className="font-mono text-yellow-400">{health.diagnostics.rejected_fillable?.toLocaleString()}</div>
+                  </div>
+                </div>
+                <div className="mt-3 pt-3 border-t border-border">
+                  <div className="text-xs text-muted-foreground mb-1">Spread distribution:</div>
+                  <div className="grid grid-cols-5 gap-2 text-xs font-mono">
+                    <div>0-5: <span className="text-muted-foreground">{health.diagnostics.bucket_distribution?.['0-5_bps']}</span></div>
+                    <div>5-10: <span className="text-blue-400">{health.diagnostics.bucket_distribution?.['5-10_bps']}</span></div>
+                    <div>10-15: <span className="text-green-400">{health.diagnostics.bucket_distribution?.['10-15_bps']}</span></div>
+                    <div>15-20: <span className="text-yellow-400">{health.diagnostics.bucket_distribution?.['15-20_bps']}</span></div>
+                    <div>20+: <span className="text-green-300 font-bold">{health.diagnostics.bucket_distribution?.['20+_bps']}</span></div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          )}
+        </>
       )}
 
       {/* Script Modal */}
