@@ -36,26 +36,28 @@ export default function BotDiagnosticCard() {
   }, []);
 
   const heartbeatSec  = health?.heartbeat?.last_seen_sec;
-  const heartbeatOk   = heartbeatSec != null && heartbeatSec < 120;
+  const heartbeatOk   = health?.heartbeat?.status === 'healthy';
   const posted        = health?.heartbeat?.total_posted_last_hour || 0;
   const accepted      = health?.connectivity?.signals_accepted_last_hour || 0;
   const non2xx        = health?.connectivity?.non_2xx_last_hour || 0;
   const successRate   = health?.connectivity?.ingest_success_rate_pct;
 
-  // Auth status: clear as soon as recent signals are being accepted.
-  // Only flag 'failing' when nothing is getting through (accepted=0) AND we're seeing rejections.
+  // SINGLE SOURCE OF TRUTH: use dropletHealth's overall_status (same as /droplet-health page)
+  const overall = health?.overall_status; // 'healthy' | 'warning' | 'critical' | 'unknown'
+  const overallOk = overall === 'healthy';
+
+  // Derive auth status display from overall + connectivity signals
   let authStatus;
   if (posted === 0) authStatus = 'unknown';
-  else if (accepted === 0 && non2xx > 0) authStatus = 'failing';
+  else if (overall === 'critical' && non2xx > 0) authStatus = 'failing';
   else authStatus = 'ok';
-
-  const overallOk = heartbeatOk && authStatus === 'ok';
 
   return (
     <Card className={
       overallOk ? 'border-green-500/30 bg-green-500/5'
-      : !heartbeatOk ? 'border-red-500/40 bg-red-500/5'
-      : 'border-yellow-500/40 bg-yellow-500/5'
+      : overall === 'critical' ? 'border-red-500/40 bg-red-500/5'
+      : overall === 'warning' ? 'border-yellow-500/40 bg-yellow-500/5'
+      : 'border-border'
     }>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
