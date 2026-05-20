@@ -55,12 +55,15 @@ Deno.serve(async (req) => {
     }
 
     // The droplet sends Bearer DROPLET_SECRET which is NOT a valid user token.
-    // Strip the Authorization header so the SDK initializes without trying to
-    // validate it as a user session (which logs noisy 403 "app is private" errors).
-    // Also strip x-base44-auth if present, as the SDK may use it as a fallback.
+    // Replace with the real user token so the SDK can authenticate for asServiceRole.
+    const userToken = Deno.env.get('BASE44_USER_TOKEN') || '';
     const headers = new Headers(req.headers);
-    headers.delete('Authorization');
-    headers.delete('authorization');
+    if (userToken) {
+      headers.set('Authorization', `Bearer ${userToken}`);
+    } else {
+      headers.delete('Authorization');
+      headers.delete('authorization');
+    }
     headers.delete('x-base44-auth');
     const cleanReq = new Request(req.url, { method: req.method, headers });
     const base44 = createClientFromRequest(cleanReq);

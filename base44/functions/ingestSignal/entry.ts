@@ -116,13 +116,17 @@ Deno.serve(async (req) => {
     try { body = await req.json(); }
     catch { return Response.json({ error: 'Invalid JSON body' }, { status: 400 }); }
 
-    // For droplet calls: strip the invalid secret from Authorization so SDK initializes clean.
-    // For user calls: keep the Authorization header so auth.me() works.
+    // For droplet calls: replace the secret-based auth with the real user token
+    // so the SDK can authenticate for asServiceRole operations.
     let initReq = req;
     if (isDroplet) {
       const cleanHeaders = new Headers(req.headers);
-      cleanHeaders.delete('Authorization');
-      cleanHeaders.delete('authorization');
+      if (userToken) {
+        cleanHeaders.set('Authorization', `Bearer ${userToken}`);
+      } else {
+        cleanHeaders.delete('Authorization');
+        cleanHeaders.delete('authorization');
+      }
       cleanHeaders.delete('x-base44-auth');
       initReq = new Request(req.url, { method: req.method, headers: cleanHeaders });
     } else {
