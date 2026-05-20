@@ -210,6 +210,44 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Price endpoint — public Bybit ticker proxy. Base44 egress can't reach
+  // Bybit directly (geo-block), so it asks the droplet for the price.
+  // GET /price?symbol=BTCUSDT&category=spot  ->  { ok, symbol, category, price }
+  if (req.method === 'GET' && req.url && req.url.indexOf('/price') === 0) {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (token !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+    try {
+      const u = new URL(req.url, 'http://x');
+      const symbol   = (u.searchParams.get('symbol')   || '').toUpperCase();
+      const category = (u.searchParams.get('category') || 'spot').toLowerCase();
+      if (!symbol) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'missing_symbol' }));
+        return;
+      }
+      const tickerUrl = BYBIT_BASE + '/v5/market/tickers?category=' + category + '&symbol=' + symbol;
+      const r = await fetch(tickerUrl);
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j || j.retCode !== 0) {
+        res.writeHead(502, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'bybit_ticker_failed', details: (j && j.retMsg) || r.status }));
+        return;
+      }
+      const price = parseFloat((j.result && j.result.list && j.result.list[0] && j.result.list[0].lastPrice) || 0);
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, symbol: symbol, category: category, price: price }));
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   if (req.method === 'GET' && req.url === '/api/balance') {
     const secret = req.headers['x-droplet-secret'];
     if (secret !== SECRET) {
