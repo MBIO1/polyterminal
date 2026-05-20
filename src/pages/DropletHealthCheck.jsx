@@ -335,12 +335,26 @@ export default function DropletHealthCheck() {
 
       <Card className={`${config.bg} ${config.border}`}>
         <CardContent className="pt-6">
-          <div className="flex items-center gap-4">
-            <config.icon className={`w-12 h-12 ${config.color}`} />
-            <div>
-              <h2 className="text-2xl font-bold">{config.label}</h2>
-              <p className="text-muted-foreground">Last checked: {lastCheck.toLocaleTimeString()}</p>
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-4">
+              <config.icon className={`w-12 h-12 ${config.color}`} />
+              <div>
+                <h2 className="text-2xl font-bold">{config.label}</h2>
+                <p className="text-muted-foreground">Last checked: {lastCheck.toLocaleTimeString()}</p>
+              </div>
             </div>
+            {status === 'critical' && (
+              <Button
+                onClick={() => runAction('restartDroplet', 'Restart Bot')}
+                disabled={!!actionLoading}
+                className="bg-red-500/20 text-red-200 hover:bg-red-500/30 border border-red-500/40"
+              >
+                {actionLoading === 'restartDroplet'
+                  ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                  : <RotateCcw className="w-4 h-4 mr-2" />}
+                Restart Bot Now
+              </Button>
+            )}
           </div>
         </CardContent>
       </Card>
@@ -372,12 +386,27 @@ export default function DropletHealthCheck() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <ul className="text-sm space-y-2">
+                <ul className="text-sm space-y-3">
                   {health.recommendations.map((rec, i) => (
                     <li key={i} className="text-blue-200">
-                      <span className="font-mono text-xs bg-blue-500/20 px-1.5 py-0.5 rounded mr-2">{rec.priority}</span>
-                      <b>{rec.action}</b>
-                      <div className="text-xs text-blue-300/80 ml-12 mt-0.5 font-mono">{rec.details}</div>
+                      <div className="flex items-start gap-2 flex-wrap">
+                        <span className="font-mono text-xs bg-blue-500/20 px-1.5 py-0.5 rounded">{rec.priority}</span>
+                        <b className="flex-1">{rec.action}</b>
+                        {rec.action?.toLowerCase().includes('restart') && (
+                          <Button
+                            size="sm"
+                            onClick={() => runAction('restartDroplet', 'Restart Bot')}
+                            disabled={!!actionLoading}
+                            className="bg-red-500/20 text-red-200 hover:bg-red-500/30 border border-red-500/40 h-7 text-xs"
+                          >
+                            {actionLoading === 'restartDroplet'
+                              ? <RefreshCw className="w-3 h-3 mr-1 animate-spin" />
+                              : <RotateCcw className="w-3 h-3 mr-1" />}
+                            Run Now
+                          </Button>
+                        )}
+                      </div>
+                      <div className="text-xs text-blue-300/80 ml-12 mt-1 font-mono">{rec.details}</div>
                     </li>
                   ))}
                 </ul>
