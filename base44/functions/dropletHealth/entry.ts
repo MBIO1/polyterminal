@@ -27,13 +27,16 @@ Deno.serve(async (req) => {
     const now = Date.now();
     const oneHourAgo = new Date(now - 60 * 60 * 1000).toISOString();
 
-    // Fetch ALL heartbeats from the last hour (not just the latest 1)
+    // Always fetch the latest heartbeat regardless of age (so we can show "X hours ago")
+    const latestHeartbeatList = await base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 1);
+    const latestHeartbeat = latestHeartbeatList?.[0];
+
+    // Fetch heartbeats from the last hour for rate calculations
     const heartbeats = await base44.asServiceRole.entities.ArbHeartbeat.filter(
       { snapshot_time: { $gte: oneHourAgo } },
       '-snapshot_time',
       500
     );
-    const latestHeartbeat = heartbeats?.[0];
 
     // Fetch recent signals
     const recentSignals = await base44.asServiceRole.entities.ArbSignal.filter(
