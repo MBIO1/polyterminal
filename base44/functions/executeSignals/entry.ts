@@ -33,8 +33,8 @@ function signalConfidence(signal, ttlMs) {
   
   // NEW: Book freshness bonus (industry standard)
   // Signals with fresh orderbook data are more reliable
-  const signalAgeMs = signalAgeMs(signal);
-  const freshnessBonus = signalAgeMs < 1000 ? 20 : signalAgeMs < 5000 ? 10 : 0;
+  const ageMs = signalAgeMs(signal);
+  const freshnessBonus = ageMs < 1000 ? 20 : ageMs < 5000 ? 10 : 0;
   
   return Math.min(100, Math.max(0, Math.round(agePts + confirmPts + fillPts + freshnessBonus)));
 }

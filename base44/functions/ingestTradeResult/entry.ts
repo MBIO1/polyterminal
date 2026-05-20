@@ -7,26 +7,36 @@ Deno.serve(async (req) => {
   if (req.method !== 'POST') return Response.json({ error: 'method_not_allowed' }, { status: 405 });
 
   try {
-    const base44 = createClientFromRequest(req);
+    // Auth: accept droplet secret, bot secret, or valid user session
+    const authHeader    = req.headers.get('authorization') || '';
+    const token         = authHeader.replace('Bearer ', '').trim();
+    const dropletSecret = Deno.env.get('DROPLET_SECRET') || '';
+    const botSecret     = Deno.env.get('BOT_SECRET') || '';
+    const userToken     = Deno.env.get('BASE44_USER_TOKEN') || '';
+    const isDroplet     = !!token && (token === dropletSecret || token === botSecret || token === userToken);
 
-    // Auth: accept droplet secret OR valid user session
-    const authHeader = req.headers.get('authorization') || '';
-    const token      = authHeader.replace('Bearer ', '').trim();
-    const dropletSecret = Deno.env.get('DROPLET_SECRET');
-
-    let authed = false;
-    if (dropletSecret && token === dropletSecret) {
-      authed = true; // droplet calling back
-    } else {
+    let authed = isDroplet;
+    if (!authed) {
       try {
-        const user = await base44.auth.me();
+        const tmpBase44 = createClientFromRequest(req);
+        const user = await tmpBase44.auth.me();
         authed = !!user;
       } catch {}
     }
     if (!authed) return Response.json({ error: 'unauthorized' }, { status: 401 });
 
+    // Read body before swapping request
     const body = await req.json().catch(() => null);
     if (!body) return Response.json({ error: 'invalid_json' }, { status: 400 });
+
+    // If droplet call, inject real user token so asServiceRole works
+    let initReq = req;
+    if (isDroplet && userToken && token !== userToken) {
+      const headers = new Headers(req.headers);
+      headers.set('Authorization', `Bearer ${userToken}`);
+      initReq = new Request(req.url, { method: req.method, headers });
+    }
+    const base44 = createClientFromRequest(initReq);
 
     const { trade_id, signal_id, ok, mode, spotOk, perpOk, spotOrderId, perpOrderId, error: execError } = body;
 

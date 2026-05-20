@@ -17,44 +17,41 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Droplet credentials not configured' }, { status: 500 });
     }
 
-    // First check if droplet is responding at all
-    let healthCheck;
-    try {
-      healthCheck = await fetch(`http://${dropletIp}:${orderServerPort}/health`, {
-        method: 'GET',
-        signal: AbortSignal.timeout(3000),
-      });
-    } catch {
-      return Response.json({ 
-        error: 'Droplet unreachable',
-        details: 'Health endpoint timeout',
-        dropletIp,
-        port: orderServerPort
-      }, { status: 503 });
+    // Try both known balance paths — deployed version may differ from repo
+    const paths = ['/api/balance', '/balance'];
+    let data = null;
+    let lastError = null;
+
+    for (const path of paths) {
+      try {
+        const response = await fetch(`http://${dropletIp}:${orderServerPort}${path}`, {
+          method: 'GET',
+          headers: {
+            'X-Droplet-Secret': dropletSecret,
+            'Authorization': `Bearer ${dropletSecret}`,
+            'Content-Type': 'application/json',
+          },
+          signal: AbortSignal.timeout(8000),
+        });
+
+        if (response.ok) {
+          data = await response.json();
+          break;
+        }
+        lastError = { path, status: response.status, body: await response.text() };
+      } catch (e) {
+        lastError = { path, error: e.message };
+      }
     }
 
-    // Now fetch balance
-    const response = await fetch(`http://${dropletIp}:${orderServerPort}/balance`, {
-      method: 'GET',
-      headers: {
-        'X-Droplet-Secret': dropletSecret,
-        'Content-Type': 'application/json',
-      },
-      signal: AbortSignal.timeout(8000),
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
+    if (!data) {
       return Response.json({ 
         error: 'Failed to fetch balance from droplet', 
-        details: errorText,
+        details: lastError,
         dropletIp,
         port: orderServerPort,
-        statusCode: response.status
-      }, { status: response.status });
+      }, { status: 503 });
     }
-
-    const data = await response.json();
     
     return Response.json({
       totalEquity: data.totalEquity || 0,

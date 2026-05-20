@@ -46,15 +46,23 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'Unauthorized: droplet or user token required' }, { status: 401 });
     }
 
-    const base44 = createClientFromRequest(req);
-
-    // Parse body
+    // Parse body first (before potentially replacing the request)
     let body;
     try {
       body = await req.json();
     } catch {
       return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
     }
+
+    // The droplet sends Bearer DROPLET_SECRET, not a real user session.
+    // We must inject the real user token so asServiceRole calls succeed.
+    const userToken = Deno.env.get('BASE44_USER_TOKEN') || '';
+    if (userToken && bearerToken !== userToken) {
+      const headers = new Headers(req.headers);
+      headers.set('Authorization', `Bearer ${userToken}`);
+      req = new Request(req.url, { method: req.method, headers });
+    }
+    const base44 = createClientFromRequest(req);
 
     const now = new Date().toISOString();
 

@@ -99,16 +99,7 @@ Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') return Response.json({ error: 'POST only' }, { status: 405 });
 
-    const base44 = createClientFromRequest(req);
-    let user = null;
-    try {
-      user = await base44.auth.me();
-    } catch {
-      // Not authenticated, check if it's an authorized droplet via shared secret
-    }
-
     // SECURITY: require explicit shared secret in Authorization header for droplet calls.
-    // Do NOT trust x-forwarded-for (spoofable). User session OR Bearer (DROPLET_SECRET | BOT_SECRET).
     const authHeader    = req.headers.get('authorization') || '';
     const bearerToken   = authHeader.replace(/^Bearer\s+/i, '').trim();
     const dropletSecret = Deno.env.get('DROPLET_SECRET') || '';
@@ -120,13 +111,32 @@ Deno.serve(async (req) => {
       bearerToken === userToken
     );
 
+    // Try user auth first
+    let user = null;
+    let initReq = req;
+    try {
+      const tempBase44 = createClientFromRequest(req);
+      user = await tempBase44.auth.me();
+    } catch {
+      // Not a real user session — check droplet secret
+    }
+
     if (!user && !isDroplet) {
       return Response.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
+    // Read body before potentially swapping the request object
     let body;
     try { body = await req.json(); }
     catch { return Response.json({ error: 'Invalid JSON body' }, { status: 400 }); }
+
+    // If droplet call without real user token, inject the user token so asServiceRole works
+    if (!user && isDroplet && userToken && bearerToken !== userToken) {
+      const headers = new Headers(req.headers);
+      headers.set('Authorization', `Bearer ${userToken}`);
+      initReq = new Request(req.url, { method: req.method, headers });
+    }
+    const base44 = createClientFromRequest(initReq);
 
     // Required fields
     const required = ['pair', 'buy_exchange', 'sell_exchange', 'raw_spread_bps', 'net_edge_bps'];
