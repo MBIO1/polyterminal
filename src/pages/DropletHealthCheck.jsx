@@ -17,7 +17,6 @@ import {
   RotateCcw,
   Wrench,
   Terminal,
-  FlaskConical,
   Trash2,
   Key,
   Rocket
@@ -61,7 +60,6 @@ export default function DropletHealthCheck() {
   const [lastCheck, setLastCheck] = useState(new Date());
   const [actionLoading, setActionLoading] = useState(null);
   const [scriptModal, setScriptModal] = useState(null); // { title, script }
-  const [testTradeResult, setTestTradeResult] = useState(null);
 
   const runAction = async (fnName, label) => {
     setActionLoading(fnName);
@@ -83,21 +81,6 @@ export default function DropletHealthCheck() {
       setTimeout(checkHealth, 2000);
     } catch (e) {
       toast.error(`${label} failed: ${e.message}`);
-    } finally {
-      setActionLoading(null);
-    }
-  };
-
-  const runTestTrade = async () => {
-    setActionLoading('triggerTestTrade');
-    setTestTradeResult(null);
-    try {
-      const res = await base44.functions.invoke('triggerTestTrade', {});
-      setTestTradeResult(res.data);
-      toast.success(`Test trade created: ${res.data.tradeId} — ${res.data.finalStatus}`);
-    } catch (e) {
-      toast.error(`Test trade failed: ${e.message}`);
-      setTestTradeResult({ error: e.message });
     } finally {
       setActionLoading(null);
     }
@@ -190,18 +173,6 @@ export default function DropletHealthCheck() {
             </Button>
 
             <Button
-              onClick={runTestTrade}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-purple-500/40 text-purple-400 hover:bg-purple-500/10"
-            >
-              {actionLoading === 'triggerTestTrade'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <FlaskConical className="w-4 h-4 mr-2" />}
-              Test Trade ($1 paper)
-            </Button>
-
-            <Button
               onClick={() => runAction('downloadRunner', 'Deploy Latest Runner')}
               disabled={!!actionLoading}
               variant="outline"
@@ -240,31 +211,9 @@ export default function DropletHealthCheck() {
           <p className="text-xs text-muted-foreground mt-3 font-mono">
             <b>Restart Bot</b> — pm2 restart on droplet. First thing to try.<br/>
             <b>Fix Env Now</b> — regenerates .env with correct BOT_SECRET when auth fails.<br/>
-            <b>Test Trade ($1 paper)</b> — paper-records a fake $1 BTC trade end-to-end.<br/>
             <b>🚀 Deploy Latest Runner</b> — pulls newest runner.mjs (with live config polling) onto droplet.<br/>
             <b>Kill Systemd Crash Loop</b> — emergency: stops systemd-managed bot restarting forever.
           </p>
-
-          {/* Test Trade Result */}
-          {testTradeResult && (
-            <div className={`mt-4 p-3 rounded text-xs font-mono ${testTradeResult.error ? 'bg-red-500/10 border border-red-500/30 text-red-300' : 'bg-purple-500/10 border border-purple-500/30 text-purple-200'}`}>
-              {testTradeResult.error ? (
-                <span>❌ {testTradeResult.error}</span>
-              ) : (
-                <div className="space-y-1">
-                  <div>✅ <b>Trade ID:</b> {testTradeResult.tradeId}</div>
-                  <div>📋 <b>Status:</b> {testTradeResult.finalStatus}</div>
-                  {testTradeResult.dropletResult && (
-                    <div>🔗 <b>Droplet:</b> {JSON.stringify(testTradeResult.dropletResult)}</div>
-                  )}
-                  {testTradeResult.error && (
-                    <div>⚠️ {testTradeResult.error}</div>
-                  )}
-                  <div className="text-muted-foreground mt-1">→ Check the <b>Trades</b> page for this record.</div>
-                </div>
-              )}
-            </div>
-          )}
         </CardContent>
       </Card>
 
