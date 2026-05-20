@@ -48,8 +48,8 @@ Deno.serve(async (req) => {
       const t = new Date(s.received_time || s.created_date || 0).getTime();
       return Number.isFinite(t) && t >= fiveMinAgoMs;
     }).length;
-    // If signals are flowing right now, suppress stale 1-hour rejection noise from before the fix.
-    const authIsHealthyNow = signalsLast5Min > 0;
+    // Auth is healthy NOW if either: recent signals are landing, OR no recent rejections in the last 10 min.
+    const authIsHealthyNow = signalsLast5Min > 0 || recentNon2xx === 0;
 
     // === HEARTBEAT STATUS ===
     const lastHeartbeatMs = latestHeartbeat
@@ -61,6 +61,17 @@ Deno.serve(async (req) => {
     const totalPostAttempts = heartbeats.reduce((s, h) => s + (h.post_attempts || 0), 0);
     const totalPostErrors = heartbeats.reduce((s, h) => s + (h.post_errors || 0), 0);
     const totalNon2xx = heartbeats.reduce((s, h) => s + (h.post_non_2xx || 0), 0);
+
+    // RECENT-window stats (last 10 min) — used to determine if auth is CURRENTLY broken.
+    // Avoids stale 1-hour rejections triggering critical status long after a fix.
+    const tenMinAgoMs = now - 10 * 60 * 1000;
+    const recentHeartbeats = heartbeats.filter(h => {
+      const t = new Date(h.snapshot_time || 0).getTime();
+      return Number.isFinite(t) && t >= tenMinAgoMs;
+    });
+    const recentPosted = recentHeartbeats.reduce((s, h) => s + (h.posted || 0), 0);
+    const recentNon2xx = recentHeartbeats.reduce((s, h) => s + (h.post_non_2xx || 0), 0);
+    const recentPostErrors = recentHeartbeats.reduce((s, h) => s + (h.post_errors || 0), 0);
 
     const heartbeatStatus = {
       status: lastHeartbeatMs === null ? 'unknown' : lastHeartbeatMs < 120_000 ? 'healthy' : 'critical',
@@ -84,13 +95,13 @@ Deno.serve(async (req) => {
       issues: [],
     };
 
-    if (totalPostErrors > 0) {
-      connectivityStatus.issues.push(`${totalPostErrors} POST network errors`);
+    if (recentPostErrors > 0) {
+      connectivityStatus.issues.push(`${recentPostErrors} POST network errors (last 10 min)`);
     }
-    if (totalNon2xx > 0 && !authIsHealthyNow) {
-      const rejectionRate = totalPosted > 0 ? Math.round((totalNon2xx / totalPosted) * 100) : 0;
+    if (recentNon2xx > 0) {
+      const rejectionRate = recentPosted > 0 ? Math.round((recentNon2xx / recentPosted) * 100) : 0;
       connectivityStatus.issues.push(
-        `${totalNon2xx}/${totalPosted} signals rejected by Base44 (${rejectionRate}% rejection rate) — likely BOT_SECRET mismatch`
+        `${recentNon2xx}/${recentPosted} signals rejected by Base44 in last 10 min (${rejectionRate}%) — likely BOT_SECRET mismatch`
       );
     }
 
@@ -144,14 +155,13 @@ Deno.serve(async (req) => {
       issues.push('No heartbeat data available');
     }
 
-    // CRITICAL: non-2xx is more important than just "warning" — bot can't ship signals.
-    // BUT: suppress if signals are flowing again in the last 5 min (rolling stats are stale).
-    if (totalNon2xx > 5 && !authIsHealthyNow) {
+    // CRITICAL: use 10-min recent window — stale 1-hour rejections shouldn't keep flagging critical.
+    if (recentNon2xx > 2) {
       overallStatus = 'critical';
-      issues.push(`Base44 rejecting signals (${totalNon2xx}/hr non-2xx) — auth/secret issue`);
-    } else if (totalPostErrors > 5) {
+      issues.push(`Base44 rejecting signals (${recentNon2xx} non-2xx in last 10 min) — auth/secret issue`);
+    } else if (recentPostErrors > 2) {
       overallStatus = overallStatus === 'healthy' ? 'warning' : overallStatus;
-      issues.push(`High POST error rate (${totalPostErrors}/hr)`);
+      issues.push(`High POST error rate (${recentPostErrors} in last 10 min)`);
     }
 
     if (signalFlowStatusLabel === 'blocked') {
@@ -186,7 +196,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (totalNon2xx > 5 && !authIsHealthyNow) {
+    if (recentNon2xx > 2) {
       recommendations.push({
         priority: 'P0',
         action: 'BOT_SECRET on droplet does not match Base44',
@@ -194,7 +204,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (totalPostErrors > 5) {
+    if (recentPostErrors > 2) {
       recommendations.push({
         priority: 'P1',
         action: 'Network connectivity issues from droplet to Base44',
