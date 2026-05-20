@@ -8,9 +8,10 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 // Keep the source as a single string. Use a sentinel ('OSEOF') as the bash
 // heredoc delimiter — that string must NOT appear anywhere inside SOURCE.
-const SOURCE = `// order-server.mjs — Droplet execution server for Basis-Carry v3
+const SOURCE = `// order-server.mjs — Droplet execution server with CROSS-VENUE SPOT support
 //
-// Receives execute commands from Base44, calls Bybit directly, reports results back.
+// Receives execute commands from Base44, calls Bybit directly.
+// Supports: same-venue spot/perp, cross-venue perp/perp, cross-venue spot/spot
 //
 // Required in /opt/arb-bot/.env:
 //   DROPLET_SECRET=...        # must match Base44 DROPLET_SECRET secret
@@ -212,6 +213,144 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: e.message }));
     }
+    return;
+  }
+
+  // Execute both legs endpoint — receives signal from Base44 executeSignals function
+  // Body: { signal_id, pair, asset, buy_exchange, sell_exchange, buy_price, sell_price, net_edge_bps, qty }
+  if (req.method === 'POST' && req.url === '/execute') {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (token !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      let signal;
+      try { signal = JSON.parse(body); } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_json' }));
+        return;
+      }
+
+      if (!signal.pair || !signal.qty || !signal.buy_exchange || !signal.sell_exchange) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'missing_required_fields' }));
+        return;
+      }
+
+      const asset = String(signal.asset || signal.pair.split('-')[0] || 'BTC');
+      const symbol = asset + 'USDT';
+      const rawQty = Number(signal.qty);
+
+      const buyIsPerp = /perp|swap|linear/i.test(signal.buy_exchange || '');
+      const sellIsPerp = /perp|swap|linear/i.test(signal.sell_exchange || '');
+
+      // CROSS-VENUE SPOT/SPOT: Only one leg is on Bybit
+      if (!buyIsPerp && !sellIsPerp) {
+        const isBuyBybit = signal.buy_exchange.toLowerCase().includes('bybit');
+        const isSellBybit = signal.sell_exchange.toLowerCase().includes('bybit');
+        
+        if (!isBuyBybit && !isSellBybit) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'no_bybit_leg_cross_venue_spot' }));
+          return;
+        }
+
+        try {
+          const spotInfo = await getInstrumentInfo('spot', symbol);
+          const spotQty = roundQtyToStep(rawQty, spotInfo.qtyStep);
+          
+          if (parseFloat(spotQty) < spotInfo.minQty) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'spot_qty_below_min' }));
+            return;
+          }
+
+          const side = isBuyBybit ? 'Buy' : 'Sell';
+          console.log('[execute_cross_venue_spot] ' + symbol + ' side=' + side + ' qty=' + spotQty);
+
+          const spotRes = await bybitOrder({ category: 'spot', symbol, side, qty: spotQty });
+          
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            ok: true,
+            spotOk: true,
+            perpOk: true,
+            spotOrderId: spotRes.orderId,
+            perpOrderId: null,
+            mode: 'live_cross_venue_spot',
+          }));
+        } catch (e) {
+          const safeErr = (e.message || 'unknown_error').slice(0, 200);
+          console.error('[execute_cross_venue_spot] FAILED:', safeErr);
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: safeErr }));
+        }
+        return;
+      }
+
+      // SAME-VENUE SPOT/PERP or CROSS-VENUE PERP/PERP
+      let spotSide, perpSide;
+      if (!buyIsPerp && sellIsPerp) {
+        spotSide = 'Buy';  perpSide = 'Sell';
+      } else if (buyIsPerp && !sellIsPerp) {
+        spotSide = 'Sell'; perpSide = 'Buy';
+      } else {
+        spotSide = 'Buy';  perpSide = 'Sell';
+      }
+
+      try {
+        const [spotInfo, perpInfo] = await Promise.all([
+          getInstrumentInfo('spot', symbol),
+          getInstrumentInfo('linear', symbol),
+        ]);
+
+        const spotQty = roundQtyToStep(rawQty, spotInfo.qtyStep);
+        const perpQty = roundQtyToStep(rawQty, perpInfo.qtyStep);
+
+        if (parseFloat(spotQty) < spotInfo.minQty || parseFloat(perpQty) < perpInfo.minQty) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'qty_below_min' }));
+          return;
+        }
+
+        console.log('[execute] ' + symbol + ' spot=' + spotSide + ' perp=' + perpSide + ' qty=' + rawQty);
+
+        const [spotRes, perpRes] = await Promise.allSettled([
+          bybitOrder({ category: 'spot', symbol, side: spotSide, qty: spotQty }),
+          bybitOrder({ category: 'linear', symbol, side: perpSide, qty: perpQty }),
+        ]);
+
+        const spotOk = spotRes.status === 'fulfilled';
+        const perpOk = perpRes.status === 'fulfilled';
+
+        if (!spotOk && !perpOk) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'both_legs_failed' }));
+          return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          spotOk,
+          perpOk,
+          spotOrderId: spotRes.value?.orderId,
+          perpOrderId: perpRes.value?.orderId,
+          mode: spotOk && perpOk ? 'live' : 'live_partial',
+        }));
+      } catch (e) {
+        const safeErr = (e.message || 'unknown_error').slice(0, 200);
+        console.error('[execute] FAILED:', safeErr);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: safeErr }));
+      }
+    });
     return;
   }
 
