@@ -47,18 +47,28 @@ export default function Dashboard() {
       const trades = await base44.entities.ArbTrade.list('-created_date', 50);
       setRecentTrades(trades.slice(0, 5));
 
-      const totalPnl = trades.reduce((sum, t) => sum + (t.net_pnl || 0), 0);
+      // Only sum trades that have a real net_pnl recorded (not null)
+      const tradesWithPnl = trades.filter(t => t.net_pnl != null && Number.isFinite(t.net_pnl));
+      const totalPnl = tradesWithPnl.reduce((sum, t) => sum + Number(t.net_pnl), 0);
       const activeTrades = trades.filter(t => t.status === 'Open').length;
 
-      // Load signals
-      const signals = await base44.entities.ArbSignal.list('-received_time', 10);
-      setRecentSignals(signals);
+      // Load signals — only today's (UTC), since stat is "Signals Today"
+      const todayStart = new Date(); todayStart.setUTCHours(0,0,0,0);
+      const allRecentSignals = await base44.entities.ArbSignal.list('-received_time', 50);
+      const signalsToday = allRecentSignals.filter(s => {
+        const t = new Date(s.received_time || s.created_date).getTime();
+        return Number.isFinite(t) && t >= todayStart.getTime();
+      });
+      setRecentSignals(allRecentSignals.slice(0, 10));
 
-      // Calculate win rate
-      const closedTrades = trades.filter(t => t.status === 'Closed');
-      const winningTrades = closedTrades.filter(t => (t.net_pnl || 0) > 0);
-      const winRate = closedTrades.length > 0
-        ? (winningTrades.length / closedTrades.length) * 100
+      // Win rate: only count closed trades that have a numeric net_pnl recorded.
+      // Excludes test trades, paper trades with null PnL, and stuck-Open trades.
+      const closedTradesWithPnl = trades.filter(t =>
+        t.status === 'Closed' && t.net_pnl != null && Number.isFinite(t.net_pnl)
+      );
+      const winningTrades = closedTradesWithPnl.filter(t => Number(t.net_pnl) > 0);
+      const winRate = closedTradesWithPnl.length > 0
+        ? (winningTrades.length / closedTradesWithPnl.length) * 100
         : 0;
 
       // Use dropletHealth as single source of truth (same logic as /droplet-health page)
@@ -84,7 +94,7 @@ export default function Dashboard() {
       setStats({
         totalPnl,
         activeTrades,
-        signalsToday: signals.length,
+        signalsToday: signalsToday.length,
         winRate: winRate.toFixed(1),
       });
     } catch (error) {

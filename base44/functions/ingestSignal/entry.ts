@@ -157,6 +157,19 @@ Deno.serve(async (req) => {
       });
     }
 
+    // SAME-VENUE FILTER: Reject signals where buy and sell are the SAME venue
+    // (e.g. Bybit-perp → Bybit-spot). These are internal spot/perp basis trades,
+    // not cross-venue arbitrage. They cannot be executed as two-legged arb because
+    // they're a directional bet on basis convergence, not a hedged spread.
+    const rootOf = v => v.replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();
+    if (rootOf(buyEx) === rootOf(sellEx) && rootOf(buyEx)) {
+      return Response.json({
+        ok: true,
+        rejected: true,
+        reason: 'same_venue_basis — not cross-venue arb',
+      });
+    }
+
     // Fuzzy duplicate detection
     const dupCheck = await checkFuzzyDuplicate(base44, body);
     if (dupCheck.isDuplicate) {
