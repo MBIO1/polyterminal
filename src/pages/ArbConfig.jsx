@@ -31,7 +31,7 @@ const GROUPS = [
   },
   {
     title: 'Signal Selectivity — Basis & Liquidity',
-    subtitle: 'Higher values = bot accepts fewer, higher-quality signals. Lower = more signals, more noise.',
+    subtitle: '🟢 LIVE — droplet bot polls these every 60s. Lower values = more signals, more noise. The smallest of BTC/ETH/SOL min edge is used as the global floor.',
     fields: [
       { key: 'btc_min_edge_bps', label: 'BTC Min Edge (bps)', step: 1, hint: 'Min net edge required for BTC signals' },
       { key: 'eth_min_edge_bps', label: 'ETH Min Edge (bps)', step: 1, hint: 'Min net edge required for ETH signals' },

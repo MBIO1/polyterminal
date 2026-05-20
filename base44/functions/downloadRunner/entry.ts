@@ -45,13 +45,49 @@ try {
 }
 
 const BASE44_INGEST_URL = process.env.BASE44_INGEST_URL || '${baseUrl}/functions/ingestSignal';
+const BASE44_CONFIG_URL = process.env.BASE44_CONFIG_URL || '${baseUrl}/functions/getBotConfig';
 const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
-const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || ${minNetEdgeBps};
-const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || ${minFillableUsd};
+
+// Live thresholds — polled from Base44 ArbConfig every 60s.
+// Fallback to env defaults if the config endpoint is unreachable.
+let MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || ${minNetEdgeBps};
+let MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || ${minFillableUsd};
+
+async function refreshConfig() {
+  try {
+    const res = await fetch(BASE44_CONFIG_URL, {
+      headers: { 'Authorization': \`Bearer \${BOT_SECRET}\` },
+    });
+    if (!res.ok) {
+      console.warn(\`⚠️ getBotConfig \${res.status} — keeping current thresholds\`);
+      return;
+    }
+    const j = await res.json();
+    if (Number.isFinite(j.min_net_edge_bps) && j.min_net_edge_bps > 0) {
+      if (j.min_net_edge_bps !== MIN_NET_EDGE_BPS) {
+        console.log(\`🔄 MIN_NET_EDGE_BPS \${MIN_NET_EDGE_BPS} → \${j.min_net_edge_bps}\`);
+      }
+      MIN_NET_EDGE_BPS = j.min_net_edge_bps;
+    }
+    if (Number.isFinite(j.min_fillable_usd) && j.min_fillable_usd > 0) {
+      if (j.min_fillable_usd !== MIN_FILLABLE_USD) {
+        console.log(\`🔄 MIN_FILLABLE_USD \${MIN_FILLABLE_USD} → \${j.min_fillable_usd}\`);
+      }
+      MIN_FILLABLE_USD = j.min_fillable_usd;
+    }
+  } catch (e) {
+    console.warn(\`⚠️ refreshConfig: \${e.message}\`);
+  }
+}
 
 console.log(\`🔧 Config: INGEST_URL=\${BASE44_INGEST_URL}\`);
+console.log(\`🔧 Config: CONFIG_URL=\${BASE44_CONFIG_URL}\`);
 console.log(\`🔧 Config: BOT_SECRET=\${BOT_SECRET ? BOT_SECRET.slice(0, 8) + '...' : 'MISSING'}\`);
-console.log(\`🔧 Config: MIN_NET_EDGE_BPS=\${MIN_NET_EDGE_BPS}\`);
+console.log(\`🔧 Config: MIN_NET_EDGE_BPS=\${MIN_NET_EDGE_BPS} (initial)\`);
+
+// Pull live thresholds at startup, then refresh every 60s
+await refreshConfig();
+setInterval(refreshConfig, 60_000);
 
 const lastSignalTime = new Map();
 const DEDUPE_WINDOW_MS = 30_000;
