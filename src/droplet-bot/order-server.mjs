@@ -317,6 +317,82 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // Single-order endpoint — places ONE market order on Bybit (spot or linear).
+  // Used by placeBybitTestOrder for $1 live execution tests.
+  // Body: { symbol, side: "Buy"|"Sell", qty: string, category: "spot"|"linear" }
+  if (req.method === 'POST' && req.url === '/single-order') {
+    const authHeader = req.headers['authorization'] || '';
+    const token = authHeader.replace('Bearer ', '').trim();
+    if (token !== SECRET) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    req.on('data', chunk => body += chunk);
+    req.on('end', async () => {
+      let order;
+      try { order = JSON.parse(body); } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_json' }));
+        return;
+      }
+
+      const symbol   = String(order.symbol   || '');
+      const side     = String(order.side     || 'Buy');
+      const category = String(order.category || 'spot');
+      const rawQty   = parseFloat(order.qty);
+
+      if (!symbol || !rawQty || rawQty <= 0) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'missing_or_invalid: symbol, qty' }));
+        return;
+      }
+      if (!['Buy', 'Sell'].includes(side)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_side (must be Buy or Sell)' }));
+        return;
+      }
+      if (!['spot', 'linear'].includes(category)) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'invalid_category (must be spot or linear)' }));
+        return;
+      }
+
+      try {
+        const info = await getInstrumentInfo(category, symbol);
+        const qty = roundQtyToStep(rawQty, info.qtyStep);
+        if (parseFloat(qty) < info.minQty) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'qty_below_min',
+            symbol, category, requested_qty: rawQty, rounded_qty: qty, min_qty: info.minQty,
+            hint: `Increase usd_amount or pick a cheaper asset. Min order = ${info.minQty} ${symbol.replace('USDT','')}`,
+          }));
+          return;
+        }
+
+        console.log(`[single-order] ${category} ${symbol} ${side} qty=${qty} env=${IS_TESTNET ? 'testnet' : 'mainnet'}`);
+        const result = await bybitOrder({ category, symbol, side, qty });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          orderId: result.orderId,
+          symbol, side, category, qty,
+          env: IS_TESTNET ? 'testnet' : 'mainnet',
+        }));
+      } catch (e) {
+        const safeErr = e.message?.slice(0, 300) || 'unknown_error';
+        console.error(`[single-order] FAILED ${category}/${symbol}/${side}:`, safeErr);
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: safeErr }));
+      }
+    });
+    return;
+  }
+
   // Execute endpoint
   if (req.method === 'POST' && req.url === '/execute') {
     // Auth check
