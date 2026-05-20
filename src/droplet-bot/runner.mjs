@@ -8,8 +8,9 @@ import ArbitrageEngine from './bot.mjs';
 // Configuration from environment
 const BASE44_INGEST_URL = process.env.BASE44_INGEST_URL || 'https://polytrade.base44.app/functions/ingestSignal';
 const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
-const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || 20; // 20 bps = 0.2%
-const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || 500;
+// LOWERED gates so we can SEE bot reaction/performance (was 20 bps / $500 / 60% confidence)
+const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || 8;   // 8 bps = 0.08% (was 20)
+const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || 200; // (was 500)
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT').split(',');
 
 console.log('🚀 Starting arbitrage bot runner');
@@ -94,12 +95,13 @@ async function postSignal(spread) {
 }
 
 // Initialize and start engine
+// Engine config — lowered confidence + faster polling to surface more activity
 const engine = new ArbitrageEngine({
-  minNetSpreadPct: MIN_NET_EDGE_BPS / 100, // Convert bps to %
-  noiseThreshold: 0.02,
-  pollInterval: 3000,
-  minConfidence: 60,
-  cooldownMs: 10000,
+  minNetSpreadPct: MIN_NET_EDGE_BPS / 100, // bps → %
+  noiseThreshold: 0.015,   // (was 0.02) accept slightly noisier markets
+  pollInterval: 2000,      // (was 3000) faster scans
+  minConfidence: 40,       // (was 60) surface more candidates
+  cooldownMs: 5000,        // (was 10000) faster re-eval per pair
 });
 
 // Start the engine with signal posting callback

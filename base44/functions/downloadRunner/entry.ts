@@ -15,9 +15,10 @@ Deno.serve(async (req) => {
 
     const dropletIp = Deno.env.get('DROPLET_IP') || '<droplet-ip>';
     const baseUrl = Deno.env.get('BASE44_APP_URL') || 'https://polytrade.base44.app';
-    // These are runtime defaults baked into the runner — actual values come from droplet .env
-    const minNetEdgeBps = '20';
-    const minFillableUsd = '500';
+    // LOWERED defaults so the feed gets populated and we can observe bot performance.
+    // Droplet .env still wins if set. (Was 20 bps / $500.)
+    const minNetEdgeBps = '8';
+    const minFillableUsd = '200';
 
     const runnerCode = `/**
  * Arbitrage Bot Runner — connects detection engine to Base44
@@ -119,12 +120,13 @@ async function postSignal(spread) {
   }
 }
 
+// Lowered gates — surface more bot activity for performance review
 const engine = new ArbitrageEngine({
   minNetSpreadPct: MIN_NET_EDGE_BPS / 100,
-  noiseThreshold: 0.02,
-  pollInterval: 3000,
-  minConfidence: 60,
-  cooldownMs: 10000,
+  noiseThreshold: 0.015,
+  pollInterval: 2000,
+  minConfidence: 40,
+  cooldownMs: 5000,
 });
 
 engine.start(async (spread) => {
