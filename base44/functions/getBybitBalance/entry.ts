@@ -11,7 +11,7 @@ Deno.serve(async (req) => {
 
     const dropletIp = Deno.env.get('DROPLET_IP');
     const dropletSecret = Deno.env.get('DROPLET_SECRET');
-    const orderServerPort = Deno.env.get('ORDER_SERVER_PORT') || '3000';
+    const orderServerPort = Deno.env.get('ORDER_SERVER_PORT') || '4001';
 
     if (!dropletIp || !dropletSecret) {
       return Response.json({ error: 'Droplet credentials not configured' }, { status: 500 });
