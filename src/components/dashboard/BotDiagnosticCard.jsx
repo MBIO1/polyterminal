@@ -42,10 +42,11 @@ export default function BotDiagnosticCard() {
   const non2xx        = health?.connectivity?.non_2xx_last_hour || 0;
   const successRate   = health?.connectivity?.ingest_success_rate_pct;
 
-  // Auth status: token is "good" if signals are being accepted, "bad" if rejected, "unknown" if no posts
+  // Auth status: clear as soon as recent signals are being accepted.
+  // Only flag 'failing' when nothing is getting through (accepted=0) AND we're seeing rejections.
   let authStatus;
   if (posted === 0) authStatus = 'unknown';
-  else if (non2xx > posted * 0.2) authStatus = 'failing'; // >20% reject = auth issue
+  else if (accepted === 0 && non2xx > 0) authStatus = 'failing';
   else authStatus = 'ok';
 
   const overallOk = heartbeatOk && authStatus === 'ok';
