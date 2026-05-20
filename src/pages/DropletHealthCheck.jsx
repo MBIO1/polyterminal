@@ -107,12 +107,12 @@ export default function DropletHealthCheck() {
   };
 
   const runLiveBybitOrder = async () => {
-    if (!confirm('⚠️ This will place a REAL $1 Bybit market order using your live API keys. Continue?')) return;
+    if (!confirm('⚠️ This will place a REAL $6 Bybit market order using your live API keys. Continue?')) return;
     setActionLoading('placeBybitTestOrder');
     setLiveOrderResult(null);
     try {
       const res = await base44.functions.invoke('placeBybitTestOrder', {
-        symbol: 'BTCUSDT', side: 'Buy', usd_amount: 1, category: 'spot',
+        symbol: 'BTCUSDT', side: 'Buy', usd_amount: 6, category: 'spot',
       });
       setLiveOrderResult(res.data);
       if (res.data?.ok) {
@@ -353,7 +353,7 @@ export default function DropletHealthCheck() {
               {actionLoading === 'placeBybitTestOrder'
                 ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                 : <FlaskConical className="w-4 h-4 mr-2" />}
-              💵 Place $1 Bybit Order (LIVE)
+              💵 Place $6 Bybit Order (LIVE)
             </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
@@ -362,7 +362,7 @@ export default function DropletHealthCheck() {
             <b>Test Trade ($1)</b> — creates a paper $1 BTC trade, pings order-server, records result in ArbTrades.<br/>
             <b>Clean Droplet</b> — kills all other bots, rewrites env with fresh secrets, restarts only Base44 arb-bot.<br/>
             <b>⬇️ Update Order-Server</b> — pulls latest order-server.mjs (adds /single-order endpoint). RUN THIS FIRST before live order.<br/>
-            <b>💵 Place $1 Bybit Order</b> — places a REAL $1 BTCUSDT spot market buy on Bybit (env per BYBIT_TESTNET secret). Records to ArbTrades.
+            <b>💵 Place $6 Bybit Order</b> — places a REAL $6 BTCUSDT spot market buy on Bybit (env per BYBIT_TESTNET secret). Records to ArbTrades.
           </p>
 
           {/* Live Bybit Order Result */}
