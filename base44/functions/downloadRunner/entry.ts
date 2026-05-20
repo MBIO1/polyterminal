@@ -23,12 +23,34 @@ Deno.serve(async (req) => {
  * Arbitrage Bot Runner — connects detection engine to Base44
  */
 
+import { readFileSync } from 'fs';
 import ArbitrageEngine from './bot.mjs';
+
+// Load .env manually (PM2 doesn't auto-load .env files)
+try {
+  const envFile = readFileSync('/root/arb-ws-bot/.env', 'utf-8');
+  envFile.split('\\n').forEach(line => {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) return;
+    const eqIdx = trimmed.indexOf('=');
+    if (eqIdx === -1) return;
+    const key = trimmed.slice(0, eqIdx).trim();
+    const val = trimmed.slice(eqIdx + 1).trim();
+    if (!process.env[key]) process.env[key] = val;
+  });
+  console.log('✅ Loaded .env file');
+} catch (e) {
+  console.warn('⚠️ Could not load .env:', e.message);
+}
 
 const BASE44_INGEST_URL = process.env.BASE44_INGEST_URL || '${baseUrl}/functions/ingestSignal';
 const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
 const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || ${minNetEdgeBps};
 const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || ${minFillableUsd};
+
+console.log(\`🔧 Config: INGEST_URL=\${BASE44_INGEST_URL}\`);
+console.log(\`🔧 Config: BOT_SECRET=\${BOT_SECRET ? BOT_SECRET.slice(0, 8) + '...' : 'MISSING'}\`);
+console.log(\`🔧 Config: MIN_NET_EDGE_BPS=\${MIN_NET_EDGE_BPS}\`);
 
 const lastSignalTime = new Map();
 const DEDUPE_WINDOW_MS = 30_000;
