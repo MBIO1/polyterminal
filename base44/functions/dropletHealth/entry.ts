@@ -43,14 +43,6 @@ Deno.serve(async (req) => {
       { received_time: { $gte: oneHourAgo } },
       '-received_time'
     );
-    const fiveMinAgoMs = now - 5 * 60 * 1000;
-    const signalsLast5Min = recentSignals.filter(s => {
-      const t = new Date(s.received_time || s.created_date || 0).getTime();
-      return Number.isFinite(t) && t >= fiveMinAgoMs;
-    }).length;
-    // Auth is healthy NOW if either: recent signals are landing, OR no recent rejections in the last 10 min.
-    const authIsHealthyNow = signalsLast5Min > 0 || recentNon2xx === 0;
-
     // === HEARTBEAT STATUS ===
     const lastHeartbeatMs = latestHeartbeat
       ? now - new Date(latestHeartbeat.snapshot_time).getTime()

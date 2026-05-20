@@ -15,14 +15,11 @@ import {
   Signal,
   Clock,
   RotateCcw,
-  Settings,
-  Upload,
   Wrench,
   Terminal,
   FlaskConical,
   Trash2,
-  Key,
-  Download
+  Key
 } from 'lucide-react';
 
 const STATUS_CONFIG = {
@@ -179,18 +176,7 @@ export default function DropletHealthCheck() {
           <CardTitle className="text-sm">Bot Controls</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <Button
-              onClick={() => runAction('deployBot', 'Deploy Bot')}
-              disabled={!!actionLoading}
-              className="bg-primary hover:bg-primary/90"
-            >
-              {actionLoading === 'deployBot'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Upload className="w-4 h-4 mr-2" />}
-              Deploy Bot
-            </Button>
-
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
             <Button
               onClick={() => runAction('restartDroplet', 'Restart Bot')}
               disabled={!!actionLoading}
@@ -203,17 +189,6 @@ export default function DropletHealthCheck() {
             </Button>
 
             <Button
-              onClick={() => runAction('setupDroplet', 'Setup Droplet')}
-              disabled={!!actionLoading}
-              variant="outline"
-            >
-              {actionLoading === 'setupDroplet'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Settings className="w-4 h-4 mr-2" />}
-              Setup Droplet
-            </Button>
-
-            <Button
               onClick={() => runAction('testDropletConnection', 'Test Connection')}
               disabled={!!actionLoading}
               variant="outline"
@@ -222,90 +197,6 @@ export default function DropletHealthCheck() {
                 ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
                 : <Wifi className="w-4 h-4 mr-2" />}
               Test Connection
-            </Button>
-
-            <Button
-              onClick={() => runAction('fixBotEnv', 'Fix Bot Env')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-yellow-500/40 text-yellow-400 hover:bg-yellow-500/10"
-            >
-              {actionLoading === 'fixBotEnv'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Wrench className="w-4 h-4 mr-2" />}
-              Fix Bot Env
-            </Button>
-
-            <Button
-              onClick={() => runAction('installPm2', 'Install PM2')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-blue-500/40 text-blue-400 hover:bg-blue-500/10"
-            >
-              {actionLoading === 'installPm2'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Terminal className="w-4 h-4 mr-2" />}
-              Install PM2
-            </Button>
-
-            <Button
-              onClick={runTestTrade}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-purple-500/40 text-purple-400 hover:bg-purple-500/10"
-            >
-              {actionLoading === 'triggerTestTrade'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <FlaskConical className="w-4 h-4 mr-2" />}
-              Test Trade ($1)
-            </Button>
-
-            <Button
-              onClick={() => runAction('deployArbBot', 'Deploy Arb Bot')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-cyan-500/40 text-cyan-400 hover:bg-cyan-500/10"
-            >
-              {actionLoading === 'deployArbBot'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Download className="w-4 h-4 mr-2" />}
-              🚀 Deploy Arb Bot
-            </Button>
-
-            <Button
-              onClick={() => runAction('downloadRunner', 'Download runner.mjs')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-orange-500/40 text-orange-400 hover:bg-orange-500/10"
-            >
-              {actionLoading === 'downloadRunner'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Download className="w-4 h-4 mr-2" />}
-              📄 Download runner.mjs
-            </Button>
-
-            <Button
-              onClick={() => runAction('fixBotExport', 'Fix bot.mjs Export')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-pink-500/40 text-pink-400 hover:bg-pink-500/10"
-            >
-              {actionLoading === 'fixBotExport'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Wrench className="w-4 h-4 mr-2" />}
-              🔧 Fix bot.mjs Export
-            </Button>
-
-            <Button
-              onClick={() => runAction('cleanDroplet', 'Clean Droplet')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-red-500/40 text-red-400 hover:bg-red-500/10"
-            >
-              {actionLoading === 'cleanDroplet'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Trash2 className="w-4 h-4 mr-2" />}
-              Clean Droplet
             </Button>
 
             <Button
@@ -321,39 +212,15 @@ export default function DropletHealthCheck() {
             </Button>
 
             <Button
-              onClick={() => runAction('killSystemdBot', 'Kill Systemd Crash Loop')}
+              onClick={runTestTrade}
               disabled={!!actionLoading}
               variant="outline"
-              className="border-red-500/60 text-red-300 hover:bg-red-500/10 col-span-2 md:col-span-2 font-bold"
+              className="border-purple-500/40 text-purple-400 hover:bg-purple-500/10"
             >
-              {actionLoading === 'killSystemdBot'
+              {actionLoading === 'triggerTestTrade'
                 ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Trash2 className="w-4 h-4 mr-2" />}
-              🚨 Kill Systemd Crash Loop (Run This!)
-            </Button>
-
-            <Button
-              onClick={() => runAction('writeOrderServerEnv', 'Write Order-Server .env')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-emerald-500/40 text-emerald-300 hover:bg-emerald-500/10"
-            >
-              {actionLoading === 'writeOrderServerEnv'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Key className="w-4 h-4 mr-2" />}
-              🔐 Write .env (BOT_SECRET)
-            </Button>
-
-            <Button
-              onClick={() => runAction('updateOrderServer', 'Update Order-Server')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
-            >
-              {actionLoading === 'updateOrderServer'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Download className="w-4 h-4 mr-2" />}
-              ⬇️ Update Order-Server
+                : <FlaskConical className="w-4 h-4 mr-2" />}
+              Test Trade ($1 paper)
             </Button>
 
             <Button
@@ -367,14 +234,25 @@ export default function DropletHealthCheck() {
                 : <FlaskConical className="w-4 h-4 mr-2" />}
               💵 Place $6 Bybit Order (LIVE)
             </Button>
+
+            <Button
+              onClick={() => runAction('killSystemdBot', 'Kill Systemd Crash Loop')}
+              disabled={!!actionLoading}
+              variant="outline"
+              className="border-red-500/60 text-red-300 hover:bg-red-500/10"
+            >
+              {actionLoading === 'killSystemdBot'
+                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                : <Trash2 className="w-4 h-4 mr-2" />}
+              🚨 Kill Systemd Crash Loop
+            </Button>
           </div>
           <p className="text-xs text-muted-foreground mt-3 font-mono">
-            <b>📄 Download runner.mjs</b> — quick fix when runner.mjs is missing (PM2 error).<br/>
-            <b>🚀 Deploy Arb Bot</b> — full deployment: creates directory, downloads bot files, sets up .env, starts PM2.<br/>
-            <b>Test Trade ($1)</b> — creates a paper $1 BTC trade, pings order-server, records result in ArbTrades.<br/>
-            <b>Clean Droplet</b> — kills all other bots, rewrites env with fresh secrets, restarts only Base44 arb-bot.<br/>
-            <b>⬇️ Update Order-Server</b> — pulls latest order-server.mjs (adds /single-order endpoint). RUN THIS FIRST before live order.<br/>
-            <b>💵 Place $6 Bybit Order</b> — places a REAL $6 BTCUSDT spot market buy on Bybit (env per BYBIT_TESTNET secret). Records to ArbTrades.
+            <b>Restart Bot</b> — pm2 restart on droplet. First thing to try.<br/>
+            <b>Fix Env Now</b> — regenerates .env with correct BOT_SECRET when auth fails.<br/>
+            <b>Test Trade ($1 paper)</b> — paper-records a fake $1 BTC trade end-to-end.<br/>
+            <b>Place $6 Bybit Order (LIVE)</b> — places a REAL $6 BTCUSDT order on Bybit.<br/>
+            <b>Kill Systemd Crash Loop</b> — emergency: stops systemd-managed bot restarting forever.
           </p>
 
           {/* Live Bybit Order Result */}
