@@ -122,6 +122,8 @@ Deno.serve(async (req) => {
     if (isDroplet) {
       const cleanHeaders = new Headers(req.headers);
       cleanHeaders.delete('Authorization');
+      cleanHeaders.delete('authorization');
+      cleanHeaders.delete('x-base44-auth');
       initReq = new Request(req.url, { method: req.method, headers: cleanHeaders });
     } else {
       // Not a droplet — must be an authenticated admin user

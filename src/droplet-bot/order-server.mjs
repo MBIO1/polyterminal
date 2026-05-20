@@ -62,8 +62,10 @@ async function getInstrumentInfo(category, symbol) {
   if (!inst) throw new Error(`instrument_not_found ${category}/${symbol}`);
 
   // Spot uses basePrecision; linear uses qtyStep. Both indicate qty step size.
+  // Store as STRING to preserve decimal precision for rounding logic.
   const lot = inst.lotSizeFilter || {};
-  const qtyStep = parseFloat(lot.qtyStep || lot.basePrecision || '0.000001');
+  const qtyStepRaw = lot.qtyStep || lot.basePrecision || '0.000001';
+  const qtyStep = String(qtyStepRaw);
   const minQty  = parseFloat(lot.minOrderQty || '0');
 
   const info = { qtyStep, minQty, ts: Date.now() };
@@ -74,10 +76,11 @@ async function getInstrumentInfo(category, symbol) {
 
 // Round qty DOWN to nearest qtyStep multiple, format as string with proper decimals.
 function roundQtyToStep(qty, qtyStep) {
-  if (!qtyStep || qtyStep <= 0) return String(qty);
-  const rounded = Math.floor(qty / qtyStep) * qtyStep;
+  const step = Number(qtyStep);
+  if (!step || step <= 0) return String(qty);
+  const rounded = Math.floor(qty / step) * step;
   // Decimal places implied by qtyStep (e.g. 0.01 → 2, 1 → 0)
-  const stepStr = qtyStep.toString();
+  const stepStr = String(qtyStep);
   const decimals = stepStr.includes('.') ? stepStr.split('.')[1].length : 0;
   return rounded.toFixed(decimals);
 }
@@ -232,7 +235,7 @@ async function fetchBalance() {
   const preSign    = timestamp + API_KEY + recvWindow;
   const signature  = bybitSign(preSign);
 
-  const res = await fetch(`${BYBIT_BASE}/v5/account/wallet-balance`, {
+  const res = await fetch(`${BYBIT_BASE}/v5/account/wallet-balance?accountType=UNIFIED`, {
     method: 'GET',
     headers: {
       'X-BAPI-API-KEY': API_KEY,
@@ -369,9 +372,11 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // Balance endpoint
-  if (req.method === 'GET' && req.url === '/api/balance') {
-    const secret = req.headers['x-droplet-secret'];
+  // Balance endpoint — accept both /balance and /api/balance, and both auth methods
+  if (req.method === 'GET' && (req.url === '/api/balance' || req.url === '/balance')) {
+    const authHeader = req.headers['authorization'] || '';
+    const bearerToken = authHeader.replace('Bearer ', '').trim();
+    const secret = req.headers['x-droplet-secret'] || bearerToken;
     if (secret !== SECRET) {
       res.writeHead(401, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: 'unauthorized' }));

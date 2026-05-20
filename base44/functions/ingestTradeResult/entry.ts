@@ -35,6 +35,8 @@ Deno.serve(async (req) => {
     if (isDroplet) {
       const headers = new Headers(req.headers);
       headers.delete('Authorization');
+      headers.delete('authorization');
+      headers.delete('x-base44-auth');
       initReq = new Request(req.url, { method: req.method, headers });
     }
     const base44 = createClientFromRequest(initReq);
