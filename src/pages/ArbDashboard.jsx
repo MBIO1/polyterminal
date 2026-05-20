@@ -2,7 +2,9 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import { Link } from 'react-router-dom';
-import { TrendingUp, AlertTriangle, Activity, ArrowLeftRight, DollarSign, Percent } from 'lucide-react';
+import { TrendingUp, AlertTriangle, Activity, ArrowLeftRight, DollarSign, Percent, Wallet, RefreshCw } from 'lucide-react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import Section from '@/components/arb/Section';
 import StatTile from '@/components/arb/StatTile';
 import StatusBadge from '@/components/arb/StatusBadge';
@@ -21,7 +23,7 @@ export default function ArbDashboard() {
     queryFn: async () => (await base44.entities.ArbConfig.list('-created_date', 1))[0],
     ...qOpts,
   });
-  const { data: bybitBalance = null, isLoading: loadingBalance } = useQuery({
+  const { data: bybitBalance = null, isLoading: loadingBalance, refetch: refetchBalance } = useQuery({
     queryKey: ['bybit-balance'],
     queryFn: async () => {
       try {
@@ -93,6 +95,52 @@ export default function ArbDashboard() {
       <LiveTicker />
 
       <SystemAuditPanel />
+
+      {/* Bybit Balance Card */}
+      <Card className="bg-card border-primary/20">
+        <CardHeader className="flex flex-row items-center justify-between pb-3">
+          <div className="flex items-center gap-2">
+            <Wallet className="w-4 h-4 text-primary" />
+            <CardTitle className="text-sm">Bybit Account</CardTitle>
+          </div>
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7"
+            onClick={() => refetchBalance()}
+            disabled={loadingBalance}
+          >
+            <RefreshCw className={`w-3 h-3 ${loadingBalance ? 'animate-spin' : ''}`} />
+          </Button>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <div>
+            <p className="text-xs text-muted-foreground mb-1">Total Equity</p>
+            <p className="text-2xl font-bold text-foreground">
+              {loadingBalance ? '⟳' : fmtUSD(bybitBalance?.totalEquity || 0, 2)}
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {bybitBalance?.testnet ? '🧪 Testnet' : '🟢 Mainnet'}
+            </p>
+          </div>
+          {bybitBalance?.assets && bybitBalance.assets.length > 0 && (
+            <div className="pt-2 border-t border-border space-y-1">
+              <p className="text-xs text-muted-foreground font-semibold">Holdings</p>
+              <div className="space-y-1 max-h-40 overflow-y-auto">
+                {bybitBalance.assets.map(a => (
+                  <div key={a.coin} className="flex items-center justify-between text-xs">
+                    <span className="text-muted-foreground font-mono">{a.coin}</span>
+                    <span className="font-mono text-foreground">{Number(a.total).toFixed(6)}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+          {!bybitBalance && !loadingBalance && (
+            <p className="text-xs text-red-400">Failed to fetch balance</p>
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
          <StatTile 

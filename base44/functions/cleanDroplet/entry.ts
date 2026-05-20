@@ -55,15 +55,27 @@ ALERT_EDGE_BPS=20
 MIN_FILLABLE_USD=50
 PAIRS=BTC-USDT,ETH-USDT,SOL-USDT,BNB-USDT,AVAX-USDT,ATOM-USDT
 ENVEOF
-echo "✅ /root/.env written"
+chmod 600 /root/.env
+echo "✅ /root/.env written and locked"
 
-echo "=== STEP 5: Copy env to bot directory ==="
-cp /root/.env /root/arb-ws-bot/.env 2>/dev/null || true
+echo "=== STEP 5: Write systemd overrides (ensure correct env even if hardcoded) ==="
+for SVC in arb-base44-bot base44-bot; do
+  if systemctl list-unit-files 2>/dev/null | grep -q "^${SVC}.service"; then
+    mkdir -p /etc/systemd/system/${SVC}.service.d
+    printf '[Service]\\nEnvironment="BASE44_USER_TOKEN=${userToken}"\\nEnvironment="BOT_SECRET=${dropletSecret}"\\nEnvironment="BASE44_INGEST_URL=${baseUrl}/functions/ingestSignal"\\nEnvironment="BASE44_HEARTBEAT_URL=${baseUrl}/functions/ingestHeartbeat"\\n' > /etc/systemd/system/${SVC}.service.d/override.conf
+    echo "override written for ${SVC}"
+  fi
+done
+systemctl daemon-reload
+echo "✅ systemd overrides installed"
 
-echo "=== STEP 6: Ensure PM2 is installed ==="
+echo "=== STEP 6: Copy env to bot directory ==="
+cp /root/.env /root/arb-ws-bot/.env 2>/dev/null && chmod 600 /root/arb-ws-bot/.env && echo "✅ copied to /root/arb-ws-bot" || true
+
+echo "=== STEP 7: Ensure PM2 is installed ==="
 which pm2 || npm install -g pm2
 
-echo "=== STEP 7: Start ONLY the Base44 arb-bot under PM2 ==="
+echo "=== STEP 8: Start ONLY the Base44 arb-bot under PM2 ==="
 cd /root/arb-ws-bot
 
 # Pick the right entrypoint (bot.mjs preferred)
