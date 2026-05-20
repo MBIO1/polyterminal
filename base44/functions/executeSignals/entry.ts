@@ -305,8 +305,8 @@ Deno.serve(async (req) => {
       // Bybit actual minimums: BTC spot 0.000001 (~$0.08), ETH spot 0.0001 (~$0.21),
       // SOL spot 0.01 (~$0.86), SOL perp 0.1 (~$8.6), ETH perp 0.01 (~$21).
       // Use perp minimums (the binding constraint) as USD floors.
-      const assetMinUsd = { BTC: 1, ETH: 22, SOL: 9 };
-      const minUsdForAsset = assetMinUsd[sig.asset] || 5;
+      const assetMinUsd = { BTC: 1, ETH: 22, SOL: 9, DOGE: 1, ADA: 1, APT: 2, XRP: 1, FLOKI: 1, BONK: 1, PEPE: 1 };
+      const minUsdForAsset = assetMinUsd[sig.asset] || 1;
       if (sizeUsd < minUsdForAsset) {
         console.log(`[executeSignals] SKIP ${sig.pair}: sizeUsd=$${sizeUsd} < asset min $${minUsdForAsset} (capital too small for ${sig.asset})`);
         await base44.asServiceRole.entities.ArbSignal.update(sig.id, {

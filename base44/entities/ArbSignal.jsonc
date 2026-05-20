@@ -22,8 +22,16 @@
         "BTC",
         "ETH",
         "SOL",
+        "DOGE",
+        "ADA",
+        "APT",
+        "XRP",
+        "FLOKI",
+        "BONK",
+        "PEPE",
         "Other"
-      ]
+      ],
+      "description": "Asset being traded"
     },
     "buy_exchange": {
       "type": "string"
