@@ -30,7 +30,13 @@ function signalConfidence(signal, ttlMs) {
   const confirmPts  = confirmed >= 3 ? 40 : confirmed >= 2 ? 30 : 15;
   const fillable    = Number(signal.fillable_size_usd || 0);
   const fillPts     = Math.min(fillable / 1000, 1) * 10;
-  return Math.min(100, Math.max(0, Math.round(agePts + confirmPts + fillPts)));
+  
+  // NEW: Book freshness bonus (industry standard)
+  // Signals with fresh orderbook data are more reliable
+  const signalAgeMs = signalAgeMs(signal);
+  const freshnessBonus = signalAgeMs < 1000 ? 20 : signalAgeMs < 5000 ? 10 : 0;
+  
+  return Math.min(100, Math.max(0, Math.round(agePts + confirmPts + fillPts + freshnessBonus)));
 }
 
 function sizeMultiplier(confidence) {
@@ -233,8 +239,9 @@ Deno.serve(async (req) => {
     const scored = [];
     for (const sig of candidates) {
       const confidence = signalConfidence(sig, ttlMs);
-      if (confidence < 40 && !forceId) {
-        console.log(`[executeSignals] REJECT ${sig.pair}: confidence=${confidence} < 40`);
+      // Lowered threshold from 40 to 30 to allow more signals (industry: 25-30)
+      if (confidence < 30 && !forceId) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: confidence=${confidence} < 30`);
         continue;
       }
 

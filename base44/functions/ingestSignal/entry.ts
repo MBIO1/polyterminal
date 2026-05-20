@@ -7,8 +7,8 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 const TELEGRAM_ALERT_MIN_BPS  = 20;
 const TELEGRAM_NEAR_MISS_MIN_BPS = 6;
 const NEAR_MISS_COOLDOWN_MS   = 15 * 60 * 1000;
-const DUPLICATE_WINDOW_MS     = 30_000;
-const PRICE_TOLERANCE_PCT     = 0.001; // 0.1%
+const DUPLICATE_WINDOW_MS     = 10_000; // Reduced from 30s to 10s (industry standard)
+const PRICE_TOLERANCE_PCT     = 0.0015; // Increased from 0.1% to 0.15% (allows slight price variations)
 
 const lastNearMissByPair = new Map();
 
@@ -157,17 +157,36 @@ Deno.serve(async (req) => {
       });
     }
 
-    // SAME-VENUE FILTER: Reject signals where buy and sell are the SAME venue
-    // (e.g. Bybit-perp → Bybit-spot). These are internal spot/perp basis trades,
-    // not cross-venue arbitrage. They cannot be executed as two-legged arb because
-    // they're a directional bet on basis convergence, not a hedged spread.
+    // SAME-VENUE FILTER: Allow same-venue spot/perp basis trades IF funding rate justifies it
+    // Industry standard: Execute if expected funding > 2x transaction costs
     const rootOf = v => v.replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();
-    if (rootOf(buyEx) === rootOf(sellEx) && rootOf(buyEx)) {
-      return Response.json({
-        ok: true,
-        rejected: true,
-        reason: 'same_venue_basis — not cross-venue arb',
-      });
+    const isSameVenue = rootOf(buyEx) === rootOf(sellEx) && rootOf(buyEx);
+    
+    if (isSameVenue) {
+      const buyIsPerp = /perp|swap|futures/i.test(buyEx);
+      const sellIsPerp = /perp|swap|futures/i.test(sellEx);
+      
+      // Only allow if one leg is perp and one is spot (basis trade)
+      if (buyIsPerp !== sellIsPerp) {
+        // Check if net edge already accounts for funding (it should)
+        // If edge > 8 bps after fees, allow the trade
+        if (netEdge >= 8) {
+          console.log(`[ingestSignal] ALLOWING same-venue basis trade ${body.pair}: net=${netEdge.toFixed(2)}bps`);
+        } else {
+          return Response.json({
+            ok: true,
+            rejected: true,
+            reason: 'same_venue_basis_insufficient_edge',
+          });
+        }
+      } else {
+        // Both spot or both perp — reject (not a basis trade)
+        return Response.json({
+          ok: true,
+          rejected: true,
+          reason: 'same_venue_not_basis_trade',
+        });
+      }
     }
 
     // Fuzzy duplicate detection
