@@ -34,6 +34,9 @@ async function postSignal(spread) {
   // Using MIN_FILLABLE_USD * 2 as conservative estimate.
   const fillableSize = spread.buyDepthUsd || spread.sellDepthUsd || (MIN_FILLABLE_USD * 2);
 
+  const detectionTime = new Date(spread.timestamp).getTime();
+  const signalAgeMs = Date.now() - detectionTime;
+  
   const payload = {
     signal_time:         new Date().toISOString(),
     pair:                pair,
@@ -47,10 +50,10 @@ async function postSignal(spread) {
     buy_depth_usd:       fillableSize,
     sell_depth_usd:      fillableSize,
     fillable_size_usd:   fillableSize,
-    signal_age_ms:       Date.now() - new Date(spread.timestamp).getTime(),
+    signal_age_ms:       signalAgeMs,
     exchange_latency_ms: 50,
     confirmed_exchanges: spread.exchangeCount || 2,
-    notes:               `gross:${rawSpreadBps.toFixed(1)}bps net:${netEdgeBps.toFixed(1)}bps`,
+    notes:               `gross:${rawSpreadBps.toFixed(1)}bps net:${netEdgeBps.toFixed(1)}bps age:${signalAgeMs}ms`,
   };
   
   try {
