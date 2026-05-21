@@ -104,7 +104,7 @@ Deno.serve(async (req) => {
     const lastHbAgeSec = lastHb
       ? Math.round((now - new Date(lastHb.snapshot_time).getTime()) / 1000)
       : null;
-    const hbHealthy = lastHbAgeSec != null && lastHbAgeSec < 180; // <3 min
+    const hbHealthy = lastHbAgeSec != null && lastHbAgeSec < 120; // <2 min (aligned with dropletHealth)
 
     // --- Top-level verdict ---
     const issues = [];

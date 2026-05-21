@@ -60,6 +60,8 @@ export default function DropletHealthCheck() {
   const [lastCheck, setLastCheck] = useState(new Date());
   const [actionLoading, setActionLoading] = useState(null);
   const [scriptModal, setScriptModal] = useState(null); // { title, script }
+  const [auditResult, setAuditResult] = useState(null);
+  const [auditLoading, setAuditLoading] = useState(false);
 
   const runAction = async (fnName, label) => {
     setActionLoading(fnName);
@@ -83,6 +85,22 @@ export default function DropletHealthCheck() {
       toast.error(`${label} failed: ${e.message}`);
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const runConnectionAudit = async () => {
+    setAuditLoading(true);
+    setAuditResult(null);
+    try {
+      const res = await base44.functions.invoke('testDropletConnection', {});
+      setAuditResult(res.data);
+      const allOk = res.data?.status === 'all_systems_go';
+      toast[allOk ? 'success' : 'warning'](`Signal pipeline audit: ${res.data?.status}`);
+    } catch (e) {
+      toast.error(`Audit failed: ${e.message}`);
+      setAuditResult({ status: 'error', error: e.message });
+    } finally {
+      setAuditLoading(false);
     }
   };
 
@@ -197,23 +215,81 @@ export default function DropletHealthCheck() {
             </Button>
 
             <Button
-              onClick={() => runAction('updateOrderServer', 'Update Order-Server')}
-              disabled={!!actionLoading}
-              variant="outline"
-              className="border-orange-500/60 text-orange-300 hover:bg-orange-500/10 font-bold"
+             onClick={() => runAction('updateOrderServer', 'Update Order-Server')}
+             disabled={!!actionLoading}
+             variant="outline"
+             className="border-orange-500/60 text-orange-300 hover:bg-orange-500/10 font-bold"
             >
-              {actionLoading === 'updateOrderServer'
-                ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
-                : <Terminal className="w-4 h-4 mr-2" />}
-              📦 Update Order-Server
+             {actionLoading === 'updateOrderServer'
+               ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+               : <Terminal className="w-4 h-4 mr-2" />}
+             📦 Update Order-Server
             </Button>
-          </div>
-          <p className="text-xs text-muted-foreground mt-3 font-mono">
+
+            <Button
+             onClick={runConnectionAudit}
+             disabled={auditLoading || !!actionLoading}
+             variant="outline"
+             className="border-purple-500/60 text-purple-300 hover:bg-purple-500/10 font-bold"
+            >
+             {auditLoading
+               ? <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+               : <Signal className="w-4 h-4 mr-2" />}
+             🔬 Audit Signal Pipeline
+            </Button>
+            </div>
+            <p className="text-xs text-muted-foreground mt-3 font-mono">
             <b>Restart Bot</b> — pm2 restart on droplet. First thing to try.<br/>
-            <b>Fix Env Now</b> — regenerates .env with correct BOT_SECRET when auth fails.<br/>
+            <b>Fix Env Now</b> — regenerates .env with correct BOT_SECRET + ARB_CONFIG values.<br/>
             <b>🚀 Deploy Latest Runner</b> — pulls newest runner.mjs (with live config polling) onto droplet.<br/>
-            <b>Kill Systemd Crash Loop</b> — emergency: stops systemd-managed bot restarting forever.
-          </p>
+            <b>Kill Systemd Crash Loop</b> — emergency: stops systemd-managed bot restarting forever.<br/>
+            <b>🔬 Audit Signal Pipeline</b> — tests order-server, ingestSignal, and ingestHeartbeat end-to-end.
+            </p>
+
+            {/* Signal Pipeline Audit Result */}
+            {auditResult && (
+            <div className={`mt-4 p-3 rounded border text-xs font-mono space-y-2 ${
+             auditResult.status === 'all_systems_go'
+               ? 'bg-green-500/10 border-green-500/30'
+               : 'bg-yellow-500/10 border-yellow-500/30'
+            }`}>
+             <div className="flex items-center gap-2 font-semibold text-sm">
+               {auditResult.status === 'all_systems_go'
+                 ? <CheckCircle2 className="w-4 h-4 text-green-400" />
+                 : <AlertTriangle className="w-4 h-4 text-yellow-400" />}
+               Pipeline Audit: <span className={auditResult.status === 'all_systems_go' ? 'text-green-400' : 'text-yellow-400'}>{auditResult.status}</span>
+             </div>
+             <div className="grid grid-cols-3 gap-3">
+               <div>
+                 <div className="text-muted-foreground mb-1">Order Server</div>
+                 <span className={auditResult.order_server?.status === 'connected' ? 'text-green-400' : 'text-red-400'}>
+                   {auditResult.order_server?.status}
+                 </span>
+                 {auditResult.order_server?.data?.env && (
+                   <div className="text-muted-foreground">{auditResult.order_server.data.env}</div>
+                 )}
+               </div>
+               <div>
+                 <div className="text-muted-foreground mb-1">Ingest Signal</div>
+                 <span className={auditResult.ingest_pipeline?.status === 'ok' ? 'text-green-400' : 'text-red-400'}>
+                   {auditResult.ingest_pipeline?.status}
+                 </span>
+                 {auditResult.ingest_pipeline?.data?.rejected && (
+                   <div className="text-yellow-400">rejected: {auditResult.ingest_pipeline.data.reason}</div>
+                 )}
+               </div>
+               <div>
+                 <div className="text-muted-foreground mb-1">Ingest Heartbeat</div>
+                 <span className={auditResult.heartbeat_pipeline?.status === 'ok' ? 'text-green-400' : 'text-red-400'}>
+                   {auditResult.heartbeat_pipeline?.status}
+                 </span>
+               </div>
+             </div>
+             {auditResult.timestamp && (
+               <div className="text-muted-foreground">{new Date(auditResult.timestamp).toLocaleTimeString()}</div>
+             )}
+            </div>
+            )}
         </CardContent>
       </Card>
 
