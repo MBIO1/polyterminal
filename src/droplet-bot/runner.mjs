@@ -23,15 +23,13 @@ console.log(`   Pairs: ${PAIRS.join(', ')}`);
 
 async function postSignal(spread) {
   const rawSym = spread.symbol || '';
-  const pair = rawSym.replace(/^(BTC|ETH|SOL)(USDT)$/, '$1-$2') || rawSym;
+  const pair = rawSym.includes('-') ? rawSym : rawSym.replace(/^(BTC|ETH|SOL)(USDT)$/, '$1-$2') || rawSym;
 
-  // Convert to ArbSignal format expected by ingestSignal
   // v3 engine: netSpread and grossSpread are already in % (e.g. 0.12 = 12 bps)
   const netEdgeBps = parseFloat(spread.netSpread) * 100;
   const rawSpreadBps = parseFloat(spread.grossSpread) * 100;
 
-  // Depth is estimated — REST tickers don't provide L2 depth.
-  // Using MIN_FILLABLE_USD * 2 as conservative estimate.
+  // Depth is estimated — REST orderbooks provide real depth
   const fillableSize = spread.buyDepthUsd || spread.sellDepthUsd || (MIN_FILLABLE_USD * 2);
 
   const detectionTime = new Date(spread.timestamp).getTime();

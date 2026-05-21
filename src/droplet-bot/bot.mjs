@@ -4,19 +4,24 @@
  * Scans Bybit spot vs Bybit perp for same-venue basis arbitrage opportunities.
  */
 
-// ─── Exchange fee table (taker fees as %) ────────────────────────────────────
-// Real Bybit fees: spot=0.10%, linear perp=0.055%
-const EXCHANGE_FEES = {
-  'bybit-spot': 0.10,
-  'bybit-perp': 0.055,
+// ─── Exchange fee table (taker fees in basis points) ─────────────────────────
+// Real Bybit taker fees: spot=10 bps (0.10%), perp=5.5 bps (0.055%)
+const EXCHANGE_FEES_BPS = {
+  'bybit-spot': 10,
+  'bybit-perp': 5.5,
 };
 
-// ─── Slippage estimates per exchange (%) ─────────────────────────────────────
+// Total taker fees for spot→perp carry trade (long spot, short perp)
+const TOTAL_TAKER_FEES_BPS = EXCHANGE_FEES_BPS['bybit-spot'] + EXCHANGE_FEES_BPS['bybit-perp']; // 15.5 bps
+
+// ─── Slippage estimates per exchange (bps) ───────────────────────────────────
 // Conservative 1-2 bps slippage for liquid BTC/ETH/SOL
-const SLIPPAGE_EST = {
-  'bybit-spot': 0.01,
-  'bybit-perp': 0.01,
+const SLIPPAGE_EST_BPS = {
+  'bybit-spot': 1,
+  'bybit-perp': 1,
 };
+
+const TOTAL_SLIPPAGE_BPS = SLIPPAGE_EST_BPS['bybit-spot'] + SLIPPAGE_EST_BPS['bybit-perp']; // 2 bps
 
 // Normalize any symbol to BTCUSDT-style key
 function normalizeSym(s) {
@@ -64,36 +69,44 @@ class ArbitrageEngine {
     const symbols = ['BTCUSDT', 'ETHUSDT'];
     try {
       const results = await Promise.allSettled(
-        symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${s}`))
+        symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/orderbook?category=spot&symbol=${s}&limit=1`))
       );
       const prices = {};
       results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value?.result?.list?.[0]?.lastPrice)
-          prices[symbols[i]] = parseFloat(r.value.result.list[0].lastPrice);
+        if (r.status === 'fulfilled' && r.value?.result?.bids?.[0]?.[0] && r.value?.result?.asks?.[0]?.[0]) {
+          prices[symbols[i]] = {
+            bid: parseFloat(r.value.result.bids[0][0]),
+            ask: parseFloat(r.value.result.asks[0][0])
+          };
+        }
       });
       return prices;
     } catch (e) {
-      console.warn('⚠️ Bybit spot error:', e.message);
+      console.warn('⚠️ Bybit spot orderbook error:', e.message);
       return {};
     }
   }
 
-  // ─── Bybit perp prices ───────────────────────────────────────────────────
+  // ─── Bybit perp orderbook ───────────────────────────────────────────────────
 
   async getBybitPerpPrices() {
     const symbols = ['BTCUSDT', 'ETHUSDT'];
     try {
       const results = await Promise.allSettled(
-        symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${s}`))
+        symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/orderbook?category=linear&symbol=${s}&limit=1`))
       );
       const prices = {};
       results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value?.result?.list?.[0]?.lastPrice)
-          prices[symbols[i]] = parseFloat(r.value.result.list[0].lastPrice);
+        if (r.status === 'fulfilled' && r.value?.result?.bids?.[0]?.[0] && r.value?.result?.asks?.[0]?.[0]) {
+          prices[symbols[i]] = {
+            bid: parseFloat(r.value.result.bids[0][0]),
+            ask: parseFloat(r.value.result.asks[0][0])
+          };
+        }
       });
       return prices;
     } catch (e) {
-      console.warn('⚠️ Bybit perp error:', e.message);
+      console.warn('⚠️ Bybit perp orderbook error:', e.message);
       return {};
     }
   }
@@ -106,73 +119,53 @@ class ArbitrageEngine {
     return { 'bybit-spot': bybitSpot, 'bybit-perp': bybitPerp };
   }
 
-  // ─── Fee-adjusted net spread ──────────────────────────────────────────────
-
-  netSpread(grossSpreadPct, buyExchange, sellExchange) {
-    const fees =
-      (EXCHANGE_FEES[buyExchange]  || 0.10) +
-      (EXCHANGE_FEES[sellExchange] || 0.10) +
-      (SLIPPAGE_EST[buyExchange]   || 0.05) +
-      (SLIPPAGE_EST[sellExchange]  || 0.05);
-    return grossSpreadPct - fees;
-  }
-
-  // ─── Main detection ───────────────────────────────────────────────────────
+  // ─── Real Bybit Spot/Perp Basis Detection ──────────────────────────────────
 
   detectArbitrage(priceData) {
     const spreads = [];
+    const spotBook = priceData['bybit-spot'] || {};
+    const perpBook = priceData['bybit-perp'] || {};
 
-    // Collect all (symbol, exchange, price) tuples
-    const allPoints = []; // { sym, exchange, price }
-    for (const [exchange, data] of Object.entries(priceData)) {
-      for (const [sym, price] of Object.entries(data)) {
-        if (price > 0) allPoints.push({ sym: normalizeSym(sym), exchange, price });
-      }
-    }
+    // Scan each symbol for spot→perp basis opportunities
+    for (const symbol of Object.keys(spotBook)) {
+      const spotData = spotBook[symbol];
+      const perpData = perpBook[symbol];
+      
+      if (!spotData || !perpData) continue;
 
-    // Group by normalized symbol
-    const bySymbol = {};
-    for (const pt of allPoints) {
-      if (!bySymbol[pt.sym]) bySymbol[pt.sym] = [];
-      bySymbol[pt.sym].push(pt);
-    }
+      // Real Bybit trading behavior:
+      // Long Spot @ ask, Short Perp @ bid
+      const spotAsk = spotData.ask;
+      const perpBid = perpData.bid;
 
-    for (const [sym, points] of Object.entries(bySymbol)) {
-      if (points.length < 2) continue;
+      if (spotAsk <= 0 || perpBid <= 0) continue;
 
-      // Compare every pair of (exchange_A, exchange_B)
-      for (let i = 0; i < points.length; i++) {
-        for (let j = i + 1; j < points.length; j++) {
-          const a = points[i];
-          const b = points[j];
-          if (a.exchange === b.exchange) continue;
+      // Calculate gross spread in basis points
+      const grossSpreadBps = ((perpBid - spotAsk) / spotAsk) * 10000;
+      
+      if (grossSpreadBps <= 0) continue;
 
-          const buyEntry  = a.price < b.price ? a : b;
-          const sellEntry = a.price < b.price ? b : a;
+      // Subtract exact Bybit taker fees (spot 10 bps + perp 5.5 bps = 15.5 bps)
+      const netEdgeBps = grossSpreadBps - TOTAL_TAKER_FEES_BPS - TOTAL_SLIPPAGE_BPS;
 
-          const grossPct = ((sellEntry.price - buyEntry.price) / buyEntry.price) * 100;
-          if (grossPct <= 0) continue;
+      // Convert to percentage for compatibility with existing config
+      const netSpreadPct = netEdgeBps / 100;
 
-          const netPct = this.netSpread(grossPct, buyEntry.exchange, sellEntry.exchange);
-          if (netPct < this.config.minNetSpreadPct) continue;
+      if (netSpreadPct >= this.config.minNetSpreadPct) {
+        spreads.push({
+          symbol:        symbol.replace('USDT', '-USDT'),
+          grossSpread:   (grossSpreadBps / 100).toFixed(4), // convert to %
+          netSpread:     (netSpreadPct).toFixed(4),
+          buyExchange:   'bybit-spot',
+          sellExchange:  'bybit-perp',
+          buyPrice:      spotAsk,
+          sellPrice:     perpBid,
+          exchangeCount: 2,
+          confidence:    80,
+          timestamp:     new Date().toISOString(),
+        });
 
-          // Must have at least one Bybit leg (our execution venue)
-          const hasBybit = buyEntry.exchange.startsWith('bybit') || sellEntry.exchange.startsWith('bybit');
-          if (!hasBybit) continue;
-
-          spreads.push({
-            symbol:        sym,
-            grossSpread:   grossPct.toFixed(4),
-            netSpread:     netPct.toFixed(4),
-            buyExchange:   buyEntry.exchange,
-            sellExchange:  sellEntry.exchange,
-            buyPrice:      buyEntry.price,
-            sellPrice:     sellEntry.price,
-            exchangeCount: points.length,
-            confidence:    80, // static — edge floor is the real gate
-            timestamp:     new Date().toISOString(),
-          });
-        }
+        console.log(`🎯 ${symbol} gross:${grossSpreadBps.toFixed(1)}bps net:${netEdgeBps.toFixed(1)}bps (fees:${TOTAL_TAKER_FEES_BPS}bps slip:${TOTAL_SLIPPAGE_BPS}bps)`);
       }
     }
 
