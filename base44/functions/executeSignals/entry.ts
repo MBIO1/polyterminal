@@ -58,21 +58,25 @@ function recomputeNetEdge(signal, config, sizeUsd) {
   return { rawBps, takerBps, slipBps, net };
 }
 
-function computeSizeUsd(signal, config, confidence) {
-  const totalCap      = Number(config.total_capital || 0);
-  const spotBucket    = totalCap * Number(config.spot_allocation_pct || 0.35);
-  // Small accounts: use up to 50% of spot bucket per trade (vs 10% for large accounts).
-  // Threshold: if spotBucket < $100, use aggressive sizing so orders clear exchange minimums.
-  const perTradePct   = spotBucket < 100 ? 0.50 : spotBucket < 500 ? 0.25 : 0.10;
-  const perTradeCap   = spotBucket * perTradePct;
+function computeSizeUsd(signal, config, confidence, capitalFlowUsd = null, profitGrowthUsd = 0) {
+  const configuredCap = Number(config.total_capital || 0);
+  const liveCap = Number(capitalFlowUsd || 0);
+  const capitalBase = liveCap > 0 ? liveCap : configuredCap * Number(config.spot_allocation_pct || 0.35);
+
+  // Start small, then increase as realized profits grow.
+  const growthBoost = Math.min(Math.max(Number(profitGrowthUsd || 0), 0) / 100, 0.15);
+  const basePct = capitalBase < 50 ? 0.25 : capitalBase < 250 ? 0.18 : 0.10;
+  const perTradePct = Math.min(basePct + growthBoost, 0.30);
+  const perTradeCap = capitalBase * perTradePct;
+
   const fillable      = Number(signal.fillable_size_usd || 0);
   const minExecutable = Math.max(5, Number(config.min_fillable_usd || 5));
   const mult          = sizeMultiplier(confidence);
-  if (mult <= 0 || fillable < minExecutable) return 0;
+  if (mult <= 0 || fillable < minExecutable || capitalBase < 5) return 0;
 
-  const riskSize = Math.min(perTradeCap, fillable * 0.20) * mult;
-  // Floor at $7, then normalize upward later if exchange rules require more.
-  return Math.min(Math.max(7, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD);
+  const riskSize = Math.min(perTradeCap, fillable * 0.20, capitalBase * 0.85) * mult;
+  // Floor at $5, then normalize upward later if exchange rules require more.
+  return Math.min(Math.max(5, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD, capitalBase * 0.85);
 }
 
 const BYBIT_RULES = {
@@ -97,13 +101,14 @@ function ceilToStep(value, step) {
   return Number((Math.ceil((value / step) - 1e-12) * step).toFixed(decimals));
 }
 
-function normalizeOrderToExchangeRules(signal, sizeUsd) {
+function normalizeOrderToExchangeRules(signal, sizeUsd, maxSpendUsd = MAX_LIVE_NOTIONAL_USD) {
   const buyPx = Number(signal.buy_price) || 0;
   const sellPx = Number(signal.sell_price) || buyPx;
   const rulePx = Math.max(buyPx, sellPx);
   if (!buyPx || !rulePx) return { ok: false, reason: 'missing_buy_price' };
 
   const fillable = Number(signal.fillable_size_usd || 0);
+  const spendCap = Math.min(Number(maxSpendUsd || MAX_LIVE_NOTIONAL_USD), MAX_LIVE_NOTIONAL_USD);
   const asset = String(signal.asset || signal.pair?.split('-')?.[0] || 'Other').toUpperCase();
   const rules = BYBIT_RULES[asset] || { minQty: 1, qtyStep: 1, minNotionalUsd: 5 };
 
@@ -113,8 +118,8 @@ function normalizeOrderToExchangeRules(signal, sizeUsd) {
   const normalizedQty = ceilToStep(Math.max(minQtyByNotional, rules.minQty), rules.qtyStep);
   const normalizedSizeUsd = normalizedQty * rulePx;
 
-  if (normalizedSizeUsd > MAX_LIVE_NOTIONAL_USD) {
-    return { ok: false, reason: `min_notional_exceeds_cap: $${normalizedSizeUsd.toFixed(2)} > $${MAX_LIVE_NOTIONAL_USD}` };
+  if (normalizedSizeUsd > spendCap) {
+    return { ok: false, reason: `AVAILABLE_CAPITAL_BELOW_MIN: need $${normalizedSizeUsd.toFixed(2)}, available cap $${spendCap.toFixed(2)}` };
   }
   if (fillable < normalizedSizeUsd) {
     return { ok: false, reason: `INSUFFICIENT_LIQUIDITY: fillable $${fillable.toFixed(2)} < normalized $${normalizedSizeUsd.toFixed(2)}` };
@@ -136,6 +141,33 @@ function checkOrderbookDepth(signal, sizeUsd, config) {
   const fillable = Number(signal.fillable_size_usd || 0);
   const minFill = Number(config.min_fillable_usd || 5);
   return fillable >= Math.max(sizeUsd, minFill);
+}
+
+async function fetchAvailableCapitalUsd() {
+  const dropletIp = Deno.env.get('DROPLET_IP');
+  const secret = Deno.env.get('DROPLET_SECRET');
+  const port = Deno.env.get('ORDER_SERVER_PORT') || '4001';
+  if (!dropletIp || !secret) return null;
+
+  for (const path of ['/api/balance', '/balance']) {
+    try {
+      const response = await fetch(`http://${dropletIp}:${port}${path}`, {
+        method: 'GET',
+        headers: {
+          'X-Droplet-Secret': secret,
+          'Authorization': `Bearer ${secret}`,
+          'Content-Type': 'application/json',
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) continue;
+      const data = await response.json();
+      const available = Number(data.totalAvailableBalance || data.availableBalance || 0);
+      const equity = Number(data.totalEquity || 0);
+      return available > 0 ? available : equity > 0 ? equity : null;
+    } catch (_) {}
+  }
+  return null;
 }
 
 function paperFill(signal, sizeUsd) {
@@ -296,13 +328,17 @@ Deno.serve(async (req) => {
     }
 
     // ── Risk gates ────────────────────────────────────────────────────────────
-    const [closedToday, openPositions] = await Promise.all([
+    const [closedToday, openPositions, recentClosedTrades, liveAvailableCapitalUsd] = await Promise.all([
       base44.asServiceRole.entities.ArbTrade.filter({ status: 'Closed', trade_date: todayStr }, '-updated_date', 200),
       base44.asServiceRole.entities.ArbLivePosition.filter({ status: 'Open' }, '-snapshot_time', 50),
+      base44.asServiceRole.entities.ArbTrade.filter({ status: 'Closed' }, '-trade_date', 200),
+      fetchAvailableCapitalUsd(),
     ]);
 
     const totalCap = Number(config.total_capital || 0);
     const todayPnl = closedToday.reduce((a, t) => a + Number(t.net_pnl || 0), 0);
+    const realizedProfitUsd = recentClosedTrades.reduce((a, t) => a + Math.max(Number(t.net_pnl || 0), 0), 0);
+    const capitalFlowUsd = liveAvailableCapitalUsd || totalCap * Number(config.spot_allocation_pct || 0.35);
     const ddCap    = totalCap * Number(config.max_daily_drawdown_pct || 0.01);
     if (todayPnl < -ddCap) {
       return Response.json({ ok: false, halted: true, reason: `daily_drawdown_breach(${todayPnl.toFixed(2)})` });
@@ -334,7 +370,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const initialSizeUsd = computeSizeUsd(sig, config, confidence);
+      const initialSizeUsd = computeSizeUsd(sig, config, confidence, capitalFlowUsd, realizedProfitUsd);
       if (initialSizeUsd <= 0) {
         console.log(`[executeSignals] REJECT ${sig.pair}: CAPITAL_SIZE_ZERO (confidence=${confidence}, fillable=${sig.fillable_size_usd}, total_cap=${config.total_capital})`);
         if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
@@ -343,7 +379,8 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const validOrder = normalizeOrderToExchangeRules(sig, initialSizeUsd);
+      const maxSpendUsd = Math.min(capitalFlowUsd * 0.85, MAX_LIVE_NOTIONAL_USD);
+      const validOrder = normalizeOrderToExchangeRules(sig, initialSizeUsd, maxSpendUsd);
       if (!validOrder.ok) {
         console.log(`[executeSignals] REJECT ${sig.pair}: ${validOrder.reason}`);
         if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
@@ -368,7 +405,7 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      console.log(`[executeSignals] ACCEPT ${sig.pair}: net=${net.toFixed(2)}bps size=$${sizeUsd} qty=${qty} confidence=${confidence}`);
+      console.log(`[executeSignals] ACCEPT ${sig.pair}: net=${net.toFixed(2)}bps size=$${sizeUsd.toFixed(2)} qty=${qty} confidence=${confidence} capital=$${capitalFlowUsd.toFixed(2)}`);
       scored.push({ sig, confidence, sizeUsd, qty, net, rawBps, takerBps, slipBps });
     }
 
