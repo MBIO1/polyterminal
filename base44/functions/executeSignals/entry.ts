@@ -11,11 +11,11 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // ── POLYTERMINAL LIVE CONFIG (synced from ARB_CONFIG) ────────────────────────
-const DEFAULT_MIN_EDGE       = 18.0;     // minRealEdgePct: 0.18% = 18 bps
-const FEE_BPS_PER_LEG        = 5.5;     // takerPct: 0.055% per leg
+const DEFAULT_MIN_EDGE       = 2.0;      // lowered: market is tight, 2 bps floor
+const FEE_BPS_PER_LEG        = 2.0;     // takerPct: matches config taker_fee_bps_per_leg
 const MAX_LIVE_NOTIONAL_USD  = 20;      // sizing.maxNotionalUsd
 const MIN_NOTIONAL_USD       = 15;      // sizing.minNotionalUsd
-const MIN_CONFIDENCE         = 85;      // signal.minConfidenceScore: 0.85
+const MIN_CONFIDENCE         = 60;      // lowered: market is tight, accept moderate confidence
 const EXEC_TIMEOUT_MS        = 5_000;   // execution.timeoutMs
 const HARD_STALE_MS          = 20_000;  // signal.hardStaleMs
 
@@ -494,7 +494,7 @@ Deno.serve(async (req) => {
     if (config.kill_switch_active)       return Response.json({ ok: false, halted: true, reason: 'kill_switch_active' });
     if (!config.bot_running && !forceId) return Response.json({ ok: false, halted: true, reason: 'bot_not_running' });
 
-    const minEdge = Math.max(3, Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE));
+    const minEdge = Math.max(2, Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE));
 
     // ── Load signals ─────────────────────────────────────────────────────────
     const nowTs    = Date.now();
