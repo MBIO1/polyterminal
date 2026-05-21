@@ -44,11 +44,24 @@ function classifyRejection(reason) {
 }
 
 const CLASS_META = {
-  HEALTHY_FILTER:    { label: 'Healthy Filters', color: 'text-blue-400',   bg: 'bg-blue-500/60' },
-  EXECUTION_FAILURE: { label: 'Exec Failures',   color: 'text-red-400',    bg: 'bg-red-500/60' },
-  EXCHANGE_RULE:     { label: 'Exchange Rules',   color: 'text-yellow-400', bg: 'bg-yellow-500/60' },
+  HEALTHY_FILTER:    { label: 'Filters', color: 'text-blue-400',   bg: 'bg-blue-500/60' },
+  EXECUTION_FAILURE: { label: 'Execution', color: 'text-red-400',    bg: 'bg-red-500/60' },
+  EXCHANGE_RULE:     { label: 'Rules',   color: 'text-yellow-400', bg: 'bg-yellow-500/60' },
   UNKNOWN:           { label: 'Other',            color: 'text-gray-400',   bg: 'bg-gray-500/60' },
 };
+
+function formatReasonLabel(reason) {
+  const text = String(reason || '').toLowerCase();
+  if (text.includes('capital_too_small') || text.includes('available_capital')) return 'Capital Flow';
+  if (text.includes('hard_stale') || text.includes('stale_signal') || text.includes('ttl_exceeded')) return 'Stale Signal';
+  if (text.includes('droplet_http_500') || text.includes('exec_error')) return 'Execution';
+  if (text.includes('qty_below_min') || text.includes('min_notional') || text.includes('step_size')) return 'Order Size';
+  if (text.includes('insufficient_liquidity')) return 'Liquidity';
+  if (text.includes('net_edge')) return 'Low Edge';
+  if (text.includes('same_venue')) return 'Same Venue';
+  if (text.includes('no_bybit_leg')) return 'Bybit Route';
+  return 'Other';
+}
 
 function buildHourlyBuckets(signals) {
   const now = Date.now();
@@ -253,7 +266,7 @@ export default function SignalAcceptanceChart() {
                         <div className="flex items-center justify-between text-xs mb-1">
                           <span className="flex items-center gap-1.5 truncate pr-2" title={reason}>
                             <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.bg}`} />
-                            {reason}
+                            {formatReasonLabel(reason)}
                           </span>
                           <span className="font-mono text-muted-foreground shrink-0">
                             {count} ({pct.toFixed(0)}%)
