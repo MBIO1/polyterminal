@@ -27,7 +27,7 @@ const CB_SUCCESS_TO_CLOSE    = 2;        // consecutive successes to close
 // Retry config: 2 attempts with [500ms, 1200ms] backoff (execution.retry)
 const RETRY_DELAYS_MS        = [500, 1200]; // attempts 1,2
 
-// ── FOCUSED PAIRS: BTC and ETH only ──────────────────────────────────────────
+// ── RESTRICTED TO BTC and ETH only until bot proves productive ───────────────
 const ALLOWED_ASSETS = new Set(['BTC', 'ETH']);
 
 // MODULE 1 — Production-grade exchange normalization specs

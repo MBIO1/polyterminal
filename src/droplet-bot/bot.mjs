@@ -72,7 +72,7 @@ class ArbitrageEngine {
   // ─── OKX spot prices ─────────────────────────────────────────────────────
 
   async getOKXSpotPrices() {
-    const symbols = ['BTC-USDT', 'ETH-USDT', 'SOL-USDT'];
+    const symbols = ['BTC-USDT', 'ETH-USDT'];
     try {
       const results = await Promise.allSettled(
         symbols.map(s => this._fetch(`https://www.okx.com/api/v5/market/ticker?instId=${s}`))
@@ -92,7 +92,7 @@ class ArbitrageEngine {
   // ─── OKX perp prices ─────────────────────────────────────────────────────
 
   async getOKXPerpPrices() {
-    const symbols = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP', 'SOL-USDT-SWAP'];
+    const symbols = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP'];
     try {
       const results = await Promise.allSettled(
         symbols.map(s => this._fetch(`https://www.okx.com/api/v5/market/ticker?instId=${s}`))
@@ -115,7 +115,7 @@ class ArbitrageEngine {
   // ─── Bybit spot prices ───────────────────────────────────────────────────
 
   async getBybitSpotPrices() {
-    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+    const symbols = ['BTCUSDT', 'ETHUSDT'];
     try {
       const results = await Promise.allSettled(
         symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${s}`))
@@ -135,7 +135,7 @@ class ArbitrageEngine {
   // ─── Bybit perp prices ───────────────────────────────────────────────────
 
   async getBybitPerpPrices() {
-    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+    const symbols = ['BTCUSDT', 'ETHUSDT'];
     try {
       const results = await Promise.allSettled(
         symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/tickers?category=linear&symbol=${s}`))
@@ -155,7 +155,7 @@ class ArbitrageEngine {
   // ─── Binance spot (reference) ────────────────────────────────────────────
 
   async getBinanceSpotPrices() {
-    const symbols = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT'];
+    const symbols = ['BTCUSDT', 'ETHUSDT'];
     try {
       const results = await Promise.allSettled(
         symbols.map(s => this._fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${s}`))

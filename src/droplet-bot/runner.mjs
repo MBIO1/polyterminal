@@ -11,7 +11,7 @@ const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
 // Floor matches ingestSignal's own minimum (3 bps)
 const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || 3;
 const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || 200;
-const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT').split(',');
+const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT').split(',');
 
 console.log('🚀 Starting arbitrage bot runner');
 console.log(`   Ingest URL: ${BASE44_INGEST_URL}`);
