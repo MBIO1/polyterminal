@@ -98,13 +98,6 @@ Deno.serve(async (req) => {
       signalFlowStatusLabel = 'flowing';
     }
 
-    const signalFlowStatus = {
-      status: signalFlowStatusLabel,
-      signals_ingested_last_hour: acceptedSignals,
-      signals_posted_by_bot_last_hour: totalPosted,
-      last_signal_at: lastSignal?.received_time || null,
-    };
-
     // === WEBSOCKET BOOK STATUS ===
     const freshBooksStr = latestHeartbeat?.fresh_books || '';
     const venues = freshBooksStr.split(' ').filter(Boolean);
@@ -140,8 +133,16 @@ Deno.serve(async (req) => {
     }
 
     if (signalFlowStatusLabel === 'blocked') {
-      overallStatus = 'critical';
-      issues.push('Bot posting signals but ALL rejected by Base44 (auth failure)');
+      // Only flag as auth failure if we ALSO see non-2xx responses.
+      // If non_2xx=0, all rejections were filter rejections (asset/edge/venue) — not auth.
+      if (recentNon2xx > 0 || totalNon2xx > 5) {
+        overallStatus = 'critical';
+        issues.push('Bot posting signals but ALL rejected by Base44 (auth failure)');
+      } else {
+        // 200 OK but rejected = filter rejections (wrong asset, edge too low, etc.)
+        signalFlowStatusLabel = 'no_opportunities';
+        issues.push('Bot scanning & posting — all signals filtered (asset/edge/venue rules). No tradeable spreads.');
+      }
     } else if (signalFlowStatusLabel === 'no_opportunities') {
       // not an error — market is just quiet
       if (overallStatus === 'healthy') {
@@ -151,6 +152,14 @@ Deno.serve(async (req) => {
       overallStatus = overallStatus === 'healthy' ? 'warning' : overallStatus;
       issues.push(`Low signal flow (${acceptedSignals} accepted/hr)`);
     }
+
+    // Build signal flow object AFTER label may be reassigned in blocked→no_opportunities logic
+    const signalFlowStatus = {
+      status: signalFlowStatusLabel,
+      signals_ingested_last_hour: acceptedSignals,
+      signals_posted_by_bot_last_hour: totalPosted,
+      last_signal_at: lastSignal?.received_time || null,
+    };
 
     if (websocketStatus === 'critical') {
       overallStatus = 'critical';
