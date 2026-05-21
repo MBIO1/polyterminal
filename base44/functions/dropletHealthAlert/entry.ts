@@ -201,9 +201,33 @@ function formatConnectivityAlert(postErrors, non2xx) {
   return message;
 }
 
+// Persist alert state to DB so recovery detection works across stateless invocations
+async function getAlertState(base44) {
+  try {
+    const configs = await base44.asServiceRole.entities.ArbConfig.list('-updated_date', 1);
+    const cfg = configs[0];
+    return cfg?._alert_state || {};
+  } catch { return {}; }
+}
+
+async function setAlertState(base44, state) {
+  try {
+    const configs = await base44.asServiceRole.entities.ArbConfig.list('-updated_date', 1);
+    const cfg = configs[0];
+    if (cfg) {
+      await base44.asServiceRole.entities.ArbConfig.update(cfg.id, { _alert_state: state });
+    }
+  } catch (e) {
+    console.warn('[DropletAlert] Could not persist alert state:', e.message);
+  }
+}
+
 async function checkAndAlert(base44) {
   const now = Date.now();
   const alerts = [];
+
+  // Load persisted alert state (tracks whether bot was previously offline)
+  const alertState = await getAlertState(base44);
   
   // Get latest heartbeat
   const heartbeats = await base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 5);
@@ -283,34 +307,76 @@ async function checkAndAlert(base44) {
   }
   
   // Send appropriate alerts
-  
+
+  // 0. Recovery alert — bot came back online after being offline/warning
+  const wasOffline = alertState.last_status === 'critical' || alertState.last_status === 'warning';
+  const isNowHealthy = status === 'healthy';
+  if (wasOffline && isNowHealthy) {
+    const offlineSince = alertState.offline_since_ts || (now - 600000);
+    const downtimeSec = Math.floor((now - offlineSince) / 1000);
+    const alertText = formatRecoveryAlert(downtimeSec);
+    const result = await sendTelegramAlert(alertText);
+    alerts.push({ type: 'recovery', sent: result.sent });
+  }
+
+  // Also send a "bot came online" alert if this is the first heartbeat after a fresh start
+  // (no previous state stored at all, or was unknown)
+  if (!alertState.last_status && status === 'healthy') {
+    const startupText = [
+      `🟢 <b>BOT ONLINE</b>`,
+      `━━━━━━━━━━━━━━━━━━━━━`,
+      `✅ Heartbeat received — bot is running`,
+      `⏱ Last heartbeat: ${heartbeatAgeSec}s ago`,
+      `📊 Books: ${lastHb?.fresh_books || 'N/A'}`,
+      `🔍 Scanning: ${lastHb?.evaluations || 0} evals/min`,
+    ].join('\n');
+    const result = await sendTelegramAlert(startupText);
+    alerts.push({ type: 'bot_online', sent: result.sent });
+  }
+
+  // Persist current status for next run
+  const newAlertState = {
+    last_status: status,
+    last_check_ts: now,
+    offline_since_ts: (status !== 'healthy' && !wasOffline) ? now : (alertState.offline_since_ts || null),
+  };
+  await setAlertState(base44, newAlertState);
+
   // 1. Critical - Droplet offline
-  if (status === 'critical' && shouldSendAlert('critical_offline')) {
+  if (status === 'critical' && (now - (alertState.last_critical_alert_ts || 0)) > ALERT_COOLDOWN_MS) {
     const alertText = formatCriticalAlert(heartbeatAgeSec, issues);
     const result = await sendTelegramAlert(alertText);
     alerts.push({ type: 'critical_offline', sent: result.sent });
+    newAlertState.last_critical_alert_ts = now;
+    await setAlertState(base44, newAlertState);
   }
   
   // 2. Warning - Stale heartbeat
-  else if (status === 'warning' && shouldSendAlert('warning_stale')) {
+  else if (status === 'warning' && (now - (alertState.last_warning_alert_ts || 0)) > ALERT_COOLDOWN_MS) {
     const alertText = formatHealthBadge(status, heartbeatAgeSec, lastHb);
     const result = await sendTelegramAlert(alertText);
     alerts.push({ type: 'warning_stale', sent: result.sent });
+    newAlertState.last_warning_alert_ts = now;
+    await setAlertState(base44, newAlertState);
   }
   
   // 3. Book freshness issues
-  if (bookFreshnessPct < MIN_BOOK_FRESHNESS_PCT && shouldSendAlert('book_freshness')) {
+  if (bookFreshnessPct < MIN_BOOK_FRESHNESS_PCT && (now - (alertState.last_book_alert_ts || 0)) > ALERT_COOLDOWN_MS) {
     const alertText = formatBookFreshnessAlert(bookFreshnessPct, staleVenues);
     const result = await sendTelegramAlert(alertText);
     alerts.push({ type: 'book_freshness', sent: result.sent });
+    newAlertState.last_book_alert_ts = now;
+    await setAlertState(base44, newAlertState);
   }
   
   // 4. Connectivity issues
   if ((postErrorsLastHour >= MAX_POST_ERRORS || non2xxLastHour >= MAX_NON_2XX) && 
-      shouldSendAlert('connectivity')) {
+      (now - (alertState.last_connectivity_alert_ts || 0)) > ALERT_COOLDOWN_MS) {
     const alertText = formatConnectivityAlert(postErrorsLastHour, non2xxLastHour);
     const result = await sendTelegramAlert(alertText);
     alerts.push({ type: 'connectivity', sent: result.sent });
+    newAlertState.last_connectivity_alert_ts = now;
+    await setAlertState(base44, newAlertState);
   }
 
   // 5. Signal flow stopped — bot alive but no signals reaching DB in 30 min
@@ -329,7 +395,7 @@ async function checkAndAlert(base44) {
     // If bot is scanning fine but no signal crosses the edge floor → market is quiet, not an error.
     const isActualProblem = lastHbNon2xx > 0 || (lastHbEvals === 0 && lastHbPosted === 0);
 
-    if (isActualProblem && shouldSendAlert('signal_flow_stopped')) {
+    if (isActualProblem && (now - (alertState.last_signal_flow_alert_ts || 0)) > ALERT_COOLDOWN_MS) {
       const silenceMin = Math.floor(signalSilenceMs / 60000);
 
       let diagnosis = '';
@@ -357,9 +423,12 @@ async function checkAndAlert(base44) {
 
       const result = await sendTelegramAlert(alertText);
       alerts.push({ type: 'signal_flow_stopped', sent: result.sent, silenceMin });
+      newAlertState.last_signal_flow_alert_ts = now;
+      await setAlertState(base44, newAlertState);
     }
-  } else if (signalSilenceMs < SIGNAL_SILENCE_MS && lastAlertTime.get('signal_flow_stopped')) {
-    lastAlertTime.delete('signal_flow_stopped');
+  } else if (signalSilenceMs < SIGNAL_SILENCE_MS && alertState.last_signal_flow_alert_ts) {
+    newAlertState.last_signal_flow_alert_ts = null;
+    await setAlertState(base44, newAlertState);
     const resumedText = [
       `✅ <b>SIGNAL FLOW RESUMED</b>`,
       `━━━━━━━━━━━━━━━━━━━━━`,
