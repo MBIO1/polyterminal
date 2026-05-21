@@ -1,62 +1,47 @@
-// Serves the current droplet bot.mjs as plain text.
-// PUBLIC endpoint — no auth required.
-// Usage from droplet:
-//   curl -s https://polytrade.base44.app/functions/downloadBot -o /root/arb-ws-bot/bot.mjs && pm2 restart arb-bot
+// Serves the v4 WebSocket bot code
+// Run on droplet: curl -s https://polytrade.base44.app/functions/downloadBot -o /root/arb-ws-bot/bot.mjs && pm2 restart arb-bot --update-env
 
-const BOT_SOURCE = `// Droplet WebSocket arbitrage bot — v4 (Bybit WS Orderbooks)
-// Auto-downloaded from Base44. Start: node bot.mjs
-// Uses Bybit WebSocket V5 orderbook.50 for real-time top-of-book data
-// Fires signals only when net edge >= threshold AND fillable size >= min notional
-
-import 'dotenv/config';
+const BOT_SOURCE = `import 'dotenv/config';
 import { WebsocketClient } from 'bybit-api';
 
-const INGEST_URL      = process.env.BASE44_INGEST_URL;
-const HEARTBEAT_URL   = process.env.BASE44_HEARTBEAT_URL;
-const TOKEN           = process.env.DROPLET_SECRET || process.env.BASE44_USER_TOKEN;
-
-const SYMBOLS         = (process.env.SYMBOLS || 'BTCUSDT,ETHUSDT').split(',');
+const INGEST_URL = process.env.BASE44_INGEST_URL;
+const HEARTBEAT_URL = process.env.BASE44_HEARTBEAT_URL;
+const TOKEN = process.env.DROPLET_SECRET || process.env.BASE44_USER_TOKEN;
+const SYMBOLS = (process.env.SYMBOLS || 'BTCUSDT,ETHUSDT').split(',');
 const MIN_NET_EDGE_BPS = Number(process.env.MIN_NET_EDGE_BPS || 3);
 const MIN_NOTIONAL_USD = Number(process.env.MIN_NOTIONAL_USD || 15);
-const TAKER_FEE_BPS_PER_LEG = 5; // Adjust for VIP tier
-const TOTAL_FEE_BPS = TAKER_FEE_BPS_PER_LEG * 2; // 10 bps total for spot+perp
-const ALERT_EDGE_BPS  = Number(process.env.ALERT_EDGE_BPS || 20);
-const HEARTBEAT_MS    = Number(process.env.HEARTBEAT_MS || 60_000);
+const TAKER_FEE_BPS = 5;
+const TOTAL_FEE_BPS = TAKER_FEE_BPS * 2;
+const ALERT_EDGE_BPS = Number(process.env.ALERT_EDGE_BPS || 20);
+const HEARTBEAT_MS = Number(process.env.HEARTBEAT_MS || 60000);
 
 if (!INGEST_URL || !TOKEN) {
   console.error('Missing BASE44_INGEST_URL or DROPLET_SECRET');
   process.exit(1);
 }
 
-// Market state: { BTCUSDT: { spot: {askPrice, askVol, bidPrice, bidVol}, perp: {...} } }
 const marketState = {};
 const stats = { evaluations: 0, posted: 0, bestEdge: -Infinity, bestPair: '', bestRoute: '' };
 
-// Initialize Bybit WebSocket Clients (V5)
-const wsConfig = { market: 'v5' };
-const wsSpot = new WebsocketClient({ ...wsConfig, testnet: false });
-const wsPerp = new WebsocketClient({ ...wsConfig, testnet: false });
+const wsSpot = new WebsocketClient({ market: 'v5', testnet: false });
+const wsPerp = new WebsocketClient({ market: 'v5', testnet: false });
 
-console.log(
-  '🚀 Arb Bot v4 (WebSocket) starting\\n' +
-  '  symbols: ' + SYMBOLS.join(', ') + '\\n' +
-  '  min net edge: ' + MIN_NET_EDGE_BPS + ' bps\\n' +
-  '  min notional: $' + MIN_NOTIONAL_USD + '\\n' +
-  '  fees: ' + TOTAL_FEE_BPS + ' bps (spot+perp)\\n' +
-  '  alert edge: ' + ALERT_EDGE_BPS + ' bps'
-);
+console.log('🚀 Arb Bot v4 (WebSocket) starting');
+console.log('  symbols:', SYMBOLS.join(', '));
+console.log('  min net edge:', MIN_NET_EDGE_BPS, 'bps');
+console.log('  min notional: $' + MIN_NOTIONAL_USD);
+console.log('  fees:', TOTAL_FEE_BPS, 'bps');
 
-// Subscribe to orderbooks
 SYMBOLS.forEach(symbol => {
   console.log('📡 Subscribing to ' + symbol + ' orderbooks...');
   wsSpot.subscribeV5('orderbook.50.' + symbol, 'spot');
   wsPerp.subscribeV5('orderbook.50.' + symbol, 'linear');
 });
 
-// Handle Spot Updates
 wsSpot.on('update', (data) => {
-  if (data.topic?.startsWith('orderbook') && data.data) {
-    const symbol = data.topic.split('.')[2];
+  if (data.topic && data.topic.startsWith('orderbook') && data.data) {
+    const parts = data.topic.split('.');
+    const symbol = parts[parts.length - 1];
     if (SYMBOLS.includes(symbol)) {
       updateMarketState(symbol, 'spot', data.data);
       evaluateSignal(symbol);
@@ -64,10 +49,10 @@ wsSpot.on('update', (data) => {
   }
 });
 
-// Handle Perp Updates
 wsPerp.on('update', (data) => {
-  if (data.topic?.startsWith('orderbook') && data.data) {
-    const symbol = data.topic.split('.')[2];
+  if (data.topic && data.topic.startsWith('orderbook') && data.data) {
+    const parts = data.topic.split('.');
+    const symbol = parts[parts.length - 1];
     if (SYMBOLS.includes(symbol)) {
       updateMarketState(symbol, 'perp', data.data);
       evaluateSignal(symbol);
@@ -87,8 +72,6 @@ function updateMarketState(symbol, marketType, data) {
       perp: { askPrice: 0, askVol: 0, bidPrice: 0, bidVol: 0 }
     };
   }
-
-  // Bybit sends 'a' (asks) and 'b' (bids): [ ["price", "size"], ... ]
   if (data.a && data.a.length > 0) {
     marketState[symbol][marketType].askPrice = parseFloat(data.a[0][0]);
     marketState[symbol][marketType].askVol = parseFloat(data.a[0][1]);
@@ -102,17 +85,12 @@ function updateMarketState(symbol, marketType, data) {
 function evaluateSignal(symbol) {
   const state = marketState[symbol];
   if (!state) return;
-
   const { spot, perp } = state;
   if (!spot.askPrice || !perp.bidPrice) return;
 
   stats.evaluations++;
-
-  // Strategy: Long Spot @ ASK, Short Perp @ BID
   const grossSpreadBps = ((perp.bidPrice - spot.askPrice) / spot.askPrice) * 10000;
   const netEdgeBps = grossSpreadBps - TOTAL_FEE_BPS;
-
-  // Volume check: calculate USD value at top of book
   const spotNotionalUsd = spot.askPrice * spot.askVol;
   const perpNotionalUsd = perp.bidPrice * perp.bidVol;
   const maxFillableUsd = Math.min(spotNotionalUsd, perpNotionalUsd);
@@ -123,7 +101,6 @@ function evaluateSignal(symbol) {
     stats.bestRoute = 'bybit-spot->bybit-perp';
   }
 
-  // Fire signal only if edge AND size thresholds are met
   if (netEdgeBps >= MIN_NET_EDGE_BPS && maxFillableUsd >= MIN_NOTIONAL_USD) {
     const pair = symbol.replace('USDT', '-USDT');
     const signal = {
@@ -145,10 +122,9 @@ function evaluateSignal(symbol) {
       alert: netEdgeBps >= ALERT_EDGE_BPS,
       notes: 'net:' + netEdgeBps.toFixed(1) + 'bps fill:$' + maxFillableUsd.toFixed(0),
     };
-
     post(signal);
     stats.posted++;
-    console.log('🎯 [' + pair + '] Edge: ' + netEdgeBps.toFixed(2) + ' bps | Fill: $' + maxFillableUsd.toFixed(0));
+    console.log('🎯 [' + pair + '] Edge:', netEdgeBps.toFixed(2), 'bps | Fill: $' + maxFillableUsd.toFixed(0));
   }
 }
 
@@ -175,11 +151,10 @@ async function postHeartbeat() {
   if (!HEARTBEAT_URL) return;
   const now = Date.now();
   const conns = Object.entries(marketState).map(([sym, data]) => {
-    const spotFresh = data.spot.askPrice && (now - (data.spot.ts || 0)) < 10000 ? '1' : '0';
-    const perpFresh = data.perp.bidPrice && (now - (data.perp.ts || 0)) < 10000 ? '1' : '0';
+    const spotFresh = data.spot.askPrice ? '1' : '0';
+    const perpFresh = data.perp.bidPrice ? '1' : '0';
     return sym + '-spot:' + spotFresh + '/1 ' + sym + '-perp:' + perpFresh + '/1';
   }).join(' ');
-
   try {
     await fetch(HEARTBEAT_URL, {
       method: 'POST',
@@ -199,7 +174,6 @@ async function postHeartbeat() {
   }
 }
 
-// Heartbeat every 60 seconds
 setInterval(() => {
   console.log('💓 evals=' + stats.evaluations + ' posted=' + stats.posted + ' best=' + stats.bestEdge.toFixed(1) + 'bps (' + stats.bestPair + ')');
   postHeartbeat();
