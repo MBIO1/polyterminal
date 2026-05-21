@@ -20,6 +20,7 @@ import BybitBalanceWidget from '@/components/dashboard/BybitBalanceWidget';
 import BotDiagnosticCard from '@/components/dashboard/BotDiagnosticCard';
 import SignalAcceptanceChart from '@/components/dashboard/SignalAcceptanceChart';
 import ExecutionHealthCard from '@/components/dashboard/ExecutionHealthCard';
+import LiveMarketChart from '@/components/dashboard/LiveMarketChart';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -142,6 +143,9 @@ export default function Dashboard() {
 
       {/* Bot Diagnostics — heartbeat + token auth status */}
       <BotDiagnosticCard />
+
+      {/* Live Market Chart — Bybit BTC/ETH prices + spread + signals */}
+      <LiveMarketChart activeTrades={strategyPnl.filter(t => t.status === 'Open')} />
 
       {/* Drawdown Gauge + Balance */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
