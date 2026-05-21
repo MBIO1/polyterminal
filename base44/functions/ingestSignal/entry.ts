@@ -148,10 +148,12 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Reject signals with non-positive net edge — nothing to trade
+    // Reject signals with weak/negative profit economics before storing them.
     const netEdge = Number(body.net_edge_bps);
-    if (netEdge <= 0) {
-      return Response.json({ ok: true, rejected: true, reason: 'net_edge_bps <= 0' });
+    const fillableUsd = Number(body.fillable_size_usd || 0);
+    const expectedProfitUsd = fillableUsd * (netEdge / 10000);
+    if (netEdge < 3 || expectedProfitUsd < 0.01) {
+      return Response.json({ ok: true, rejected: true, reason: 'profit_floor' });
     }
 
     // VENUE FILTER: We only have a Bybit execution path. Reject signals that
@@ -167,6 +169,11 @@ Deno.serve(async (req) => {
         rejected: true,
         reason: 'no_bybit_leg — execution path is Bybit-only',
       });
+    }
+
+    // Avoid sell-only Bybit spot routes unless inventory exists; small USDT accounts cannot sell assets they do not hold.
+    if (!buyIsBybit && sellIsBybit && sellEx.includes('spot')) {
+      return Response.json({ ok: true, rejected: true, reason: 'inventory_required' });
     }
 
     // SAME-VENUE FILTER: Allow same-venue spot/perp basis trades IF funding rate justifies it
@@ -271,27 +278,28 @@ Deno.serve(async (req) => {
     // SDK client was initialized from a stripped-header request (droplet calls),
     // which causes a 403 "app is private" error on function invokes.
     // Instead, we use the BASE44_USER_TOKEN to make a direct authenticated call.
-    if (netEdge > 0) {
+    if (netEdge >= 3) {
       const userToken = Deno.env.get('BASE44_USER_TOKEN');
-      const appUrl    = Deno.env.get('BASE44_APP_URL');
-      if (userToken && appUrl) {
-        const execUrl = `${appUrl.replace(/\/$/, '')}/api/functions/executeSignals`;
+      const botSecret = Deno.env.get('BOT_SECRET') || Deno.env.get('DROPLET_SECRET') || '';
+      const execUrl = Deno.env.get('BASE44_EXECUTE_URL') || `${Deno.env.get('BASE44_APP_URL')?.replace(/\/$/, '')}/api/functions/executeSignals`;
+      if (execUrl && execUrl !== 'undefined/api/functions/executeSignals') {
         fetch(execUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${userToken}`,
+            ...(userToken ? { 'Authorization': `Bearer ${userToken}` } : {}),
           },
           body: JSON.stringify({
-            signal_id:     signal.id,
-            max_signals:   1,
-            signal_ttl_ms: 60_000,
-            dry_run:       body.dry_run === true,
+            signal_id:       signal.id,
+            max_signals:     1,
+            signal_ttl_ms:   60_000,
+            dry_run:         body.dry_run === true,
+            internal_secret: botSecret,
           }),
           signal: AbortSignal.timeout(30000),
         }).catch(e => console.error('[ingestSignal] executeSignals trigger failed:', e.message));
       } else {
-        console.warn('[ingestSignal] BASE44_USER_TOKEN or BASE44_APP_URL not set — skipping instant execution');
+        console.warn('[ingestSignal] execution URL not set — skipping instant execution');
       }
     }
 

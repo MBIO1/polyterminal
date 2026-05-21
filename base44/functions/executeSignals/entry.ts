@@ -52,10 +52,19 @@ function recomputeNetEdge(signal, config, sizeUsd) {
   const fillable = Math.max(1, Number(signal.fillable_size_usd || 1));
   const sizeRatio= Math.min(Math.max(0, sizeUsd) / fillable, 1);
   const slipBps  = sizeRatio < 0.1 ? 0.5 : sizeRatio < 0.3 ? 1 : sizeRatio < 0.6 ? 1.5 : 2;
-  const net      = signal.net_edge_bps != null
-    ? Number(signal.net_edge_bps)
-    : rawBps - (4 * takerBps) - slipBps;
+  const quotedNet = signal.net_edge_bps != null ? Number(signal.net_edge_bps) : rawBps - (4 * takerBps);
+  const net = quotedNet - slipBps;
   return { rawBps, takerBps, slipBps, net };
+}
+
+function isExecutableBybitRoute(signal) {
+  const buyEx = String(signal.buy_exchange || '').toLowerCase();
+  const sellEx = String(signal.sell_exchange || '').toLowerCase();
+  const buyIsBybit = buyEx.includes('bybit');
+  const sellIsBybit = sellEx.includes('bybit');
+  if (!buyIsBybit && !sellIsBybit) return false;
+  if (!buyIsBybit && sellIsBybit && sellEx.includes('spot')) return false;
+  return true;
 }
 
 function computeSizeUsd(signal, config, confidence, capitalFlowUsd = null, profitGrowthUsd = 0) {
@@ -269,10 +278,11 @@ Deno.serve(async (req) => {
     }
 
     // Apply min-edge gate in BOTH paper and live so paper P&L reflects realistic economics.
-    const minEdge = Math.min(
+    const minEdge = Math.max(3, Math.min(
       Number(config.btc_min_edge_bps ?? DEFAULT_MIN_EDGE),
       Number(config.eth_min_edge_bps ?? DEFAULT_MIN_EDGE),
-    );
+      Number(config.sol_min_edge_bps ?? DEFAULT_MIN_EDGE),
+    ));
 
     // ── Load signals ──────────────────────────────────────────────────────────
     const nowTs     = Date.now();
@@ -355,6 +365,11 @@ Deno.serve(async (req) => {
     // ── Score & filter signals ────────────────────────────────────────────────
     const scored = [];
     for (const sig of candidates) {
+      if (!isExecutableBybitRoute(sig) && !forceId) {
+        console.log(`[executeSignals] SKIP ${sig.pair}: not executable with current Bybit capital route`);
+        continue;
+      }
+
       const confidence = signalConfidence(sig, ttlMs);
       // Lowered threshold from 40 to 30 to allow more signals (industry: 25-30)
       if (confidence < 30 && !forceId) {
@@ -400,12 +415,13 @@ Deno.serve(async (req) => {
 
       const { rawBps, takerBps, slipBps, net } = recomputeNetEdge(sig, config, sizeUsd);
 
-      if (net < minEdge && !forceId) {
-        console.log(`[executeSignals] REJECT ${sig.pair}: net=${net.toFixed(2)}bps < min=${minEdge}bps`);
+      const expectedProfitUsd = sizeUsd * (net / 10000);
+      if ((net < minEdge || expectedProfitUsd < 0.01) && !forceId) {
+        console.log(`[executeSignals] SKIP ${sig.pair}: profit too low net=${net.toFixed(2)}bps expected=$${expectedProfitUsd.toFixed(4)}`);
         continue;
       }
 
-      console.log(`[executeSignals] ACCEPT ${sig.pair}: net=${net.toFixed(2)}bps size=$${sizeUsd.toFixed(2)} qty=${qty} confidence=${confidence} capital=$${capitalFlowUsd.toFixed(2)}`);
+      console.log(`[executeSignals] ACCEPT ${sig.pair}: net=${net.toFixed(2)}bps expected=$${expectedProfitUsd.toFixed(4)} size=$${sizeUsd.toFixed(2)} qty=${qty} confidence=${confidence} capital=$${capitalFlowUsd.toFixed(2)}`);
       scored.push({ sig, confidence, sizeUsd, qty, net, rawBps, takerBps, slipBps });
     }
 
