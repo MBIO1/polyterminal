@@ -51,7 +51,8 @@ export default function BotDiagnosticCard() {
   // Auth status: only "failing" if we actually see non-2xx rejections from Base44.
   // 0% accepted with 0 non-2xx means signals were filter-rejected (edge/asset rules) — NOT auth failure.
   let authStatus;
-  if (non2xx > 2) authStatus = 'failing';
+  if (!health) authStatus = 'loading';
+  else if (non2xx > 2) authStatus = 'failing';
   else if (postErrors > 2) authStatus = 'network_error';
   else if (posted === 0 && accepted === 0 && heartbeatSec != null && heartbeatSec < 300) authStatus = 'unknown';
   else authStatus = 'ok';
@@ -104,11 +105,13 @@ export default function BotDiagnosticCard() {
             authStatus === 'ok' ? 'text-green-400'
             : authStatus === 'failing' ? 'text-red-400'
             : authStatus === 'network_error' ? 'text-yellow-400'
+            : authStatus === 'loading' ? 'text-muted-foreground'
             : 'text-muted-foreground'
           }`}>
             {authStatus === 'ok' ? 'OK'
               : authStatus === 'failing' ? `${non2xx} rejected`
               : authStatus === 'network_error' ? `${postErrors} net errors`
+              : authStatus === 'loading' ? 'loading...'
               : 'no data yet'}
           </span>
         </div>
@@ -120,7 +123,9 @@ export default function BotDiagnosticCard() {
             <span>Signals (last hour)</span>
           </div>
           <span className="font-mono text-xs">
-            {signalFlowStatus === 'no_opportunities'
+            {!health
+              ? <span className="text-muted-foreground">loading...</span>
+              : signalFlowStatus === 'no_opportunities'
               ? <span className="text-muted-foreground">market quiet · {posted} scanned</span>
               : signalFlowStatus === 'blocked'
                 ? <span className="text-red-400">blocked · {posted} rejected</span>
