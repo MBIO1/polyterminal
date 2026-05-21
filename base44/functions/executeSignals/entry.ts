@@ -405,11 +405,11 @@ function computeSizeUsd(signal, config, confidence, capitalFlowUsd, profitGrowth
   const perTradePct   = Math.min(basePct + growthBoost, 0.30);
   const perTradeCap   = capitalBase * perTradePct;
   const fillable      = Number(signal.fillable_size_usd || 0);
-  const minExecutable = Math.max(5, Number(config.min_fillable_usd || 5));
+  const minExecutable = Math.max(MIN_NOTIONAL_USD, Number(config.min_fillable_usd || MIN_NOTIONAL_USD));
   const mult          = sizeMultiplier(confidence);
-  if (mult <= 0 || fillable < minExecutable || capitalBase < 5) return 0;
+  if (mult <= 0 || fillable < minExecutable || capitalBase < MIN_NOTIONAL_USD) return 0;
   const riskSize = Math.min(perTradeCap, fillable * 0.20, capitalBase * 0.85) * mult;
-  return Math.min(Math.max(5, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD, capitalBase * 0.85);
+  return Math.min(Math.max(MIN_NOTIONAL_USD, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD, capitalBase * 0.85);
 }
 
 async function fetchAvailableCapitalUsd(dropletIp, secret, port) {
