@@ -7,7 +7,7 @@ import { toast } from 'sonner';
 export default function BotControls({ config, onUpdated }) {
   const [loading, setLoading] = useState(null); // 'start' | 'stop'
 
-  const isRunning = config?.bot_running && !config?.kill_switch_active;
+  const isRunning = config == null ? true : config?.bot_running && !config?.kill_switch_active;
 
   const trigger = async (action) => {
     setLoading(action);
@@ -26,7 +26,7 @@ export default function BotControls({ config, onUpdated }) {
     <div className="flex items-center gap-2">
       <Button
         size="sm"
-        disabled={!!loading || isRunning}
+        disabled={!!loading || isRunning || config == null}
         onClick={() => trigger('start')}
         className="bg-green-600 hover:bg-green-700 text-white"
       >
@@ -36,7 +36,7 @@ export default function BotControls({ config, onUpdated }) {
       <Button
         size="sm"
         variant="destructive"
-        disabled={!!loading || !isRunning}
+        disabled={!!loading || !isRunning || config == null}
         onClick={() => trigger('stop')}
       >
         {loading === 'stop' ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Square className="w-4 h-4 mr-1" />}

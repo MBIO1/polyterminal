@@ -44,8 +44,23 @@ export default function Dashboard() {
     try {
       setLoading(true);
 
-      // Load trades
-      const trades = await base44.entities.ArbTrade.list('-created_date', 50);
+      const [tradesRes, signalsRes, healthRes, configsRes] = await Promise.allSettled([
+        base44.entities.ArbTrade.list('-created_date', 50),
+        base44.entities.ArbSignal.list('-received_time', 50),
+        base44.functions.invoke('dropletHealth', {}),
+        base44.entities.ArbConfig.list('-created_date', 1),
+      ]);
+
+      const trades = tradesRes.status === 'fulfilled' ? tradesRes.value : [];
+      const allRecentSignals = signalsRes.status === 'fulfilled' ? signalsRes.value : [];
+      const health = healthRes.status === 'fulfilled' ? healthRes.value?.data : null;
+      const configs = configsRes.status === 'fulfilled' ? configsRes.value : [];
+
+      if (tradesRes.status === 'rejected') console.error('Trades load error:', tradesRes.reason);
+      if (signalsRes.status === 'rejected') console.error('Signals load error:', signalsRes.reason);
+      if (healthRes.status === 'rejected') console.error('Health load error:', healthRes.reason);
+      if (configsRes.status === 'rejected') console.error('Config load error:', configsRes.reason);
+
       setRecentTrades(trades.slice(0, 5));
 
       // Only sum trades that have a real net_pnl recorded (not null)
@@ -55,7 +70,6 @@ export default function Dashboard() {
 
       // Load signals — only today's (UTC), since stat is "Signals Today"
       const todayStart = new Date(); todayStart.setUTCHours(0,0,0,0);
-      const allRecentSignals = await base44.entities.ArbSignal.list('-received_time', 50);
       const signalsToday = allRecentSignals.filter(s => {
         const t = new Date(s.received_time || s.created_date).getTime();
         return Number.isFinite(t) && t >= todayStart.getTime();
@@ -73,23 +87,20 @@ export default function Dashboard() {
         : 0;
 
       // Use dropletHealth as single source of truth (same logic as /droplet-health page)
-      try {
-        const res = await base44.functions.invoke('dropletHealth', {});
-        const overall = res?.data?.overall_status;
-        if (overall === 'healthy') setBotStatus('ok');
-        else if (overall === 'critical' || overall === 'warning') setBotStatus('alert');
-        else setBotStatus('unknown');
-      } catch (_) {
-        setBotStatus('unknown');
-      }
+      const overall = health?.overall_status;
+      if (overall === 'healthy') setBotStatus('ok');
+      else if (overall === 'critical' || overall === 'warning') setBotStatus('alert');
+      else setBotStatus('unknown');
 
       setStrategyPnl(trades); // pass raw trades to component
 
-      // Load ArbConfig for drawdown gauge + bot controls
-      try {
-        const configs = await base44.entities.ArbConfig.list('-created_date', 1);
-        if (configs.length > 0) setArbConfig(configs[0]);
-      } catch (_) {}
+      // Load ArbConfig for drawdown gauge + bot controls, then auto-sync if droplet is healthy
+      let config = configs?.[0] || null;
+      if (config && overall === 'healthy' && !config.bot_running && !config.kill_switch_active) {
+        const syncRes = await base44.functions.invoke('startStopBot', { action: 'sync' });
+        if (syncRes?.data?.bot_running) config = { ...config, bot_running: true };
+      }
+      setArbConfig(config);
 
 
       setStats({

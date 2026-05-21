@@ -10,10 +10,10 @@ Deno.serve(async (req) => {
     }
 
     const body = await req.json().catch(() => ({}));
-    const action = body.action; // 'start' | 'stop'
+    const action = body.action; // 'start' | 'stop' | 'sync'
 
-    if (action !== 'start' && action !== 'stop') {
-      return Response.json({ error: 'action must be "start" or "stop"' }, { status: 400 });
+    if (!['start', 'stop', 'sync'].includes(action)) {
+      return Response.json({ error: 'action must be "start", "stop", or "sync"' }, { status: 400 });
     }
 
     const isStart = action === 'start';
@@ -23,8 +23,22 @@ Deno.serve(async (req) => {
     const config = configs?.[0];
     if (!config) return Response.json({ error: 'No ArbConfig found' }, { status: 400 });
 
+    if (action === 'sync') {
+      const latest = await base44.asServiceRole.entities.ArbHeartbeat.list('-snapshot_time', 1);
+      const last = latest?.[0];
+      const lastMs = last ? Date.now() - new Date(last.snapshot_time).getTime() : Infinity;
+      const dropletHealthy = Number.isFinite(lastMs) && lastMs < 120_000;
+
+      if (dropletHealthy && !config.kill_switch_active && !config.bot_running) {
+        await base44.asServiceRole.entities.ArbConfig.update(config.id, { bot_running: true });
+        return Response.json({ ok: true, action, bot_running: true, synced_from_heartbeat: true });
+      }
+
+      return Response.json({ ok: true, action, bot_running: !!config.bot_running, synced_from_heartbeat: false });
+    }
+
     const updates = { bot_running: isStart };
-    if (isStart) updates.kill_switch_active = false; // always clear kill switch on start
+    if (isStart) updates.kill_switch_active = false; // always clear kill switch on manual start
     await base44.asServiceRole.entities.ArbConfig.update(config.id, updates);
 
     // If starting, also restart the droplet bot process
