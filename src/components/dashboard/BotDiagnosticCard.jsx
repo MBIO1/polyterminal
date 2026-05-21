@@ -36,23 +36,28 @@ export default function BotDiagnosticCard() {
   }, []);
 
   const heartbeatSec  = health?.heartbeat?.last_seen_sec;
-  const heartbeatOk   = health?.heartbeat?.status === 'healthy';
+  // Only treat as down if missing >5 min (300s) — avoids false alarms on minor delays
+  const heartbeatOk   = heartbeatSec != null && heartbeatSec < 300;
+  const heartbeatCritical = heartbeatSec == null || heartbeatSec >= 600; // truly offline >10min
   const posted        = health?.heartbeat?.total_posted_last_hour || 0;
   const accepted      = health?.connectivity?.signals_accepted_last_hour || 0;
   const non2xx        = health?.connectivity?.non_2xx_last_hour || 0;
-  const successRate   = health?.connectivity?.ingest_success_rate_pct;
+  const postErrors    = health?.connectivity?.post_errors_last_hour || 0;
 
   // SINGLE SOURCE OF TRUTH: use dropletHealth's overall_status (same as /droplet-health page)
   const overall = health?.overall_status; // 'healthy' | 'warning' | 'critical' | 'unknown'
   const overallOk = overall === 'healthy';
 
-  // Derive auth status display from overall + connectivity signals
-  // Use accepted signals as fallback — heartbeat "posted" may be 0 if heartbeat is stale
-  // but signals could still have been accepted (e.g. right after restart)
+  // Auth status: only "failing" if we actually see non-2xx rejections from Base44.
+  // 0% accepted with 0 non-2xx means signals were filter-rejected (edge/asset rules) — NOT auth failure.
   let authStatus;
-  if (posted === 0 && accepted === 0) authStatus = 'unknown';
-  else if (non2xx > 0 && overall === 'critical') authStatus = 'failing';
+  if (non2xx > 2) authStatus = 'failing';
+  else if (postErrors > 2) authStatus = 'network_error';
+  else if (posted === 0 && accepted === 0 && heartbeatSec != null && heartbeatSec < 300) authStatus = 'unknown';
   else authStatus = 'ok';
+
+  // Signal flow label: distinguish filter rejections from auth rejections
+  const signalFlowStatus = health?.signal_flow?.status; // 'flowing' | 'no_opportunities' | 'blocked' | 'degraded'
 
   return (
     <Card className={
@@ -98,32 +103,41 @@ export default function BotDiagnosticCard() {
           <span className={`font-mono text-xs ${
             authStatus === 'ok' ? 'text-green-400'
             : authStatus === 'failing' ? 'text-red-400'
+            : authStatus === 'network_error' ? 'text-yellow-400'
             : 'text-muted-foreground'
           }`}>
-            {authStatus === 'ok' ? `${successRate}% accepted`
-              : authStatus === 'failing' ? `${non2xx}/${posted} rejected`
-              : 'no posts yet'}
+            {authStatus === 'ok' ? 'OK'
+              : authStatus === 'failing' ? `${non2xx} rejected`
+              : authStatus === 'network_error' ? `${postErrors} net errors`
+              : 'no data yet'}
           </span>
         </div>
 
         {/* Signal flow snapshot */}
         <div className="flex items-center justify-between text-sm">
           <div className="flex items-center gap-2">
-            <Activity className="w-4 h-4 text-muted-foreground" />
+            <Activity className={`w-4 h-4 ${signalFlowStatus === 'flowing' ? 'text-green-400' : signalFlowStatus === 'blocked' ? 'text-red-400' : 'text-muted-foreground'}`} />
             <span>Signals (last hour)</span>
           </div>
           <span className="font-mono text-xs">
-            <span className="text-green-400">{accepted}</span>
-            <span className="text-muted-foreground"> / {posted} posted</span>
+            {signalFlowStatus === 'no_opportunities'
+              ? <span className="text-muted-foreground">market quiet · {posted} scanned</span>
+              : signalFlowStatus === 'blocked'
+                ? <span className="text-red-400">blocked · {posted} rejected</span>
+                : <>
+                    <span className="text-green-400">{accepted}</span>
+                    <span className="text-muted-foreground"> / {posted} posted</span>
+                  </>
+            }
           </span>
         </div>
 
-        {/* P0 Action when broken */}
-        {!heartbeatOk && (
+        {/* P0 Action: only show restart if TRULY critical (>10min no heartbeat) */}
+        {heartbeatCritical && (
           <div className="mt-3 p-3 rounded bg-red-500/10 border border-red-500/30">
             <div className="flex items-center gap-2 mb-1">
               <span className="text-[10px] font-mono bg-red-500/30 text-red-200 px-1.5 py-0.5 rounded">P0</span>
-              <span className="text-xs font-semibold text-red-200">Restart the droplet bot process</span>
+              <span className="text-xs font-semibold text-red-200">Droplet bot offline — restart required</span>
             </div>
             <code className="block text-[11px] font-mono text-red-300/80 mt-1 break-all">
               systemctl restart arb-bot-v2 && journalctl -u arb-bot-v2 -n 30 --no-pager
