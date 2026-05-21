@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { CheckCircle2, XCircle, AlertTriangle } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Filter } from 'lucide-react';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer,
 } from 'recharts';
@@ -9,6 +9,46 @@ import { base44 } from '@/api/base44Client';
 
 const ACCEPTED_STATUSES = new Set(['detected', 'alerted', 'executed']);
 const REJECTED_STATUSES = new Set(['rejected', 'expired']);
+
+// Rejection classifier — categorizes rejection_reason strings
+const REJECTION_CLASSES = {
+  HEALTHY_FILTER: [
+    'hard_stale_5min',
+    'capital_too_small',
+    'net_edge_bps',
+    'no_bybit_leg',
+    'same_venue',
+    'ttl_exceeded',
+  ],
+  EXECUTION_FAILURE: [
+    'droplet_http_500',
+    'droplet_http_400',
+    'exec_error',
+    'droplet_exec_failed',
+  ],
+  EXCHANGE_RULE: [
+    'qty_below_min',
+    'min_notional',
+    'step_size',
+    'Insufficient balance',
+  ],
+};
+
+function classifyRejection(reason) {
+  if (!reason) return 'UNKNOWN';
+  const lower = reason.toLowerCase();
+  for (const [cls, patterns] of Object.entries(REJECTION_CLASSES)) {
+    if (patterns.some(p => lower.includes(p.toLowerCase()))) return cls;
+  }
+  return 'UNKNOWN';
+}
+
+const CLASS_META = {
+  HEALTHY_FILTER:    { label: 'Healthy Filters', color: 'text-blue-400',   bg: 'bg-blue-500/60' },
+  EXECUTION_FAILURE: { label: 'Exec Failures',   color: 'text-red-400',    bg: 'bg-red-500/60' },
+  EXCHANGE_RULE:     { label: 'Exchange Rules',   color: 'text-yellow-400', bg: 'bg-yellow-500/60' },
+  UNKNOWN:           { label: 'Other',            color: 'text-gray-400',   bg: 'bg-gray-500/60' },
+};
 
 function buildHourlyBuckets(signals) {
   const now = Date.now();
@@ -50,7 +90,19 @@ function buildRejectionBreakdown(signals) {
   return [...reasons.entries()]
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5)
-    .map(([reason, count]) => ({ reason, count }));
+    .map(([reason, count]) => ({ reason, count, cls: classifyRejection(reason) }));
+}
+
+function buildClassBreakdown(signals) {
+  const classes = { HEALTHY_FILTER: 0, EXECUTION_FAILURE: 0, EXCHANGE_RULE: 0, UNKNOWN: 0 };
+  for (const s of signals) {
+    if (!REJECTED_STATUSES.has(s.status)) continue;
+    const cls = classifyRejection(s.rejection_reason);
+    classes[cls] = (classes[cls] || 0) + 1;
+  }
+  return Object.entries(classes)
+    .filter(([_, count]) => count > 0)
+    .map(([cls, count]) => ({ cls, count, ...CLASS_META[cls] }));
 }
 
 function CustomTooltip({ active, payload, label }) {
@@ -96,12 +148,12 @@ export default function SignalAcceptanceChart() {
   }, []);
 
   const buckets = buildHourlyBuckets(signals);
-  const rejectionBreakdown = buildRejectionBreakdown(
-    signals.filter(s => {
-      const t = new Date(s.received_time || s.signal_time || s.created_date).getTime();
-      return t && t >= Date.now() - 24 * 60 * 60 * 1000;
-    })
-  );
+  const recentSignals = signals.filter(s => {
+    const t = new Date(s.received_time || s.signal_time || s.created_date).getTime();
+    return t && t >= Date.now() - 24 * 60 * 60 * 1000;
+  });
+  const rejectionBreakdown = buildRejectionBreakdown(recentSignals);
+  const classBreakdown = buildClassBreakdown(recentSignals);
 
   const totalAccepted = buckets.reduce((sum, b) => sum + b.accepted, 0);
   const totalRejected = buckets.reduce((sum, b) => sum + b.rejected, 0);
@@ -172,23 +224,44 @@ export default function SignalAcceptanceChart() {
               <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-3">
                 Top rejection reasons
               </div>
+              {/* Class breakdown */}
+              {classBreakdown.length > 0 && (
+                <div className="mb-4">
+                  <div className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-2">
+                    By category
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    {classBreakdown.map(({ cls, count, label, color }) => (
+                      <Badge key={cls} variant="outline" className={`font-mono text-xs ${color}`}>
+                        {label}: {count}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Top reasons */}
               {rejectionBreakdown.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No rejections in 24h.</p>
               ) : (
                 <div className="space-y-2">
-                  {rejectionBreakdown.map(({ reason, count }) => {
+                  {rejectionBreakdown.map(({ reason, count, cls }) => {
                     const pct = totalRejected > 0 ? (count / totalRejected) * 100 : 0;
+                    const meta = CLASS_META[cls] || CLASS_META.UNKNOWN;
                     return (
                       <div key={reason}>
                         <div className="flex items-center justify-between text-xs mb-1">
-                          <span className="truncate pr-2" title={reason}>{reason}</span>
+                          <span className="flex items-center gap-1.5 truncate pr-2" title={reason}>
+                            <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${meta.bg}`} />
+                            {reason}
+                          </span>
                           <span className="font-mono text-muted-foreground shrink-0">
                             {count} ({pct.toFixed(0)}%)
                           </span>
                         </div>
                         <div className="h-1.5 w-full bg-secondary rounded overflow-hidden">
                           <div
-                            className="h-full bg-red-500/60"
+                            className={`h-full ${meta.bg}`}
                             style={{ width: `${Math.min(100, pct)}%` }}
                           />
                         </div>

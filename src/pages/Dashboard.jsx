@@ -19,6 +19,7 @@ import DrawdownGauge from '@/components/dashboard/DrawdownGauge';
 import BybitBalanceWidget from '@/components/dashboard/BybitBalanceWidget';
 import BotDiagnosticCard from '@/components/dashboard/BotDiagnosticCard';
 import SignalAcceptanceChart from '@/components/dashboard/SignalAcceptanceChart';
+import ExecutionHealthCard from '@/components/dashboard/ExecutionHealthCard';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -191,6 +192,9 @@ export default function Dashboard() {
 
       {/* Signal Acceptance — last 24h */}
       <SignalAcceptanceChart />
+
+      {/* Execution Health — last 24h */}
+      <ExecutionHealthCard />
 
       {/* Strategy Performance Table */}
       <StrategyPerformanceTable trades={strategyPnl} />
