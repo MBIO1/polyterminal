@@ -11,11 +11,11 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 // ── POLYTERMINAL LIVE CONFIG (synced from ARB_CONFIG) ────────────────────────
-const DEFAULT_MIN_EDGE       = 2.0;      // lowered: market is tight, 2 bps floor
+const DEFAULT_MIN_EDGE       = 2.0;      // lowered: market is tight, 2 bps floor (matches config btc_min_edge_bps)
 const FEE_BPS_PER_LEG        = 2.0;     // takerPct: matches config taker_fee_bps_per_leg
 const MAX_LIVE_NOTIONAL_USD  = 20;      // sizing.maxNotionalUsd
 const MIN_NOTIONAL_USD       = 15;      // sizing.minNotionalUsd
-const MIN_CONFIDENCE         = 60;      // lowered: market is tight, accept moderate confidence
+const MIN_CONFIDENCE         = 40;      // accept low confidence since edge floor is real gate
 const EXEC_TIMEOUT_MS        = 5_000;   // execution.timeoutMs
 const HARD_STALE_MS          = 20_000;  // signal.hardStaleMs
 
