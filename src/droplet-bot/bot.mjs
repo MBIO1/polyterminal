@@ -1,20 +1,12 @@
 /**
- * ArbitrageEngine v3 — OKX + Bybit Spot/Perp Basis Scanner
+ * ArbitrageEngine v3 — Bybit Spot/Perp Basis Scanner
  *
- * Fixes from v2:
- *  1. Symbol key normalization — OKX 'BTC-USDT' → 'BTCUSDT' so all venues align
- *  2. Perp book scanning — fetches OKX-swap and Bybit-perp for basis arb
- *  3. Noise filter removed — CV filter was suppressing valid trending-market signals
- *  4. Route names use exact ingestSignal/executeSignals expected format (e.g. 'bybit-spot', 'okx-perp')
+ * Scans Bybit spot vs Bybit perp for same-venue basis arbitrage opportunities.
  */
 
 // ─── Exchange fee table (taker fees as %) ────────────────────────────────────
 // Real Bybit fees: spot=0.10%, linear perp=0.055%
-// Binance: 0.10% spot. OKX: 0.08% spot, 0.05% perp.
 const EXCHANGE_FEES = {
-  'binance':    0.10,
-  'okx-spot':   0.08,
-  'okx-perp':   0.05,
   'bybit-spot': 0.10,
   'bybit-perp': 0.055,
 };
@@ -22,9 +14,6 @@ const EXCHANGE_FEES = {
 // ─── Slippage estimates per exchange (%) ─────────────────────────────────────
 // Conservative 1-2 bps slippage for liquid BTC/ETH/SOL
 const SLIPPAGE_EST = {
-  'binance':    0.01,
-  'okx-spot':   0.01,
-  'okx-perp':   0.01,
   'bybit-spot': 0.01,
   'bybit-perp': 0.01,
 };
@@ -69,49 +58,6 @@ class ArbitrageEngine {
     }
   }
 
-  // ─── OKX spot prices ─────────────────────────────────────────────────────
-
-  async getOKXSpotPrices() {
-    const symbols = ['BTC-USDT', 'ETH-USDT'];
-    try {
-      const results = await Promise.allSettled(
-        symbols.map(s => this._fetch(`https://www.okx.com/api/v5/market/ticker?instId=${s}`))
-      );
-      const prices = {};
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value?.data?.[0]?.last)
-          prices[normalizeSym(symbols[i])] = parseFloat(r.value.data[0].last);
-      });
-      return prices;
-    } catch (e) {
-      console.warn('⚠️ OKX spot error:', e.message);
-      return {};
-    }
-  }
-
-  // ─── OKX perp prices ─────────────────────────────────────────────────────
-
-  async getOKXPerpPrices() {
-    const symbols = ['BTC-USDT-SWAP', 'ETH-USDT-SWAP'];
-    try {
-      const results = await Promise.allSettled(
-        symbols.map(s => this._fetch(`https://www.okx.com/api/v5/market/ticker?instId=${s}`))
-      );
-      const prices = {};
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value?.data?.[0]?.last) {
-          // Map BTC-USDT-SWAP → BTCUSDT
-          const base = symbols[i].replace('-USDT-SWAP', '').replace('-', '');
-          prices[`${base}USDT`] = parseFloat(r.value.data[0].last);
-        }
-      });
-      return prices;
-    } catch (e) {
-      console.warn('⚠️ OKX perp error:', e.message);
-      return {};
-    }
-  }
-
   // ─── Bybit spot prices ───────────────────────────────────────────────────
 
   async getBybitSpotPrices() {
@@ -152,35 +98,12 @@ class ArbitrageEngine {
     }
   }
 
-  // ─── Binance spot (reference) ────────────────────────────────────────────
-
-  async getBinanceSpotPrices() {
-    const symbols = ['BTCUSDT', 'ETHUSDT'];
-    try {
-      const results = await Promise.allSettled(
-        symbols.map(s => this._fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${s}`))
-      );
-      const prices = {};
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value?.price)
-          prices[symbols[i]] = parseFloat(r.value.price);
-      });
-      return prices;
-    } catch (e) {
-      console.warn('⚠️ Binance error:', e.message);
-      return {};
-    }
-  }
-
   async fetchPrices() {
-    const [okxSpot, okxPerp, bybitSpot, bybitPerp, binanceSpot] = await Promise.all([
-      this.getOKXSpotPrices(),
-      this.getOKXPerpPrices(),
+    const [bybitSpot, bybitPerp] = await Promise.all([
       this.getBybitSpotPrices(),
       this.getBybitPerpPrices(),
-      this.getBinanceSpotPrices(),
     ]);
-    return { 'okx-spot': okxSpot, 'okx-perp': okxPerp, 'bybit-spot': bybitSpot, 'bybit-perp': bybitPerp, 'binance': binanceSpot };
+    return { 'bybit-spot': bybitSpot, 'bybit-perp': bybitPerp };
   }
 
   // ─── Fee-adjusted net spread ──────────────────────────────────────────────
@@ -300,7 +223,7 @@ class ArbitrageEngine {
     console.log('🚀 ArbitrageEngine v3 started');
     console.log(`   Min net spread: ${this.config.minNetSpreadPct}% (${this.config.minNetSpreadPct * 100} bps)`);
     console.log(`   Poll interval: ${this.config.pollInterval}ms`);
-    console.log(`   Venues: okx-spot, okx-perp, bybit-spot, bybit-perp, binance\n`);
+    console.log(`   Venues: bybit-spot, bybit-perp\n`);
 
     let evaluations = 0;
     let signals = 0;
