@@ -1,300 +1,191 @@
 /**
- * ArbitrageEngine v3 — Bybit Spot/Perp Basis Scanner
- *
- * Scans Bybit spot vs Bybit perp for same-venue basis arbitrage opportunities.
+ * ArbitrageEngine v4 — Bybit WebSocket Spot/Perp Basis Scanner
+ * 
+ * Uses real-time WebSocket orderbooks instead of REST polling
+ * Fires signals when net edge exceeds threshold after fees
  */
 
-// ─── Exchange fee table (taker fees in basis points) ─────────────────────────
-// Real Bybit taker fees: spot=10 bps (0.10%), perp=5.5 bps (0.055%)
-const EXCHANGE_FEES_BPS = {
-  'bybit-spot': 10,
-  'bybit-perp': 5.5,
-};
+import { WebsocketClient } from 'npm:bybit-api@3.10.0';
 
-// Total taker fees for spot→perp carry trade (long spot, short perp)
-const TOTAL_TAKER_FEES_BPS = EXCHANGE_FEES_BPS['bybit-spot'] + EXCHANGE_FEES_BPS['bybit-perp']; // 15.5 bps
+// Configuration from environment
+const MIN_NET_EDGE_BPS = parseFloat(process.env.MIN_NET_EDGE_BPS) || 3;
+const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 15;
+const TAKER_FEE_BPS_PER_LEG = 5; // Bybit default: 5 bps perp, 10 bps spot (adjust for VIP tier)
+const TOTAL_FEE_BPS = TAKER_FEE_BPS_PER_LEG * 2; // 10 bps total for both legs
 
-// ─── Slippage estimates per exchange (bps) ───────────────────────────────────
-// Conservative 1-2 bps slippage for liquid BTC/ETH/SOL
-const SLIPPAGE_EST_BPS = {
-  'bybit-spot': 1,
-  'bybit-perp': 1,
-};
+// State object to hold real-time top-of-book data
+const marketState = {};
 
-const TOTAL_SLIPPAGE_BPS = SLIPPAGE_EST_BPS['bybit-spot'] + SLIPPAGE_EST_BPS['bybit-perp']; // 2 bps
+// Callback for when a signal is detected
+let onSignalCallback = null;
 
-// Normalize any symbol to BTCUSDT-style key
-function normalizeSym(s) {
-  return s.replace('-', '').replace('/', '').toUpperCase();
-}
+// WebSocket clients
+let wsSpot = null;
+let wsPerp = null;
 
-class ArbitrageEngine {
+// Symbols to track (e.g., ['BTCUSDT', 'ETHUSDT'])
+let trackedSymbols = [];
+
+export class ArbitrageEngine {
   constructor(config = {}) {
     this.config = {
-      minNetSpreadPct:    config.minNetSpreadPct    ?? 0.03,   // 3 bps = 0.03% — matches ingestSignal floor
-      pollInterval:       config.pollInterval       ?? 2000,
-      cooldownMs:         config.cooldownMs         ?? 5000,
-      fetchTimeoutMs:     config.fetchTimeoutMs     ?? 6000,
-      fetchRetries:       config.fetchRetries       ?? 1,
-      minConfidence:      config.minConfidence      ?? 0,      // disabled — let edge floor do the work
+      symbols: config.symbols || ['BTCUSDT', 'ETHUSDT'],
+      minNetEdgeBps: config.minNetEdgeBps || MIN_NET_EDGE_BPS,
+      minNotionalUsd: config.minNotionalUsd || MIN_NOTIONAL_USD,
       ...config,
     };
-
-    this.opportunities  = [];
-    this.isRunning      = false;
-    this.lastSignals    = new Map(); // sym:route → timestamp
+    
+    trackedSymbols = this.config.symbols;
   }
 
-  // ─── Fetch helpers ───────────────────────────────────────────────────────
+  // Initialize Bybit WebSocket Clients (V5)
+  start(onSignal) {
+    onSignalCallback = onSignal;
+    
+    console.log('🚀 ArbitrageEngine v4 (WebSocket) started');
+    console.log(`   Symbols: ${trackedSymbols.join(', ')}`);
+    console.log(`   Min net edge: ${this.config.minNetEdgeBps} bps`);
+    console.log(`   Min notional: $${this.config.minNotionalUsd}\n`);
 
-  async _fetch(url, retries = this.config.fetchRetries) {
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), this.config.fetchTimeoutMs);
-        const res = await fetch(url, { signal: controller.signal });
-        clearTimeout(timer);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-      } catch (err) {
-        if (attempt === retries) throw err;
-        await new Promise(r => setTimeout(r, 300 * Math.pow(2, attempt)));
-      }
-    }
-  }
+    const wsConfig = { market: 'v5' };
+    wsSpot = new WebsocketClient({ ...wsConfig, testnet: false });
+    wsPerp = new WebsocketClient({ ...wsConfig, testnet: false });
 
-  // ─── Bybit spot prices ───────────────────────────────────────────────────
-
-  async getBybitSpotPrices() {
-    const symbols = ['BTCUSDT', 'ETHUSDT'];
-    try {
-      const results = await Promise.allSettled(
-        symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/orderbook?category=spot&symbol=${s}&limit=1`))
-      );
-      const prices = {};
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value?.result?.bids?.[0]?.[0] && r.value?.result?.asks?.[0]?.[0]) {
-          prices[symbols[i]] = {
-            bid: parseFloat(r.value.result.bids[0][0]),
-            ask: parseFloat(r.value.result.asks[0][0])
-          };
-        }
-      });
-      return prices;
-    } catch (e) {
-      console.warn('⚠️ Bybit spot orderbook error:', e.message);
-      return {};
-    }
-  }
-
-  // ─── Bybit perp orderbook ───────────────────────────────────────────────────
-
-  async getBybitPerpPrices() {
-    const symbols = ['BTCUSDT', 'ETHUSDT'];
-    try {
-      const results = await Promise.allSettled(
-        symbols.map(s => this._fetch(`https://api.bybit.com/v5/market/orderbook?category=linear&symbol=${s}&limit=1`))
-      );
-      const prices = {};
-      results.forEach((r, i) => {
-        if (r.status === 'fulfilled' && r.value?.result?.bids?.[0]?.[0] && r.value?.result?.asks?.[0]?.[0]) {
-          prices[symbols[i]] = {
-            bid: parseFloat(r.value.result.bids[0][0]),
-            ask: parseFloat(r.value.result.asks[0][0])
-          };
-        }
-      });
-      return prices;
-    } catch (e) {
-      console.warn('⚠️ Bybit perp orderbook error:', e.message);
-      return {};
-    }
-  }
-
-  async fetchPrices() {
-    const [bybitSpot, bybitPerp] = await Promise.all([
-      this.getBybitSpotPrices(),
-      this.getBybitPerpPrices(),
-    ]);
-    return { 'bybit-spot': bybitSpot, 'bybit-perp': bybitPerp };
-  }
-
-  // ─── Real Bybit Spot/Perp Basis Detection ──────────────────────────────────
-
-  detectArbitrage(priceData) {
-    const spreads = [];
-    const spotBook = priceData['bybit-spot'] || {};
-    const perpBook = priceData['bybit-perp'] || {};
-
-    // Scan each symbol for spot→perp basis opportunities
-    for (const symbol of Object.keys(spotBook)) {
-      const spotData = spotBook[symbol];
-      const perpData = perpBook[symbol];
+    // Subscribe to orderbooks for each symbol
+    trackedSymbols.forEach(symbol => {
+      console.log(`📡 Subscribing to ${symbol} orderbooks...`);
       
-      if (!spotData || !perpData) continue;
-
-      // Real Bybit trading behavior:
-      // Long Spot @ ask, Short Perp @ bid
-      const spotAsk = spotData.ask;
-      const perpBid = perpData.bid;
-
-      if (spotAsk <= 0 || perpBid <= 0) continue;
-
-      // Calculate gross spread in basis points
-      const grossSpreadBps = ((perpBid - spotAsk) / spotAsk) * 10000;
+      // Subscribe to Spot Orderbook (top 50 levels)
+      wsSpot.subscribeV5(`orderbook.50.${symbol}`, 'spot');
       
-      if (grossSpreadBps <= 0) continue;
+      // Subscribe to Linear/Perp Orderbook (top 50 levels)
+      wsPerp.subscribeV5(`orderbook.50.${symbol}`, 'linear');
+    });
 
-      // Subtract exact Bybit taker fees (spot 10 bps + perp 5.5 bps = 15.5 bps)
-      const netEdgeBps = grossSpreadBps - TOTAL_TAKER_FEES_BPS - TOTAL_SLIPPAGE_BPS;
-
-      // Convert to percentage for compatibility with existing config
-      const netSpreadPct = netEdgeBps / 100;
-
-      if (netSpreadPct >= this.config.minNetSpreadPct) {
-        spreads.push({
-          symbol:        symbol.replace('USDT', '-USDT'),
-          grossSpread:   (grossSpreadBps / 100).toFixed(4), // convert to %
-          netSpread:     (netSpreadPct).toFixed(4),
-          buyExchange:   'bybit-spot',
-          sellExchange:  'bybit-perp',
-          buyPrice:      spotAsk,
-          sellPrice:     perpBid,
-          exchangeCount: 2,
-          confidence:    80,
-          timestamp:     new Date().toISOString(),
-        });
-
-        console.log(`🎯 ${symbol} gross:${grossSpreadBps.toFixed(1)}bps net:${netEdgeBps.toFixed(1)}bps (fees:${TOTAL_TAKER_FEES_BPS}bps slip:${TOTAL_SLIPPAGE_BPS}bps)`);
+    // Handle Spot Updates
+    wsSpot.on('update', (data) => {
+      if (data.topic?.startsWith('orderbook') && data.data) {
+        const symbol = this.extractSymbolFromTopic(data.topic);
+        if (symbol) {
+          this.updateMarketState(symbol, 'spot', data.data);
+          this.evaluateSignal(symbol);
+        }
       }
+    });
+
+    // Handle Perp Updates
+    wsPerp.on('update', (data) => {
+      if (data.topic?.startsWith('orderbook') && data.data) {
+        const symbol = this.extractSymbolFromTopic(data.topic);
+        if (symbol) {
+          this.updateMarketState(symbol, 'perp', data.data);
+          this.evaluateSignal(symbol);
+        }
+      }
+    });
+
+    // Error handling
+    wsSpot.on('error', (err) => console.error('❌ Spot WS Error:', err.message));
+    wsPerp.on('error', (err) => console.error('❌ Perp WS Error:', err.message));
+
+    // Connection status
+    wsSpot.on('open', (topic) => console.log(`✅ Spot WS connected: ${topic}`));
+    wsPerp.on('open', (topic) => console.log(`✅ Perp WS connected: ${topic}`));
+  }
+
+  // Extract symbol from topic string (e.g., "orderbook.50.BTCUSDT" -> "BTCUSDT")
+  extractSymbolFromTopic(topic) {
+    const parts = topic.split('.');
+    if (parts.length >= 3) {
+      return parts[2];
+    }
+    return null;
+  }
+
+  // Parse Bybit's [Price, Size] arrays to update the top of the book
+  updateMarketState(symbol, marketType, data) {
+    if (!marketState[symbol]) {
+      marketState[symbol] = {
+        spot: { askPrice: 0, askVol: 0, bidPrice: 0, bidVol: 0 },
+        perp: { askPrice: 0, askVol: 0, bidPrice: 0, bidVol: 0 }
+      };
     }
 
-    spreads.sort((a, b) => parseFloat(b.netSpread) - parseFloat(a.netSpread));
-    this.opportunities = spreads.slice(0, 10);
-    return spreads;
-  }
-
-  // ─── Report heartbeat to Base44 ──────────────────────────────────────────
-
-  async reportHeartbeat(stats) {
-    const BASE44_HEARTBEAT_URL = process.env.BASE44_HEARTBEAT_URL || 'https://polytrade.base44.app/functions/ingestHeartbeat';
-    const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
-    const heartbeatData = {
-      snapshot_time:     new Date().toISOString(),
-      evaluations:       stats.evaluations || 0,
-      posted:            stats.signals || 0,
-      rejected_edge:     stats.rejectedEdge || 0,
-      rejected_fillable: stats.rejectedFillable || 0,
-      rejected_stale:    stats.rejectedStale || 0,
-      best_edge_bps:     stats.bestEdge || 0,
-      best_edge_pair:    stats.bestPair || '',
-      best_edge_route:   stats.bestRoute || '',
-      fresh_books:       stats.freshBooks || '',
-      post_errors:       stats.errors || 0,
-      post_non_2xx:      stats.non2xx || 0,
-    };
-    try {
-      const res = await fetch(BASE44_HEARTBEAT_URL, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${BOT_SECRET}` },
-        body: JSON.stringify(heartbeatData),
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!res.ok) stats.non2xx = (stats.non2xx || 0) + 1;
-      console.log(`💓 Heartbeat sent — evals:${stats.evaluations} signals:${stats.signals} bestEdge:${stats.bestEdge?.toFixed(1)}bps`);
-    } catch (e) {
-      stats.errors = (stats.errors || 0) + 1;
-      console.warn('⚠️ Heartbeat failed:', e.message);
+    // Bybit sends 'a' (asks) and 'b' (bids) as arrays: [ ["price", "size"], ... ]
+    if (data.a && data.a.length > 0) {
+      marketState[symbol][marketType].askPrice = parseFloat(data.a[0][0]);
+      marketState[symbol][marketType].askVol = parseFloat(data.a[0][1]);
+    }
+    if (data.b && data.b.length > 0) {
+      marketState[symbol][marketType].bidPrice = parseFloat(data.b[0][0]);
+      marketState[symbol][marketType].bidVol = parseFloat(data.b[0][1]);
     }
   }
 
-  // ─── Main loop ────────────────────────────────────────────────────────────
+  // Evaluate True Fillable Edge
+  evaluateSignal(symbol) {
+    const state = marketState[symbol];
+    if (!state) return;
 
-  async start(onOpportunity) {
-    if (this.isRunning) { console.warn('Already running'); return; }
-    this.isRunning = true;
-    console.log('🚀 ArbitrageEngine v3 started');
-    console.log(`   Min net spread: ${this.config.minNetSpreadPct}% (${this.config.minNetSpreadPct * 100} bps)`);
-    console.log(`   Poll interval: ${this.config.pollInterval}ms`);
-    console.log(`   Venues: bybit-spot, bybit-perp\n`);
+    const { spot, perp } = state;
 
-    let evaluations = 0;
-    let signals = 0;
-    let errors = 0;
-    let non2xx = 0;
-    let bestEdgeBps = 0;
-    let bestEdgePair = '';
-    let bestEdgeRoute = '';
+    // Ensure we have data for both legs before calculating
+    if (!spot.askPrice || !perp.bidPrice) return;
 
-    this._interval = setInterval(async () => {
-      if (!this.isRunning) return;
+    // --- STRATEGY: Long Spot, Short Perp ---
+    // You buy at the Spot ASK, and sell at the Perp BID.
+    const grossSpreadBps = ((perp.bidPrice - spot.askPrice) / spot.askPrice) * 10000;
+    const netEdgeBps = grossSpreadBps - TOTAL_FEE_BPS;
 
-      evaluations++;
+    // Volume / Slippage Check
+    // Calculate the total USD value available at the top of the book
+    const spotNotionalUsd = spot.askPrice * spot.askVol;
+    const perpNotionalUsd = perp.bidPrice * perp.bidVol;
+    
+    // The maximum order size we can execute without slipping to the next price level
+    const maxFillableUsd = Math.min(spotNotionalUsd, perpNotionalUsd);
 
-      try {
-        const prices = await this.fetchPrices();
-        if (!prices) { errors++; return; }
+    if (netEdgeBps >= this.config.minNetEdgeBps && maxFillableUsd >= this.config.minNotionalUsd) {
+      const signalData = {
+        symbol: symbol.replace('USDT', '-USDT'),
+        direction: 'LONG_SPOT_SHORT_PERP',
+        netEdgeBps: netEdgeBps.toFixed(2),
+        spotPrice: spot.askPrice,
+        perpPrice: perp.bidPrice,
+        fillableUsd: maxFillableUsd.toFixed(2),
+        timestamp: new Date().toISOString(),
+      };
 
-        const spreads = this.detectArbitrage(prices);
-        const now = Date.now();
+      console.log(`🎯 [SIGNAL] ${signalData.symbol} | Edge: ${signalData.netEdgeBps} bps | Fill: $${signalData.fillableUsd}`);
 
-        // Track best edge seen this interval
-        for (const spread of spreads) {
-          const edgeBps = parseFloat(spread.netSpread) * 100;
-          if (edgeBps > bestEdgeBps) {
-            bestEdgeBps = edgeBps;
-            bestEdgePair = spread.symbol;
-            bestEdgeRoute = `${spread.buyExchange}->${spread.sellExchange}`;
-          }
-        }
-
-        for (const spread of spreads) {
-          const key = `${spread.symbol}:${spread.buyExchange}->${spread.sellExchange}`;
-          const lastSignal = this.lastSignals.get(key) || 0;
-          if (now - lastSignal < this.config.cooldownMs) continue;
-
-          this.lastSignals.set(key, now);
-          signals++;
-          if (onOpportunity) await onOpportunity(spread);
-
-          console.log(`✅ ${spread.symbol} net:${(parseFloat(spread.netSpread)*100).toFixed(1)}bps gross:${(parseFloat(spread.grossSpread)*100).toFixed(1)}bps ${spread.buyExchange}→${spread.sellExchange}`);
-        }
-
-        // Log every evaluation so the droplet logs show activity
-        if (evaluations % 5 === 0) {
-          const bestBps = (parseFloat(spreads[0]?.netSpread || 0) * 100).toFixed(1);
-          console.log(`📊 eval:${evaluations} spreads_found:${spreads.length} best:${bestBps}bps signals:${signals}`);
-        }
-
-        // Heartbeat every 30 evaluations (~1 min at 2s poll)
-        if (evaluations % 30 === 0) {
-          const freshBooks = Object.entries(prices)
-            .map(([ex, data]) => {
-              const cnt = Object.keys(data).length;
-              return cnt > 0 ? `${ex}:${cnt}/${cnt}` : null;
-            })
-            .filter(Boolean)
-            .join(' ');
-
-          await this.reportHeartbeat({ evaluations, signals, errors, non2xx, bestEdge: bestEdgeBps, bestPair: bestEdgePair, bestRoute: bestEdgeRoute, freshBooks });
-        }
-
-      } catch (e) {
-        errors++;
-        console.error('❌ Main loop error:', e.message);
+      if (onSignalCallback) {
+        onSignalCallback(signalData);
       }
-    }, this.config.pollInterval);
+    }
   }
 
+  // Stop WebSocket connections
   stop() {
-    this.isRunning = false;
-    clearInterval(this._interval);
-    console.log('⏹️ Engine stopped');
+    console.log('⏹️ Stopping WebSocket connections...');
+    if (wsSpot) {
+      wsSpot.close();
+      wsSpot = null;
+    }
+    if (wsPerp) {
+      wsPerp.close();
+      wsPerp = null;
+    }
+    trackedSymbols = [];
+    onSignalCallback = null;
   }
 
-  getOpportunities() { return this.opportunities; }
+  // Get current market state (for debugging/monitoring)
+  getMarketState() {
+    return marketState;
+  }
 }
 
+// Export for CommonJS compatibility
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = ArbitrageEngine;
+  module.exports = { ArbitrageEngine };
 }

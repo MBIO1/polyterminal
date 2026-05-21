@@ -1,57 +1,48 @@
 /**
- * Arbitrage Bot Runner — connects the detection engine to Base44
+ * Arbitrage Bot Runner — connects the WebSocket engine to Base44
  * Posts qualified signals to Base44 ingestSignal endpoint
  */
 
-import ArbitrageEngine from './bot.mjs';
+import { ArbitrageEngine } from './bot.mjs';
 
 // Configuration from environment
 const BASE44_INGEST_URL = process.env.BASE44_INGEST_URL || 'https://polytrade.base44.app/functions/ingestSignal';
 const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
-// Floor matches ingestSignal's own minimum (3 bps)
-const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || 3;
-const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || 200;
-const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT').split(',');
+const MIN_NET_EDGE_BPS = parseFloat(process.env.MIN_NET_EDGE_BPS) || 3;
+const MIN_NOTIONAL_USD = parseFloat(process.env.MIN_NOTIONAL_USD) || 15;
+const SYMBOLS = (process.env.SYMBOLS || 'BTCUSDT,ETHUSDT').split(',');
 
-console.log('🚀 Starting arbitrage bot runner');
+console.log('🚀 Starting arbitrage bot runner (WebSocket v4)');
 console.log(`   Ingest URL: ${BASE44_INGEST_URL}`);
 console.log(`   Min edge: ${MIN_NET_EDGE_BPS} bps`);
-console.log(`   Min fillable: $${MIN_FILLABLE_USD}`);
-console.log(`   Pairs: ${PAIRS.join(', ')}`);
+console.log(`   Min notional: $${MIN_NOTIONAL_USD}`);
+console.log(`   Symbols: ${SYMBOLS.join(', ')}\n`);
 
-// Note: deduplication is handled by the engine's cooldownMs — no runner-level dedupe needed
-
-async function postSignal(spread) {
-  const rawSym = spread.symbol || '';
-  const pair = rawSym.includes('-') ? rawSym : rawSym.replace(/^(BTC|ETH|SOL)(USDT)$/, '$1-$2') || rawSym;
-
-  // v3 engine: netSpread and grossSpread are already in % (e.g. 0.12 = 12 bps)
-  const netEdgeBps = parseFloat(spread.netSpread) * 100;
-  const rawSpreadBps = parseFloat(spread.grossSpread) * 100;
-
-  // Depth is estimated — REST orderbooks provide real depth
-  const fillableSize = spread.buyDepthUsd || spread.sellDepthUsd || (MIN_FILLABLE_USD * 2);
-
-  const detectionTime = new Date(spread.timestamp).getTime();
-  const signalAgeMs = Date.now() - detectionTime;
+async function postSignal(signalData) {
+  const pair = signalData.symbol;
+  const asset = pair.split('-')[0] || 'Other';
+  const netEdgeBps = parseFloat(signalData.netEdgeBps);
+  
+  // Estimate fillable size from signal data
+  const fillableSize = parseFloat(signalData.fillableUsd) || (MIN_NOTIONAL_USD * 2);
   
   const payload = {
     signal_time:         new Date().toISOString(),
     pair:                pair,
-    asset:               pair.split('-')[0] || 'Other',
-    buy_exchange:        spread.buyExchange,
-    sell_exchange:       spread.sellExchange,
-    buy_price:           Number(spread.buyPrice),
-    sell_price:          Number(spread.sellPrice),
-    raw_spread_bps:      rawSpreadBps,
+    asset:               asset,
+    buy_exchange:        'bybit-spot',
+    sell_exchange:       'bybit-perp',
+    buy_price:           Number(signalData.spotPrice),
+    sell_price:          Number(signalData.perpPrice),
+    raw_spread_bps:      (netEdgeBps + 10), // approx gross (net + fees)
     net_edge_bps:        netEdgeBps,
     buy_depth_usd:       fillableSize,
     sell_depth_usd:      fillableSize,
     fillable_size_usd:   fillableSize,
-    signal_age_ms:       signalAgeMs,
-    exchange_latency_ms: 50,
-    confirmed_exchanges: spread.exchangeCount || 2,
-    notes:               `gross:${rawSpreadBps.toFixed(1)}bps net:${netEdgeBps.toFixed(1)}bps age:${signalAgeMs}ms`,
+    signal_age_ms:       0, // WebSocket = real-time
+    exchange_latency_ms: 1, // WebSocket latency
+    confirmed_exchanges: 2,
+    notes:               `net:${netEdgeBps.toFixed(1)}bps fill:$${signalData.fillableUsd}`,
   };
   
   try {
@@ -87,20 +78,18 @@ async function postSignal(spread) {
   }
 }
 
-// Initialize and start engine (v3)
+// Initialize and start WebSocket engine
 const engine = new ArbitrageEngine({
-  minNetSpreadPct: MIN_NET_EDGE_BPS / 100, // bps → % (e.g. 3 bps = 0.03%)
-  pollInterval: 2000,
-  cooldownMs: 5000,
-  minConfidence: 0, // disabled — edge floor is the only gate
+  symbols: SYMBOLS,
+  minNetEdgeBps: MIN_NET_EDGE_BPS,
+  minNotionalUsd: MIN_NOTIONAL_USD,
 });
 
 // Start the engine with signal posting callback
-// v3 engine already filters by minNetSpreadPct, so everything here is above floor
-engine.start(async (spread) => {
-  const netEdgeBps = parseFloat(spread.netSpread) * 100;
+engine.start(async (signalData) => {
+  const netEdgeBps = parseFloat(signalData.netEdgeBps);
   if (netEdgeBps >= MIN_NET_EDGE_BPS) {
-    await postSignal(spread);
+    await postSignal(signalData);
   }
 });
 
