@@ -317,29 +317,48 @@ async function checkAndAlert(base44) {
     const alertText = formatRecoveryAlert(downtimeSec);
     const result = await sendTelegramAlert(alertText);
     alerts.push({ type: 'recovery', sent: result.sent });
+    // Reset online flag so the next healthy check sends a fresh BOT ONLINE
+    alertState.bot_online_alerted = false;
   }
 
-  // Also send a "bot came online" alert if this is the first heartbeat after a fresh start
-  // (no previous state stored at all, or was unknown)
-  if (!alertState.last_status && status === 'healthy') {
+  // Persist current status FIRST before sending any further alerts
+  const newAlertState = {
+    last_status: status,
+    last_check_ts: now,
+    offline_since_ts: (status !== 'healthy' && !wasOffline) ? now : (alertState.offline_since_ts || null),
+    // carry forward existing cooldown timestamps
+    last_critical_alert_ts: alertState.last_critical_alert_ts || null,
+    last_warning_alert_ts: alertState.last_warning_alert_ts || null,
+    last_book_alert_ts: alertState.last_book_alert_ts || null,
+    last_connectivity_alert_ts: alertState.last_connectivity_alert_ts || null,
+    last_signal_flow_alert_ts: alertState.last_signal_flow_alert_ts || null,
+    bot_online_alerted: alertState.bot_online_alerted || false,
+  };
+
+  // Send "bot came online" only once — when first heartbeat seen after fresh start or recovery
+  const shouldSendOnline = !alertState.bot_online_alerted && status === 'healthy';
+  if (shouldSendOnline) {
+    const bestEdge = lastHb?.best_edge_bps != null ? `${lastHb.best_edge_bps.toFixed(2)} bps` : 'N/A';
+    const minFloor = lastHb?.min_edge_floor_bps != null ? `${lastHb.min_edge_floor_bps} bps` : 'N/A';
     const startupText = [
       `🟢 <b>BOT ONLINE</b>`,
       `━━━━━━━━━━━━━━━━━━━━━`,
       `✅ Heartbeat received — bot is running`,
       `⏱ Last heartbeat: ${heartbeatAgeSec}s ago`,
-      `📊 Books: ${lastHb?.fresh_books || 'N/A'}`,
-      `🔍 Scanning: ${lastHb?.evaluations || 0} evals/min`,
+      `📡 Books: ${lastHb?.fresh_books || 'N/A'}`,
+      `🔍 Evals: ${(lastHb?.evaluations || 0).toLocaleString()}/min`,
+      `📈 Best edge: ${bestEdge}  |  Floor: ${minFloor}`,
     ].join('\n');
     const result = await sendTelegramAlert(startupText);
     alerts.push({ type: 'bot_online', sent: result.sent });
+    newAlertState.bot_online_alerted = true;
   }
 
-  // Persist current status for next run
-  const newAlertState = {
-    last_status: status,
-    last_check_ts: now,
-    offline_since_ts: (status !== 'healthy' && !wasOffline) ? now : (alertState.offline_since_ts || null),
-  };
+  // Reset bot_online_alerted when bot goes offline so next recovery fires alert again
+  if (status === 'critical') {
+    newAlertState.bot_online_alerted = false;
+  }
+
   await setAlertState(base44, newAlertState);
 
   // 1. Critical - Droplet offline
