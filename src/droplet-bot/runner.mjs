@@ -24,7 +24,8 @@ const lastSignalTime = new Map(); // pair+route => timestamp
 const DEDUPE_WINDOW_MS = 30_000; // 30 seconds
 
 async function postSignal(spread) {
-  const pair = spread.symbol;
+  const rawSym = spread.symbol || '';
+  const pair = rawSym.replace(/^(BTC|ETH|SOL)(USDT)$/, '$1-$2') || rawSym;
   const route = `${spread.buyExchange}->${spread.sellExchange}`;
   const key = `${pair}:${route}`;
   
@@ -35,31 +36,31 @@ async function postSignal(spread) {
   }
   
   // Convert to ArbSignal format expected by ingestSignal
-  const netEdgeBps = parseFloat(spread.netSpread) * 100; // 0.2% = 20 bps
+  // v3 engine: netSpread and grossSpread are already in % (e.g. 0.12 = 12 bps)
+  const netEdgeBps = parseFloat(spread.netSpread) * 100;
   const rawSpreadBps = parseFloat(spread.grossSpread) * 100;
-  
-  // Use orderbook depth from the engine if available, otherwise use a conservative estimate.
-  // NOTE: bot.mjs fetches REST ticker prices only (no L2 orderbook), so depth is estimated.
-  // Real depth tracking requires WS orderbook subscriptions (OKX/Bybit books-5 channel).
-  const fillableSize = spread.buyDepthUsd || spread.sellDepthUsd || (MIN_FILLABLE_USD * 1.5);
-  
+
+  // Depth is estimated — REST tickers don't provide L2 depth.
+  // Using MIN_FILLABLE_USD * 2 as conservative estimate.
+  const fillableSize = spread.buyDepthUsd || spread.sellDepthUsd || (MIN_FILLABLE_USD * 2);
+
   const payload = {
-    signal_time: new Date().toISOString(),
-    pair: pair,
-    asset: pair.split('-')[0] || 'Other',
-    buy_exchange: spread.buyExchange,
-    sell_exchange: spread.sellExchange,
-    buy_price: parseFloat(spread.buyPrice),
-    sell_price: parseFloat(spread.sellPrice),
-    raw_spread_bps: rawSpreadBps,
-    net_edge_bps: netEdgeBps,
-    buy_depth_usd: fillableSize,
-    sell_depth_usd: fillableSize,
-    fillable_size_usd: fillableSize,
-    signal_age_ms: Date.now() - new Date(spread.timestamp).getTime(),
-    exchange_latency_ms: 100, // Estimate
-    confirmed_exchanges: spread.exchangeCount,
-    notes: `Confidence: ${spread.confidence}%`,
+    signal_time:         new Date().toISOString(),
+    pair:                pair,
+    asset:               pair.split('-')[0] || 'Other',
+    buy_exchange:        spread.buyExchange,
+    sell_exchange:       spread.sellExchange,
+    buy_price:           Number(spread.buyPrice),
+    sell_price:          Number(spread.sellPrice),
+    raw_spread_bps:      rawSpreadBps,
+    net_edge_bps:        netEdgeBps,
+    buy_depth_usd:       fillableSize,
+    sell_depth_usd:      fillableSize,
+    fillable_size_usd:   fillableSize,
+    signal_age_ms:       Date.now() - new Date(spread.timestamp).getTime(),
+    exchange_latency_ms: 50,
+    confirmed_exchanges: spread.exchangeCount || 2,
+    notes:               `gross:${rawSpreadBps.toFixed(1)}bps net:${netEdgeBps.toFixed(1)}bps`,
   };
   
   try {
@@ -96,25 +97,20 @@ async function postSignal(spread) {
   }
 }
 
-// Initialize and start engine
-// Engine config — lowered confidence + faster polling to surface more activity
+// Initialize and start engine (v3)
 const engine = new ArbitrageEngine({
-  minNetSpreadPct: MIN_NET_EDGE_BPS / 100, // bps → %
-  noiseThreshold: 0.015,   // (was 0.02) accept slightly noisier markets
-  pollInterval: 2000,      // (was 3000) faster scans
-  minConfidence: 40,       // (was 60) surface more candidates
-  cooldownMs: 5000,        // (was 10000) faster re-eval per pair
+  minNetSpreadPct: MIN_NET_EDGE_BPS / 100, // bps → % (e.g. 8 bps = 0.08%)
+  pollInterval: 2000,
+  cooldownMs: 5000,
+  minConfidence: 0, // disabled — edge floor is the only gate
 });
 
 // Start the engine with signal posting callback
+// v3 engine already filters by minNetSpreadPct, so everything here is above floor
 engine.start(async (spread) => {
   const netEdgeBps = parseFloat(spread.netSpread) * 100;
-  
-  // Only post signals that meet minimum edge threshold
   if (netEdgeBps >= MIN_NET_EDGE_BPS) {
     await postSignal(spread);
-  } else {
-    console.log(`📊 ${spread.symbol} ${netEdgeBps.toFixed(1)} bps — below ${MIN_NET_EDGE_BPS} bps floor`);
   }
 });
 
