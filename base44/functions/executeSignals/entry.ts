@@ -75,33 +75,61 @@ function computeSizeUsd(signal, config, confidence) {
   return Math.min(Math.max(7, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD);
 }
 
-function getExchangeRuleMinUsd(signal) {
-  const hasPerpLeg = /perp|swap|linear/i.test(signal.buy_exchange || '') || /perp|swap|linear/i.test(signal.sell_exchange || '');
-  const assetMinSpot = { BTC: 1, ETH: 1, SOL: 1, DOGE: 1, ADA: 1, APT: 2, XRP: 1, AVAX: 1, ATOM: 1 };
-  const assetMinPerp = { BTC: 1, ETH: 22, SOL: 9, DOGE: 1, ADA: 1, APT: 2, XRP: 1, AVAX: 5, ATOM: 5 };
-  const minTable = hasPerpLeg ? assetMinPerp : assetMinSpot;
-  return minTable[signal.asset] || 5;
+const BYBIT_RULES = {
+  BTC:  { minQty: 0.001, qtyStep: 0.001, minNotionalUsd: 5 },
+  ETH:  { minQty: 0.01,  qtyStep: 0.01,  minNotionalUsd: 10 },
+  SOL:  { minQty: 0.1,   qtyStep: 0.1,   minNotionalUsd: 5 },
+  DOGE: { minQty: 1,     qtyStep: 1,     minNotionalUsd: 5 },
+  ADA:  { minQty: 1,     qtyStep: 1,     minNotionalUsd: 5 },
+  APT:  { minQty: 0.1,   qtyStep: 0.1,   minNotionalUsd: 5 },
+  XRP:  { minQty: 1,     qtyStep: 1,     minNotionalUsd: 5 },
+  AVAX: { minQty: 0.01,  qtyStep: 0.01,  minNotionalUsd: 5 },
+  ATOM: { minQty: 0.01,  qtyStep: 0.01,  minNotionalUsd: 5 },
+};
+
+function decimalsFromStep(step) {
+  const s = String(step);
+  return s.includes('.') ? s.split('.')[1].length : 0;
+}
+
+function ceilToStep(value, step) {
+  const decimals = decimalsFromStep(step);
+  return Number((Math.ceil((value / step) - 1e-12) * step).toFixed(decimals));
 }
 
 function normalizeOrderToExchangeRules(signal, sizeUsd) {
   const buyPx = Number(signal.buy_price) || 0;
-  if (!buyPx) return { ok: false, reason: 'missing_buy_price' };
+  const sellPx = Number(signal.sell_price) || buyPx;
+  const rulePx = Math.max(buyPx, sellPx);
+  if (!buyPx || !rulePx) return { ok: false, reason: 'missing_buy_price' };
 
   const fillable = Number(signal.fillable_size_usd || 0);
-  const minUsd = getExchangeRuleMinUsd(signal);
-  const normalizedSizeUsd = Math.max(sizeUsd, minUsd);
+  const asset = String(signal.asset || signal.pair?.split('-')?.[0] || 'Other').toUpperCase();
+  const rules = BYBIT_RULES[asset] || { minQty: 1, qtyStep: 1, minNotionalUsd: 5 };
+
+  // Build order, then normalize UP to exchange rules instead of rejecting early.
+  const targetNotional = Math.max(Number(sizeUsd || 0), rules.minNotionalUsd);
+  const minQtyByNotional = targetNotional / rulePx;
+  const normalizedQty = ceilToStep(Math.max(minQtyByNotional, rules.minQty), rules.qtyStep);
+  const normalizedSizeUsd = normalizedQty * rulePx;
 
   if (normalizedSizeUsd > MAX_LIVE_NOTIONAL_USD) {
-    return { ok: false, reason: `min_notional_exceeds_cap: $${minUsd} > $${MAX_LIVE_NOTIONAL_USD}` };
+    return { ok: false, reason: `min_notional_exceeds_cap: $${normalizedSizeUsd.toFixed(2)} > $${MAX_LIVE_NOTIONAL_USD}` };
   }
   if (fillable < normalizedSizeUsd) {
-    return { ok: false, reason: `min_notional_insufficient_liquidity: fillable $${fillable.toFixed(2)} < $${normalizedSizeUsd}` };
+    return { ok: false, reason: `INSUFFICIENT_LIQUIDITY: fillable $${fillable.toFixed(2)} < normalized $${normalizedSizeUsd.toFixed(2)}` };
   }
 
-  const qty = Number((normalizedSizeUsd / buyPx).toFixed(6));
-  if (!qty || qty <= 0) return { ok: false, reason: 'qty_below_min' };
-
-  return { ok: true, order: { sizeUsd: normalizedSizeUsd, qty, minUsd } };
+  return {
+    ok: true,
+    order: {
+      sizeUsd: normalizedSizeUsd,
+      qty: normalizedQty,
+      minUsd: rules.minNotionalUsd,
+      qtyStep: rules.qtyStep,
+      minQty: rules.minQty,
+    },
+  };
 }
 
 function checkOrderbookDepth(signal, sizeUsd, config) {
