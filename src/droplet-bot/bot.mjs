@@ -9,21 +9,24 @@
  */
 
 // ─── Exchange fee table (taker fees as %) ────────────────────────────────────
+// Real Bybit fees: spot=0.10%, linear perp=0.055%
+// Binance: 0.10% spot. OKX: 0.08% spot, 0.05% perp.
 const EXCHANGE_FEES = {
   'binance':    0.10,
   'okx-spot':   0.08,
-  'okx-perp':   0.05,  // OKX perp taker (VIP0)
+  'okx-perp':   0.05,
   'bybit-spot': 0.10,
-  'bybit-perp': 0.055, // Bybit perp taker
+  'bybit-perp': 0.055,
 };
 
 // ─── Slippage estimates per exchange (%) ─────────────────────────────────────
+// Conservative 1-2 bps slippage for liquid BTC/ETH/SOL
 const SLIPPAGE_EST = {
-  'binance':    0.05,
-  'okx-spot':   0.05,
-  'okx-perp':   0.03,
-  'bybit-spot': 0.05,
-  'bybit-perp': 0.03,
+  'binance':    0.01,
+  'okx-spot':   0.01,
+  'okx-perp':   0.01,
+  'bybit-spot': 0.01,
+  'bybit-perp': 0.01,
 };
 
 // Normalize any symbol to BTCUSDT-style key
@@ -34,7 +37,7 @@ function normalizeSym(s) {
 class ArbitrageEngine {
   constructor(config = {}) {
     this.config = {
-      minNetSpreadPct:    config.minNetSpreadPct    ?? 0.08,   // 8 bps = 0.08%
+      minNetSpreadPct:    config.minNetSpreadPct    ?? 0.03,   // 3 bps = 0.03% — matches ingestSignal floor
       pollInterval:       config.pollInterval       ?? 2000,
       cooldownMs:         config.cooldownMs         ?? 5000,
       fetchTimeoutMs:     config.fetchTimeoutMs     ?? 6000,

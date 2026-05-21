@@ -8,9 +8,9 @@ import ArbitrageEngine from './bot.mjs';
 // Configuration from environment
 const BASE44_INGEST_URL = process.env.BASE44_INGEST_URL || 'https://polytrade.base44.app/functions/ingestSignal';
 const BOT_SECRET = process.env.BOT_SECRET || process.env.DROPLET_SECRET || '';
-// LOWERED gates so we can SEE bot reaction/performance (was 20 bps / $500 / 60% confidence)
-const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || 8;   // 8 bps = 0.08% (was 20)
-const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || 200; // (was 500)
+// Floor matches ingestSignal's own minimum (3 bps)
+const MIN_NET_EDGE_BPS = parseInt(process.env.MIN_NET_EDGE_BPS) || 3;
+const MIN_FILLABLE_USD = parseInt(process.env.MIN_FILLABLE_USD) || 200;
 const PAIRS = (process.env.PAIRS || 'BTC-USDT,ETH-USDT,SOL-USDT').split(',');
 
 console.log('🚀 Starting arbitrage bot runner');
@@ -19,22 +19,12 @@ console.log(`   Min edge: ${MIN_NET_EDGE_BPS} bps`);
 console.log(`   Min fillable: $${MIN_FILLABLE_USD}`);
 console.log(`   Pairs: ${PAIRS.join(', ')}`);
 
-// Signal deduplication (prevent spamming same signal)
-const lastSignalTime = new Map(); // pair+route => timestamp
-const DEDUPE_WINDOW_MS = 30_000; // 30 seconds
+// Note: deduplication is handled by the engine's cooldownMs — no runner-level dedupe needed
 
 async function postSignal(spread) {
   const rawSym = spread.symbol || '';
   const pair = rawSym.replace(/^(BTC|ETH|SOL)(USDT)$/, '$1-$2') || rawSym;
-  const route = `${spread.buyExchange}->${spread.sellExchange}`;
-  const key = `${pair}:${route}`;
-  
-  // Check dedupe
-  const lastTime = lastSignalTime.get(key) || 0;
-  if (Date.now() - lastTime < DEDUPE_WINDOW_MS) {
-    return; // Skip duplicate
-  }
-  
+
   // Convert to ArbSignal format expected by ingestSignal
   // v3 engine: netSpread and grossSpread are already in % (e.g. 0.12 = 12 bps)
   const netEdgeBps = parseFloat(spread.netSpread) * 100;
@@ -82,7 +72,6 @@ async function postSignal(spread) {
     const result = await response.json();
     if (result.signal_id) {
       console.log(`✅ Signal posted: ${pair} ${netEdgeBps.toFixed(1)} bps → ${result.signal_id}`);
-      lastSignalTime.set(key, Date.now());
       return true;
     } else if (result.duplicate) {
       console.log(`🔇 Duplicate signal skipped: ${pair}`);
@@ -99,7 +88,7 @@ async function postSignal(spread) {
 
 // Initialize and start engine (v3)
 const engine = new ArbitrageEngine({
-  minNetSpreadPct: MIN_NET_EDGE_BPS / 100, // bps → % (e.g. 8 bps = 0.08%)
+  minNetSpreadPct: MIN_NET_EDGE_BPS / 100, // bps → % (e.g. 3 bps = 0.03%)
   pollInterval: 2000,
   cooldownMs: 5000,
   minConfidence: 0, // disabled — edge floor is the only gate
