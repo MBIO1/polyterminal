@@ -312,7 +312,61 @@ async function checkAndAlert(base44) {
     const result = await sendTelegramAlert(alertText);
     alerts.push({ type: 'connectivity', sent: result.sent });
   }
-  
+
+  // 5. Signal flow stopped — bot alive but no signals reaching DB in 30 min
+  const SIGNAL_SILENCE_MS = 30 * 60 * 1000;
+  const lastSignalTs = recentSignals.length > 0
+    ? new Date(recentSignals[0].received_time || recentSignals[0].created_date).getTime()
+    : null;
+  const signalSilenceMs = lastSignalTs ? now - lastSignalTs : Infinity;
+
+  if (heartbeatAgeSec < HEARTBEAT_STALE_SEC && signalSilenceMs > SIGNAL_SILENCE_MS) {
+    if (shouldSendAlert('signal_flow_stopped')) {
+      const silenceMin = Math.floor(signalSilenceMs / 60000);
+      const lastHbNon2xx = lastHb?.post_non_2xx || 0;
+      const lastHbPosted = lastHb?.posted || 0;
+      const lastHbEvals = lastHb?.evaluations || 0;
+
+      let diagnosis = '';
+      if (lastHbNon2xx > 0) {
+        diagnosis = `⚠️ Likely cause: <b>AUTH FAILURE</b>\n${lastHbNon2xx} signals rejected by Base44 (expired token)\n🔧 Fix: Refresh BASE44_USER_TOKEN and run fix script`;
+      } else if (lastHbPosted === 0 && lastHbEvals > 0) {
+        diagnosis = `📊 Bot scanning (${lastHbEvals} evals) but no signal crossed edge floor\nℹ️ Market may be quiet — not an error`;
+      } else {
+        diagnosis = `⚠️ Bot not posting signals — check edge config or bot logs`;
+      }
+
+      const alertText = [
+        `🚫 <b>SIGNAL FLOW STOPPED</b>`,
+        `━━━━━━━━━━━━━━━━━━━━━`,
+        `📭 No signals for <b>${silenceMin} minutes</b>`,
+        `🤖 Bot heartbeat: ALIVE (${Math.floor(heartbeatAgeSec)}s ago)`,
+        ``,
+        `<b>Last Heartbeat Stats:</b>`,
+        `• Evaluations: ${lastHbEvals}`,
+        `• Posted by bot: ${lastHbPosted}`,
+        `• Rejected by Base44: ${lastHbNon2xx}`,
+        ``,
+        diagnosis,
+        ``,
+        `<i>Alert repeats every 30 min while stopped.</i>`,
+      ].join('\n');
+
+      const result = await sendTelegramAlert(alertText);
+      alerts.push({ type: 'signal_flow_stopped', sent: result.sent, silenceMin });
+    }
+  } else if (signalSilenceMs < SIGNAL_SILENCE_MS && lastAlertTime.get('signal_flow_stopped')) {
+    lastAlertTime.delete('signal_flow_stopped');
+    const resumedText = [
+      `✅ <b>SIGNAL FLOW RESUMED</b>`,
+      `━━━━━━━━━━━━━━━━━━━━━`,
+      `📨 Signals flowing again`,
+      `🕐 Restored: ${new Date().toLocaleTimeString()}`,
+    ].join('\n');
+    await sendTelegramAlert(resumedText);
+    alerts.push({ type: 'signal_flow_resumed', sent: true });
+  }
+
   // Log the check
   await auditLog(base44, {
     eventType: 'DROPLET_HEALTH_CHECK',
