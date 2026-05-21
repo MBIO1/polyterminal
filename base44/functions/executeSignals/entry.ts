@@ -10,19 +10,22 @@ import { createClientFromRequest } from 'npm:@base44/sdk@0.8.25';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const DEFAULT_MIN_EDGE       = 3.0;
-const FEE_BPS_PER_LEG        = 2;
-const MAX_LIVE_NOTIONAL_USD  = 100;
-const EXEC_TIMEOUT_MS        = 12_000;   // hard timeout per execution attempt
-const HARD_STALE_MS          = 5 * 60 * 1000;
+// ── POLYTERMINAL LIVE CONFIG (synced from ARB_CONFIG) ────────────────────────
+const DEFAULT_MIN_EDGE       = 18.0;     // minRealEdgePct: 0.18% = 18 bps
+const FEE_BPS_PER_LEG        = 5.5;     // takerPct: 0.055% per leg
+const MAX_LIVE_NOTIONAL_USD  = 20;      // sizing.maxNotionalUsd
+const MIN_NOTIONAL_USD       = 15;      // sizing.minNotionalUsd
+const MIN_CONFIDENCE         = 85;      // signal.minConfidenceScore: 0.85
+const EXEC_TIMEOUT_MS        = 5_000;   // execution.timeoutMs
+const HARD_STALE_MS          = 20_000;  // signal.hardStaleMs
 
 // Circuit breaker thresholds
-const CB_FAILURE_THRESHOLD   = 3;        // open after N consecutive failures
-const CB_HALF_OPEN_AFTER_MS  = 5 * 60 * 1000; // retry after 5 min
+const CB_FAILURE_THRESHOLD   = 3;        // circuitBreakers.consecutiveHttp500
+const CB_HALF_OPEN_AFTER_MS  = 900_000;  // circuitBreakers.cooldownMs (15 min)
 const CB_SUCCESS_TO_CLOSE    = 2;        // consecutive successes to close
 
-// Retry config (exponential backoff)
-const RETRY_DELAYS_MS        = [200, 600, 1500]; // attempts 1,2,3
+// Retry config: 2 attempts with [500ms, 1200ms] backoff (execution.retry)
+const RETRY_DELAYS_MS        = [500, 1200]; // attempts 1,2
 
 // ── FOCUSED PAIRS: BTC and ETH only ──────────────────────────────────────────
 const ALLOWED_ASSETS = new Set(['BTC', 'ETH']);
@@ -579,8 +582,8 @@ Deno.serve(async (req) => {
       }
 
       const confidence = signalConfidence(sig, ttlMs);
-      if (confidence < 30 && !forceId) {
-        log('INFO', 'FILTER', `REJECT ${sig.pair}: confidence=${confidence} < 30`);
+      if (confidence < MIN_CONFIDENCE && !forceId) {
+        log('INFO', 'FILTER', `REJECT ${sig.pair}: confidence=${confidence} < ${MIN_CONFIDENCE}`);
         continue;
       }
 
@@ -613,7 +616,7 @@ Deno.serve(async (req) => {
       const { sizeUsd, qty } = normResult.order;
 
       const fillable = Number(sig.fillable_size_usd || 0);
-      if (fillable < Math.max(sizeUsd, Number(config.min_fillable_usd || 5)) && !forceId) {
+      if (fillable < Math.max(sizeUsd, Number(config.min_fillable_usd || MIN_NOTIONAL_USD)) && !forceId) {
         log('INFO', 'FILTER', `REJECT ${sig.pair}: INSUFFICIENT_LIQUIDITY fillable=$${fillable} need=$${sizeUsd}`);
         if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, { status: 'rejected', rejection_reason: ERR.INSUFFICIENT_LIQUIDITY }).catch(() => {});
         continue;
@@ -639,6 +642,14 @@ Deno.serve(async (req) => {
       if (seenAssets.has(s.sig.asset)) continue;
       seenAssets.add(s.sig.asset);
       toExecute.push(s);
+    }
+
+    // ── Max concurrent trades gate (ARB_CONFIG: maxConcurrentTrades = 1) ────
+    const MAX_CONCURRENT_TRADES = 1;
+    const openTradeCount = openPositions.length;
+    if (openTradeCount >= MAX_CONCURRENT_TRADES && !forceId) {
+      log('INFO', 'GATE', `Max concurrent trades reached (${openTradeCount}/${MAX_CONCURRENT_TRADES}) — skipping execution`);
+      return Response.json({ ok: true, halted: true, reason: `max_concurrent_trades(${openTradeCount})`, results: [] });
     }
 
     // ── Execute ───────────────────────────────────────────────────────────────
@@ -674,7 +685,7 @@ Deno.serve(async (req) => {
       let execOutcome;
       try {
         if (isLive) {
-          if (qty * buyPx > MAX_LIVE_NOTIONAL_USD) throw new Error(`hard_notional_cap: $${(qty * buyPx).toFixed(2)}`);
+          if (qty * buyPx > MAX_LIVE_NOTIONAL_USD) throw new Error(`hard_notional_cap: $${(qty * buyPx).toFixed(2)} > $${MAX_LIVE_NOTIONAL_USD}`);
           execOutcome = await executeWithStateMachine(sig, qty, dropletIp, dropletSecret, port);
         } else {
           execOutcome = paperFill(sig, sizeUsd);

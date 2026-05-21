@@ -191,7 +191,7 @@ function bybitSign(preSign) {
 
 // ── MODULE 2: Single order with timeout ───────────────────────────────────────
 
-async function bybitOrder({ category, symbol, side, qty, timeoutMs = 8000 }) {
+async function bybitOrder({ category, symbol, side, qty, timeoutMs = 5000 }) {
   const timestamp   = Date.now().toString();
   const recvWindow  = '5000';
   const orderBody   = { category, symbol, side, orderType: 'Market', qty: String(qty), timeInForce: 'IOC' };
@@ -259,15 +259,15 @@ function recordCircuitFailure(symbol, err) {
   if (cb.failures >= 3 || cb.state === 'HALF_OPEN') {
     cb.state       = 'OPEN';
     cb.openedAt    = Date.now();
-    cb.nextRetryAt = Date.now() + 5 * 60 * 1000;
+    cb.nextRetryAt = Date.now() + 15 * 60 * 1000; // 900s cooldown (ARB_CONFIG)
     log('ERROR', 'CB', `Circuit OPENED for ${symbol} after ${cb.failures} failures`, { error: err });
   }
 }
 
 // ── MODULE 2: Retry with exponential backoff ──────────────────────────────────
 
-async function withRetry(fn, symbol, maxAttempts = 3) {
-  const delays = [0, 300, 900];
+async function withRetry(fn, symbol, maxAttempts = 2) {
+  const delays = [0, 500];
   let lastErr;
   for (let i = 0; i < maxAttempts; i++) {
     if (i > 0) { log('INFO', 'RETRY', `Backoff ${delays[i]}ms attempt ${i+1}/${maxAttempts}`, { symbol }); await new Promise(r => setTimeout(r, delays[i])); }
