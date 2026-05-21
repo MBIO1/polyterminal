@@ -148,19 +148,19 @@ Deno.serve(async (req) => {
       }
     }
 
+    // PAIR FILTER: Only BTC and ETH — checked first, before any DB access.
+    const ingestAsset = String(body.asset || (body.pair || '').split('-')[0] || '').toUpperCase();
+    const ALLOWED_INGEST_ASSETS = new Set(['BTC', 'ETH']);
+    if (!ALLOWED_INGEST_ASSETS.has(ingestAsset)) {
+      return Response.json({ ok: true, rejected: true, reason: 'asset_not_allowed' });
+    }
+
     // Reject signals with weak/negative profit economics before storing them.
     const netEdge = Number(body.net_edge_bps);
     const fillableUsd = Number(body.fillable_size_usd || 0);
     const expectedProfitUsd = fillableUsd * (netEdge / 10000);
     if (netEdge < 3 || expectedProfitUsd < 0.01) {
       return Response.json({ ok: true, rejected: true, reason: 'profit_floor' });
-    }
-
-    // PAIR FILTER: Only BTC and ETH are enabled for execution.
-    const ingestAsset = String(body.asset || (body.pair || '').split('-')[0] || '').toUpperCase();
-    const ALLOWED_INGEST_ASSETS = new Set(['BTC', 'ETH']);
-    if (!ALLOWED_INGEST_ASSETS.has(ingestAsset)) {
-      return Response.json({ ok: true, rejected: true, reason: `asset_not_allowed: only BTC/ETH accepted` });
     }
 
     // VENUE FILTER: We only have a Bybit execution path. Reject signals that
