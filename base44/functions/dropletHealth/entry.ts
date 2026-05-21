@@ -167,7 +167,7 @@ Deno.serve(async (req) => {
       recommendations.push({
         priority: 'P0',
         action: 'Restart the droplet bot process',
-        details: 'SSH to droplet: pm2 restart arb-bot && pm2 logs arb-bot --lines 30',
+        details: 'SSH to droplet: systemctl restart arb-bot-v2 && journalctl -u arb-bot-v2 -n 30 --no-pager',
       });
     }
 

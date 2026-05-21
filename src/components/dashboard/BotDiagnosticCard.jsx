@@ -47,9 +47,11 @@ export default function BotDiagnosticCard() {
   const overallOk = overall === 'healthy';
 
   // Derive auth status display from overall + connectivity signals
+  // Use accepted signals as fallback — heartbeat "posted" may be 0 if heartbeat is stale
+  // but signals could still have been accepted (e.g. right after restart)
   let authStatus;
-  if (posted === 0) authStatus = 'unknown';
-  else if (overall === 'critical' && non2xx > 0) authStatus = 'failing';
+  if (posted === 0 && accepted === 0) authStatus = 'unknown';
+  else if (non2xx > 0 && overall === 'critical') authStatus = 'failing';
   else authStatus = 'ok';
 
   return (
@@ -124,7 +126,7 @@ export default function BotDiagnosticCard() {
               <span className="text-xs font-semibold text-red-200">Restart the droplet bot process</span>
             </div>
             <code className="block text-[11px] font-mono text-red-300/80 mt-1 break-all">
-              ssh root@droplet → pm2 restart arb-bot && pm2 logs arb-bot --lines 30
+              systemctl restart arb-bot-v2 && journalctl -u arb-bot-v2 -n 30 --no-pager
             </code>
           </div>
         )}
