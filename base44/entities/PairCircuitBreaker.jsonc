@@ -1,0 +1,89 @@
+{
+  "name": "PairCircuitBreaker",
+  "type": "object",
+  "description": "Per-pair circuit breaker state. Auto-disables pairs with repeated execution failures.",
+  "properties": {
+    "pair": {
+      "type": "string",
+      "description": "e.g. BTC-USDT"
+    },
+    "asset": {
+      "type": "string"
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "CLOSED",
+        "OPEN",
+        "HALF_OPEN"
+      ],
+      "default": "CLOSED",
+      "description": "CLOSED=normal, OPEN=disabled, HALF_OPEN=trial mode"
+    },
+    "failure_count": {
+      "type": "number",
+      "default": 0
+    },
+    "success_count": {
+      "type": "number",
+      "default": 0
+    },
+    "last_failure_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "last_success_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "opened_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "next_retry_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When to attempt HALF_OPEN probe"
+    },
+    "last_error": {
+      "type": "string"
+    },
+    "total_executions": {
+      "type": "number",
+      "default": 0
+    },
+    "total_failures": {
+      "type": "number",
+      "default": 0
+    },
+    "health_score": {
+      "type": "number",
+      "description": "0-100 rolling health for this pair"
+    }
+  },
+  "required": [
+    "pair"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}

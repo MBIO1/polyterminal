@@ -156,6 +156,13 @@ Deno.serve(async (req) => {
       return Response.json({ ok: true, rejected: true, reason: 'profit_floor' });
     }
 
+    // PAIR FILTER: Only BTC and ETH are enabled for execution.
+    const ingestAsset = String(body.asset || (body.pair || '').split('-')[0] || '').toUpperCase();
+    const ALLOWED_INGEST_ASSETS = new Set(['BTC', 'ETH']);
+    if (!ALLOWED_INGEST_ASSETS.has(ingestAsset)) {
+      return Response.json({ ok: true, rejected: true, reason: `asset_not_allowed: only BTC/ETH accepted` });
+    }
+
     // VENUE FILTER: We only have a Bybit execution path. Reject signals that
     // don't include Bybit on at least one leg — they are untradeable noise
     // (e.g. OKX-perp → OKX-spot internal-basis signals).

@@ -1,0 +1,131 @@
+{
+  "name": "ExecLatencyMetric",
+  "type": "object",
+  "description": "Per-trade execution latency breakdown for dashboard analysis",
+  "properties": {
+    "signal_id": {
+      "type": "string"
+    },
+    "pair": {
+      "type": "string"
+    },
+    "asset": {
+      "type": "string"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "paper",
+        "live"
+      ]
+    },
+    "signal_detected_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the signal was first detected on the droplet"
+    },
+    "signal_received_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When Base44 ingested the signal"
+    },
+    "validation_start_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "validation_end_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "order_sent_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "order_ack_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "When the exchange acknowledged the order"
+    },
+    "fill_confirmed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signal_detection_latency_ms": {
+      "type": "number",
+      "description": "signal_received_at - signal_detected_at"
+    },
+    "validation_latency_ms": {
+      "type": "number",
+      "description": "validation_end_at - validation_start_at"
+    },
+    "order_send_latency_ms": {
+      "type": "number",
+      "description": "order_ack_at - order_sent_at"
+    },
+    "fill_latency_ms": {
+      "type": "number",
+      "description": "fill_confirmed_at - order_ack_at"
+    },
+    "total_execution_latency_ms": {
+      "type": "number",
+      "description": "fill_confirmed_at - signal_detected_at"
+    },
+    "execution_state": {
+      "type": "string",
+      "enum": [
+        "VALIDATED",
+        "ORDER_SENT",
+        "ACK_RECEIVED",
+        "FILLED",
+        "PARTIAL_FILL",
+        "FAILED",
+        "TIMED_OUT",
+        "CIRCUIT_OPEN"
+      ]
+    },
+    "retry_count": {
+      "type": "number",
+      "default": 0
+    },
+    "circuit_breaker_triggered": {
+      "type": "boolean",
+      "default": false
+    },
+    "health_score": {
+      "type": "number",
+      "description": "0-100 execution quality score"
+    },
+    "error_code": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "signal_id",
+    "pair"
+  ],
+  "rls": {
+    "create": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "read": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "update": {
+      "user_condition": {
+        "role": "admin"
+      }
+    },
+    "delete": {
+      "user_condition": {
+        "role": "admin"
+      }
+    }
+  }
+}
