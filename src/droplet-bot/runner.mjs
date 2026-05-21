@@ -38,8 +38,10 @@ async function postSignal(spread) {
   const netEdgeBps = parseFloat(spread.netSpread) * 100; // 0.2% = 20 bps
   const rawSpreadBps = parseFloat(spread.grossSpread) * 100;
   
-  // Estimate fillable size (simplified - would need real orderbook data)
-  const fillableSize = MIN_FILLABLE_USD * 1.5; // Assume 1.5x minimum
+  // Use orderbook depth from the engine if available, otherwise use a conservative estimate.
+  // NOTE: bot.mjs fetches REST ticker prices only (no L2 orderbook), so depth is estimated.
+  // Real depth tracking requires WS orderbook subscriptions (OKX/Bybit books-5 channel).
+  const fillableSize = spread.buyDepthUsd || spread.sellDepthUsd || (MIN_FILLABLE_USD * 1.5);
   
   const payload = {
     signal_time: new Date().toISOString(),

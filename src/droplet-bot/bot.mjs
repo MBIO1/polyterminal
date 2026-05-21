@@ -469,9 +469,10 @@ class ArbitrageEngine {
       rejected_stale: stats.rejectedStale || 0,
       best_edge_bps: stats.bestEdge || 0,
       best_edge_pair: stats.bestPair || '',
+      best_edge_route: stats.bestRoute || '',
       memory_mb: process.memoryUsage ? process.memoryUsage().heapUsed / 1024 / 1024 : 0,
       cpu_percent: 0,
-      fresh_books: stats.freshBooks || 'OKX:0/0 Bybit:0/0',
+      fresh_books: stats.freshBooks || '',
       post_errors: stats.errors || 0,
       post_non_2xx: stats.non2xx || 0,
     };
@@ -506,6 +507,9 @@ class ArbitrageEngine {
     let evaluations = 0;
     let signals = 0;
     let errors = 0;
+    let bestEdgeBps = 0;
+    let bestEdgePair = '';
+    let bestEdgeRoute = '';
 
     this._interval = setInterval(async () => {
       if (!this.isRunning) return;
@@ -523,6 +527,16 @@ class ArbitrageEngine {
         const spreads = this.detectArbitrage(prices);
         const now = Date.now();
 
+        // Track best edge seen this session
+        spreads.forEach(spread => {
+          const edgeBps = parseFloat(spread.netSpread) * 100;
+          if (edgeBps > bestEdgeBps) {
+            bestEdgeBps = edgeBps;
+            bestEdgePair = spread.symbol;
+            bestEdgeRoute = `${spread.buyExchange}->${spread.sellExchange}`;
+          }
+        });
+
         spreads.forEach(spread => {
           const lastSignal = this.lastSignals.get(spread.symbol) || 0;
           if (now - lastSignal < this.config.cooldownMs) return;
@@ -539,13 +553,25 @@ class ArbitrageEngine {
 
         // Report heartbeat every 10 evaluations
         if (evaluations % 10 === 0) {
-          const stats = this.getStats();
+          // Build a live exchange connectivity summary based on available prices
+          const exchangeNames = ['binance', 'kraken', 'coinbase', 'okx', 'bybit'];
+          const freshBooks = exchangeNames
+            .map(ex => {
+              const priceMap = prices[ex] || {};
+              const count = Object.keys(priceMap).length;
+              return count > 0 ? `${ex}:${count}/${count}` : null;
+            })
+            .filter(Boolean)
+            .join(' ');
+
           await this.reportHeartbeat({
             evaluations,
             signals,
             errors,
-            bestEdge: stats.bestSpread,
-            bestPair: stats.bestPair,
+            bestEdge: bestEdgeBps,
+            bestPair: bestEdgePair,
+            bestRoute: bestEdgeRoute,
+            freshBooks,
           });
         }
       } catch (e) {
