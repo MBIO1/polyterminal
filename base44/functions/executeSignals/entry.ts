@@ -67,7 +67,6 @@ const ERR = {
   EXEC_TIMEOUT:             'EXEC_TIMEOUT',
   EXEC_FAILED:              'EXEC_FAILED',
   PARTIAL_FILL:             'PARTIAL_FILL',
-  NO_BYBIT_ROUTE:           'NO_BYBIT_ROUTE',
 };
 
 // ─── Structured logger ────────────────────────────────────────────────────────
@@ -398,14 +397,6 @@ function recomputeNetEdge(signal, config, sizeUsd) {
   return { rawBps, takerBps, slipBps, net };
 }
 
-function isExecutableBybitRoute(signal) {
-  const buyEx = String(signal.buy_exchange || '').toLowerCase();
-  const sellEx = String(signal.sell_exchange || '').toLowerCase();
-  if (!buyEx.includes('bybit') && !sellEx.includes('bybit')) return false;
-  if (!buyEx.includes('bybit') && sellEx.includes('bybit') && sellEx.includes('spot')) return false;
-  return true;
-}
-
 function computeSizeUsd(signal, config, confidence, capitalFlowUsd, profitGrowthUsd = 0) {
   const configuredCap = Number(config.total_capital || 0);
   const capitalBase   = capitalFlowUsd > 0 ? capitalFlowUsd : configuredCap * Number(config.spot_allocation_pct || 0.35);
@@ -573,11 +564,6 @@ Deno.serve(async (req) => {
       const asset = String(sig.asset || sig.pair?.split('-')[0] || '').toUpperCase();
       if (!ALLOWED_ASSETS.has(asset) && !forceId) {
         log('INFO', 'FILTER', `SKIP ${sig.pair}: asset ${asset} not in allowed set`);
-        continue;
-      }
-
-      if (!isExecutableBybitRoute(sig) && !forceId) {
-        log('INFO', 'FILTER', `SKIP ${sig.pair}: no Bybit route`);
         continue;
       }
 

@@ -163,58 +163,6 @@ Deno.serve(async (req) => {
       return Response.json({ ok: true, rejected: true, reason: 'profit_floor' });
     }
 
-    // VENUE FILTER: We only have a Bybit execution path. Reject signals that
-    // don't include Bybit on at least one leg — they are untradeable noise
-    // (e.g. OKX-perp → OKX-spot internal-basis signals).
-    const buyEx  = String(body.buy_exchange  || '').toLowerCase();
-    const sellEx = String(body.sell_exchange || '').toLowerCase();
-    const buyIsBybit  = buyEx.includes('bybit');
-    const sellIsBybit = sellEx.includes('bybit');
-    if (!buyIsBybit && !sellIsBybit) {
-      return Response.json({
-        ok: true,
-        rejected: true,
-        reason: 'no_bybit_leg — execution path is Bybit-only',
-      });
-    }
-
-    // Avoid sell-only Bybit spot routes unless inventory exists; small USDT accounts cannot sell assets they do not hold.
-    if (!buyIsBybit && sellIsBybit && sellEx.includes('spot')) {
-      return Response.json({ ok: true, rejected: true, reason: 'inventory_required' });
-    }
-
-    // SAME-VENUE FILTER: Allow same-venue spot/perp basis trades IF funding rate justifies it
-    // Industry standard: Execute if expected funding > 2x transaction costs
-    const rootOf = v => v.replace(/-(spot|perp|swap|futures)$/i, '').trim().toLowerCase();
-    const isSameVenue = rootOf(buyEx) === rootOf(sellEx) && rootOf(buyEx);
-    
-    if (isSameVenue) {
-      const buyIsPerp = /perp|swap|futures/i.test(buyEx);
-      const sellIsPerp = /perp|swap|futures/i.test(sellEx);
-      
-      // Only allow if one leg is perp and one is spot (basis trade)
-      if (buyIsPerp !== sellIsPerp) {
-        // Check if net edge already accounts for funding (it should)
-        // If edge > 8 bps after fees, allow the trade
-        if (netEdge >= 8) {
-          console.log(`[ingestSignal] ALLOWING same-venue basis trade ${body.pair}: net=${netEdge.toFixed(2)}bps`);
-        } else {
-          return Response.json({
-            ok: true,
-            rejected: true,
-            reason: 'same_venue_basis_insufficient_edge',
-          });
-        }
-      } else {
-        // Both spot or both perp — reject (not a basis trade)
-        return Response.json({
-          ok: true,
-          rejected: true,
-          reason: 'same_venue_not_basis_trade',
-        });
-      }
-    }
-
     // Fuzzy duplicate detection
     const dupCheck = await checkFuzzyDuplicate(base44, body);
     if (dupCheck.isDuplicate) {
