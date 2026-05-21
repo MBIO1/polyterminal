@@ -71,8 +71,43 @@ function computeSizeUsd(signal, config, confidence) {
   if (mult <= 0 || fillable < minExecutable) return 0;
 
   const riskSize = Math.min(perTradeCap, fillable * 0.20) * mult;
-  // Floor at $7 to clear Bybit minimums (SOL ~$5, ETH ~$10 at typical prices)
+  // Floor at $7, then normalize upward later if exchange rules require more.
   return Math.min(Math.max(7, Math.floor(riskSize)), fillable, MAX_LIVE_NOTIONAL_USD);
+}
+
+function getExchangeRuleMinUsd(signal) {
+  const hasPerpLeg = /perp|swap|linear/i.test(signal.buy_exchange || '') || /perp|swap|linear/i.test(signal.sell_exchange || '');
+  const assetMinSpot = { BTC: 1, ETH: 1, SOL: 1, DOGE: 1, ADA: 1, APT: 2, XRP: 1, AVAX: 1, ATOM: 1 };
+  const assetMinPerp = { BTC: 1, ETH: 22, SOL: 9, DOGE: 1, ADA: 1, APT: 2, XRP: 1, AVAX: 5, ATOM: 5 };
+  const minTable = hasPerpLeg ? assetMinPerp : assetMinSpot;
+  return minTable[signal.asset] || 5;
+}
+
+function normalizeOrderToExchangeRules(signal, sizeUsd) {
+  const buyPx = Number(signal.buy_price) || 0;
+  if (!buyPx) return { ok: false, reason: 'missing_buy_price' };
+
+  const fillable = Number(signal.fillable_size_usd || 0);
+  const minUsd = getExchangeRuleMinUsd(signal);
+  const normalizedSizeUsd = Math.max(sizeUsd, minUsd);
+
+  if (normalizedSizeUsd > MAX_LIVE_NOTIONAL_USD) {
+    return { ok: false, reason: `min_notional_exceeds_cap: $${minUsd} > $${MAX_LIVE_NOTIONAL_USD}` };
+  }
+  if (fillable < normalizedSizeUsd) {
+    return { ok: false, reason: `min_notional_insufficient_liquidity: fillable $${fillable.toFixed(2)} < $${normalizedSizeUsd}` };
+  }
+
+  const qty = Number((normalizedSizeUsd / buyPx).toFixed(6));
+  if (!qty || qty <= 0) return { ok: false, reason: 'qty_below_min' };
+
+  return { ok: true, order: { sizeUsd: normalizedSizeUsd, qty, minUsd } };
+}
+
+function checkOrderbookDepth(signal, sizeUsd, config) {
+  const fillable = Number(signal.fillable_size_usd || 0);
+  const minFill = Number(config.min_fillable_usd || 5);
+  return fillable >= Math.max(sizeUsd, minFill);
 }
 
 function paperFill(signal, sizeUsd) {
@@ -122,6 +157,20 @@ async function executeViaDroplet(signal, qty) {
   const json = await res.json().catch(() => { throw new Error('droplet_invalid_response'); });
   if (!json.ok) throw new Error(`droplet_exec_failed: ${json.error || 'unknown'}`);
   return json; // { ok, spotOk, perpOk, spotOrderId, perpOrderId, mode }
+}
+
+async function executeWithRetry(signal, qty, attempts = 2) {
+  let lastError = null;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      const result = await executeViaDroplet(signal, qty);
+      return { filled: true, result };
+    } catch (error) {
+      lastError = error;
+      if (i < attempts - 1) await new Promise(resolve => setTimeout(resolve, 500 * (i + 1)));
+    }
+  }
+  return { filled: false, error: lastError?.message || 'EXECUTION_NOT_FILLED' };
 }
 
 // ─── Main handler ─────────────────────────────────────────────────────────────
@@ -249,9 +298,38 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const sizeUsd = computeSizeUsd(sig, config, confidence);
-      if (sizeUsd <= 0) {
-        console.log(`[executeSignals] REJECT ${sig.pair}: sizeUsd=${sizeUsd} (confidence=${confidence}, fillable=${sig.fillable_size_usd}, total_cap=${config.total_capital})`);
+      if (signalAgeMs(sig) > 60_000 && !forceId) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: STALE_SIGNAL`);
+        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
+          status: 'rejected', rejection_reason: 'STALE_SIGNAL',
+        });
+        continue;
+      }
+
+      const initialSizeUsd = computeSizeUsd(sig, config, confidence);
+      if (initialSizeUsd <= 0) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: CAPITAL_SIZE_ZERO (confidence=${confidence}, fillable=${sig.fillable_size_usd}, total_cap=${config.total_capital})`);
+        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
+          status: 'rejected', rejection_reason: 'CAPITAL_SIZE_ZERO',
+        });
+        continue;
+      }
+
+      const validOrder = normalizeOrderToExchangeRules(sig, initialSizeUsd);
+      if (!validOrder.ok) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: ${validOrder.reason}`);
+        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
+          status: 'rejected', rejection_reason: validOrder.reason,
+        });
+        continue;
+      }
+
+      const { sizeUsd, qty } = validOrder.order;
+      if (!checkOrderbookDepth(sig, sizeUsd, config) && !forceId) {
+        console.log(`[executeSignals] REJECT ${sig.pair}: INSUFFICIENT_LIQUIDITY size=$${sizeUsd} fillable=$${sig.fillable_size_usd}`);
+        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
+          status: 'rejected', rejection_reason: 'INSUFFICIENT_LIQUIDITY',
+        });
         continue;
       }
 
@@ -262,14 +340,8 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      const minFill = Number(config.min_fillable_usd || 200);
-      if (Number(sig.fillable_size_usd || 0) < minFill && !forceId) {
-        console.log(`[executeSignals] REJECT ${sig.pair}: fillable=${sig.fillable_size_usd} < min=${minFill}`);
-        continue;
-      }
-
-      console.log(`[executeSignals] ACCEPT ${sig.pair}: net=${net.toFixed(2)}bps size=$${sizeUsd} confidence=${confidence}`);
-      scored.push({ sig, confidence, sizeUsd, net, rawBps, takerBps, slipBps });
+      console.log(`[executeSignals] ACCEPT ${sig.pair}: net=${net.toFixed(2)}bps size=$${sizeUsd} qty=${qty} confidence=${confidence}`);
+      scored.push({ sig, confidence, sizeUsd, qty, net, rawBps, takerBps, slipBps });
     }
 
     // Best edge first, one trade per asset
@@ -286,7 +358,7 @@ Deno.serve(async (req) => {
     const results    = [];
     let tradeCounter = 1;
 
-    for (const { sig, confidence, sizeUsd, net, rawBps, takerBps, slipBps } of toExecute) {
+    for (const { sig, confidence, sizeUsd, qty, net, rawBps, takerBps, slipBps } of toExecute) {
       const condition = confidence >= 80 ? 'HEALTHY' : confidence >= 60 ? 'VOLATILE' : 'UNCERTAIN';
 
       if (dryRun) {
@@ -301,24 +373,6 @@ Deno.serve(async (req) => {
         continue;
       }
 
-      // Pre-check: ensure qty clears typical Bybit minimums before sending to droplet.
-      // Use perp minimums for signals with a perp leg, spot minimums for spot-only.
-      const hasPerpLeg = /perp|swap|linear/i.test(sig.buy_exchange || '') || /perp|swap|linear/i.test(sig.sell_exchange || '');
-      const assetMinSpot = { BTC: 1, ETH: 1, SOL: 1, DOGE: 1, ADA: 1, APT: 2, XRP: 1 };
-      const assetMinPerp = { BTC: 1, ETH: 22, SOL: 9, DOGE: 1, ADA: 1, APT: 2, XRP: 1 };
-      const minTable = hasPerpLeg ? assetMinPerp : assetMinSpot;
-      const minUsdForAsset = minTable[sig.asset] || 1;
-      if (sizeUsd < minUsdForAsset) {
-        console.log(`[executeSignals] SKIP ${sig.pair}: sizeUsd=$${sizeUsd} < asset min $${minUsdForAsset} (capital too small for ${sig.asset})`);
-        await base44.asServiceRole.entities.ArbSignal.update(sig.id, {
-          status: 'rejected',
-          rejection_reason: `capital_too_small: $${sizeUsd} < $${minUsdForAsset} min for ${sig.asset}`,
-        });
-        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'rejected', reason: `capital_too_small_for_${sig.asset}` });
-        continue;
-      }
-
-      const qty      = Number((sizeUsd / buyPx).toFixed(6));
       const isLive   = !config.paper_trading;
 
       let execResult;
@@ -329,7 +383,9 @@ Deno.serve(async (req) => {
           if (notionalUsd > MAX_LIVE_NOTIONAL_USD) {
             throw new Error(`hard_notional_cap_exceeded: $${notionalUsd.toFixed(2)} > $${MAX_LIVE_NOTIONAL_USD}`);
           }
-          const dropletResult = await executeViaDroplet(sig, qty);
+          const execution = await executeWithRetry(sig, qty, 2);
+          if (!execution.filled) throw new Error(`EXECUTION_NOT_FILLED:${execution.error}`);
+          const dropletResult = execution.result;
           execResult = {
             mode:  dropletResult.mode || (dropletResult.spotOk && dropletResult.perpOk ? 'live' : 'live_partial'),
             fills: { buy: { px: buyPx, qty }, sell: { px: sellPx, qty } },
