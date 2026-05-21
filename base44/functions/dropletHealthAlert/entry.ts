@@ -25,7 +25,7 @@ const TELEGRAM_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
 const TELEGRAM_CHAT_ID = Deno.env.get('TELEGRAM_CHAT_ID');
 
 // Health thresholds
-const HEARTBEAT_STALE_SEC = 180; // 3 minutes
+const HEARTBEAT_STALE_SEC = 300; // 5 minutes (matches dashboard threshold)
 const HEARTBEAT_CRITICAL_SEC = 600; // 10 minutes
 const MAX_POST_ERRORS = 3;
 const MAX_NON_2XX = 5;
@@ -321,19 +321,22 @@ async function checkAndAlert(base44) {
   const signalSilenceMs = lastSignalTs ? now - lastSignalTs : Infinity;
 
   if (heartbeatAgeSec < HEARTBEAT_STALE_SEC && signalSilenceMs > SIGNAL_SILENCE_MS) {
-    if (shouldSendAlert('signal_flow_stopped')) {
+    const lastHbNon2xx = lastHb?.post_non_2xx || 0;
+    const lastHbPosted = lastHb?.posted || 0;
+    const lastHbEvals = lastHb?.evaluations || 0;
+
+    // Only alert if there's an actual problem (auth rejections or zero evaluations).
+    // If bot is scanning fine but no signal crosses the edge floor → market is quiet, not an error.
+    const isActualProblem = lastHbNon2xx > 0 || (lastHbEvals === 0 && lastHbPosted === 0);
+
+    if (isActualProblem && shouldSendAlert('signal_flow_stopped')) {
       const silenceMin = Math.floor(signalSilenceMs / 60000);
-      const lastHbNon2xx = lastHb?.post_non_2xx || 0;
-      const lastHbPosted = lastHb?.posted || 0;
-      const lastHbEvals = lastHb?.evaluations || 0;
 
       let diagnosis = '';
       if (lastHbNon2xx > 0) {
         diagnosis = `⚠️ Likely cause: <b>AUTH FAILURE</b>\n${lastHbNon2xx} signals rejected by Base44 (expired token)\n🔧 Fix: Refresh BASE44_USER_TOKEN and run fix script`;
-      } else if (lastHbPosted === 0 && lastHbEvals > 0) {
-        diagnosis = `📊 Bot scanning (${lastHbEvals} evals) but no signal crossed edge floor\nℹ️ Market may be quiet — not an error`;
       } else {
-        diagnosis = `⚠️ Bot not posting signals — check edge config or bot logs`;
+        diagnosis = `⚠️ Bot not evaluating any pairs — check bot process and WS connectivity`;
       }
 
       const alertText = [
