@@ -57,7 +57,7 @@ async function normalizeAndValidateOrder(category, symbol, rawQty, rawPrice) {
   log('INFO','NORM','Normalized ' + symbol + '/' + category, { rawQty, normQty, rawPrice, normPrice, notional: notional.toFixed(4) });
   return { spec, normQty, normQtyStr: normQty.toFixed(qtyDec), normPrice, notional };
 }
-function bybitSign(preSign) { return require('crypto').createHmac('sha256', API_SECRET).update(preSign).digest('hex'); }
+function bybitSign(preSign) { return createHmac('sha256', API_SECRET).update(preSign).digest('hex'); }
 async function bybitOrder(params) {
   const { category, symbol, side, qty, timeoutMs } = params;
   const ts = Date.now().toString(); const rw = '5000';
@@ -128,8 +128,8 @@ function reportResult(payload) {
   fetch(RESULT_URL, { method:'POST', headers:{ 'Content-Type':'application/json', 'Authorization':'Bearer ' + TOKEN }, body: JSON.stringify(payload) }).catch(e => log('ERROR','REPORT','failed', { error: e.message }));
 }
 async function fetchBalance() {
-  const ts = Date.now().toString(); const rw = '5000'; const sig = bybitSign(ts + API_KEY + rw);
-  const res = await fetch(BYBIT_BASE + '/v5/account/wallet-balance?accountType=UNIFIED', { headers: { 'X-BAPI-API-KEY':API_KEY, 'X-BAPI-SIGN':sig, 'X-BAPI-TIMESTAMP':ts, 'X-BAPI-RECV-WINDOW':rw }, signal: AbortSignal.timeout(8000) });
+  const ts = Date.now().toString(); const rw = '5000'; const qs = 'accountType=UNIFIED'; const sig = bybitSign(ts + API_KEY + rw + qs);
+  const res = await fetch(BYBIT_BASE + '/v5/account/wallet-balance?' + qs, { headers: { 'X-BAPI-API-KEY':API_KEY, 'X-BAPI-SIGN':sig, 'X-BAPI-TIMESTAMP':ts, 'X-BAPI-RECV-WINDOW':rw }, signal: AbortSignal.timeout(8000) });
   const json = await res.json().catch(() => null);
   if (!res.ok || !json) throw new Error('Bybit HTTP ' + res.status);
   if (json.retCode !== 0) throw new Error('Bybit error: ' + json.retMsg);
@@ -197,15 +197,27 @@ Deno.serve(async (req) => {
       return Response.json({ error: 'DROPLET_IP or DROPLET_SECRET not set' }, { status: 500 });
     }
 
-    // Step 1: Push new code via /setup endpoint (writes order-server.mjs on disk)
+    // Collect all env vars to push alongside the code
+    const envVars = {
+      DROPLET_SECRET:      dropletSecret,
+      BYBIT_API_KEY:       Deno.env.get('BYBIT_API_KEY') || '',
+      BYBIT_API_SECRET:    Deno.env.get('BYBIT_API_SECRET') || '',
+      BYBIT_TESTNET:       Deno.env.get('BYBIT_TESTNET') || 'false',
+      ORDER_SERVER_PORT:   port,
+      BASE44_RESULT_URL:   (Deno.env.get('BASE44_APP_URL') || '').replace(/\/$/, '') + '/api/functions/ingestTradeResult',
+      BASE44_USER_TOKEN:   Deno.env.get('BASE44_USER_TOKEN') || '',
+    };
+
+    // Step 1: Push new code via /setup endpoint (writes order-server.mjs + .env on disk)
     const setupUrl = `http://${dropletIp}:${port}/setup`;
     const setupRes = await fetch(setupUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
+        'Authorization': `Bearer ${dropletSecret}`,
         'X-Droplet-Secret': dropletSecret,
       },
-      body: JSON.stringify({ orderServerCode: ORDER_SERVER_CODE }),
+      body: JSON.stringify({ orderServerCode: ORDER_SERVER_CODE, envVars }),
       signal: AbortSignal.timeout(15000),
     });
 
@@ -228,6 +240,7 @@ Deno.serve(async (req) => {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          'Authorization': `Bearer ${dropletSecret}`,
           'X-Droplet-Secret': dropletSecret,
         },
         signal: AbortSignal.timeout(5000),

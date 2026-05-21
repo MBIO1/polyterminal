@@ -410,10 +410,12 @@ async function reportResult(payload) {
 async function fetchBalance() {
   const timestamp  = Date.now().toString();
   const recvWindow = '5000';
-  const preSign    = timestamp + API_KEY + recvWindow;
+  const queryStr   = 'accountType=UNIFIED';
+  // Bybit v5 GET signing: timestamp + apiKey + recvWindow + queryString
+  const preSign    = timestamp + API_KEY + recvWindow + queryStr;
   const signature  = bybitSign(preSign);
 
-  const res = await fetch(`${BYBIT_BASE}/v5/account/wallet-balance?accountType=UNIFIED`, {
+  const res = await fetch(`${BYBIT_BASE}/v5/account/wallet-balance?${queryStr}`, {
     headers: {
       'X-BAPI-API-KEY': API_KEY, 'X-BAPI-SIGN': signature,
       'X-BAPI-TIMESTAMP': timestamp, 'X-BAPI-RECV-WINDOW': recvWindow,
