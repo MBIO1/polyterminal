@@ -23,6 +23,7 @@ import LiveMarketChart from '@/components/dashboard/LiveMarketChart';
 import ConnectionStatus from '@/components/dashboard/ConnectionStatus';
 import LiveSignalsFeed from '@/components/dashboard/LiveSignalsFeed';
 import DropletHealthWidget from '@/components/dashboard/DropletHealthWidget';
+import LiveOpportunityChart from '@/components/dashboard/LiveOpportunityChart';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -155,6 +156,9 @@ export default function Dashboard() {
 
       {/* Live Market Chart — Bybit BTC/ETH prices + spread + signals */}
       <LiveMarketChart activeTrades={strategyPnl.filter(t => t.status === 'Open')} />
+
+      {/* Live Opportunity Chart — Real-time signal edges + price */}
+      <LiveOpportunityChart />
 
       {/* Live Signals Feed — Real-time signal stream */}
       <LiveSignalsFeed />
