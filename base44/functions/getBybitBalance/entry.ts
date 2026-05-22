@@ -5,13 +5,18 @@ Deno.serve(async (req) => {
     const base44 = createClientFromRequest(req);
     const user = await base44.auth.me();
 
+    console.log(`User auth: ${user?.email} role=${user?.role}`);
+
     if (!user || user.role !== 'admin') {
+      console.log(`Auth failed: user=${!!user} role=${user?.role}`);
       return Response.json({ error: 'Unauthorized' }, { status: 403 });
     }
 
     const dropletIp = Deno.env.get('DROPLET_IP');
     const dropletSecret = Deno.env.get('DROPLET_SECRET');
     const orderServerPort = Deno.env.get('ORDER_SERVER_PORT') || '4001';
+
+    console.log(`Attempting to connect to droplet: ${dropletIp}:${orderServerPort}`);
 
     if (!dropletIp || !dropletSecret) {
       return Response.json({ error: 'Droplet credentials not configured' }, { status: 500 });
@@ -57,12 +62,25 @@ Deno.serve(async (req) => {
       }, { status: 503 });
     }
     
+    // Handle both normalized format and raw Bybit API format
+    const account = data.list ? data.list[0] : data;
+    const coins = account.coin || data.coins || [];
+    
     return Response.json({
-      totalEquity: data.totalEquity || 0,
-      totalAvailableBalance: data.totalAvailableBalance || 0,
-      testnet: data.testnet || false,
+      totalEquity: parseFloat(account.totalEquity || 0),
+      totalAvailableBalance: parseFloat(account.totalAvailableBalance || 0),
+      totalWalletBalance: parseFloat(account.totalWalletBalance || 0),
+      testnet: data.testnet || process.env.BYBIT_TESTNET === 'true' || false,
       timestamp: new Date().toISOString(),
-      coins: data.coins || []
+      coins: coins
+        .map(c => ({
+          coin: c.coin,
+          equity: parseFloat(c.equity || 0),
+          walletBalance: parseFloat(c.walletBalance || 0),
+          availableBalance: parseFloat(c.availableToWithdraw || 0),
+          usdValue: parseFloat(c.usdValue || 0),
+        }))
+        .filter(c => c.usdValue > 0.01)
     });
   } catch (error) {
     return Response.json({ 
