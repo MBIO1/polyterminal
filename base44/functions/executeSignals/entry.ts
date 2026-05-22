@@ -500,8 +500,12 @@ Deno.serve(async (req) => {
     const body   = req.method === 'POST' ? await req.json().catch(() => ({})) : {};
 
     const internalSecret = String(body.internal_secret || '');
-    const expectedSecret = Deno.env.get('BOT_SECRET') || Deno.env.get('DROPLET_SECRET') || '';
+    const botSecretEnv = Deno.env.get('BOT_SECRET') || '';
+    const dropletSecretEnv = Deno.env.get('DROPLET_SECRET') || '';
+    const expectedSecret = botSecretEnv || dropletSecretEnv || '';
     const isInternal     = !!internalSecret && internalSecret === expectedSecret;
+    
+    log('INFO', 'AUTH', `Secret check: isInternal=${isInternal}, hasBotSecret=${!!botSecretEnv}, hasDropletSecret=${!!dropletSecretEnv}, internalSecretLength=${internalSecret.length}`);
     if (!isInternal) {
       let user = null;
       try { user = await base44.auth.me(); } catch {}
@@ -515,8 +519,10 @@ Deno.serve(async (req) => {
     const maxSignals = Math.min(Number(body.max_signals) || 10, 25);
 
     const dropletIp     = Deno.env.get('DROPLET_IP');
-    const dropletSecret = Deno.env.get('DROPLET_SECRET');
+    const dropletSecret = Deno.env.get('DROPLET_SECRET') || Deno.env.get('BOT_SECRET') || '';
     const port          = Deno.env.get('ORDER_SERVER_PORT') || '4001';
+    
+    log('INFO', 'CONFIG', `Droplet: ip=${dropletIp}, port=${port}, hasSecret=${!!dropletSecret}, dropletSecretEnv=${!!dropletSecretEnv}`);
 
     // ── Load config ──────────────────────────────────────────────────────────
     const configs = await base44.asServiceRole.entities.ArbConfig.list('-created_date', 1);
