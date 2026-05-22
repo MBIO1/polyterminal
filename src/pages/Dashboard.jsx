@@ -21,6 +21,8 @@ import SignalAcceptanceChart from '@/components/dashboard/SignalAcceptanceChart'
 import ExecutionHealthCard from '@/components/dashboard/ExecutionHealthCard';
 import LiveMarketChart from '@/components/dashboard/LiveMarketChart';
 import ConnectionStatus from '@/components/dashboard/ConnectionStatus';
+import LiveSignalsFeed from '@/components/dashboard/LiveSignalsFeed';
+import DropletHealthWidget from '@/components/dashboard/DropletHealthWidget';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -154,10 +156,16 @@ export default function Dashboard() {
       {/* Live Market Chart — Bybit BTC/ETH prices + spread + signals */}
       <LiveMarketChart activeTrades={strategyPnl.filter(t => t.status === 'Open')} />
 
-      {/* Connection Status Widget + Drawdown + Balance */}
+      {/* Live Signals Feed — Real-time signal stream */}
+      <LiveSignalsFeed />
+
+      {/* Connection Status + Droplet Health + Drawdown + Balance */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div className="md:col-span-1">
           <ConnectionStatus />
+        </div>
+        <div className="md:col-span-1">
+          <DropletHealthWidget />
         </div>
         <DrawdownGauge trades={strategyPnl} config={arbConfig} />
         <BybitBalanceWidget />

@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine, Legend } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { Activity, TrendingUp, TrendingDown } from 'lucide-react';
+import { Activity, TrendingUp, TrendingDown, XCircle } from 'lucide-react';
 import { base44 } from '@/api/base44Client';
 
 const MAX_POINTS = 60; // last 60 ticks (~2 min at 2s)
@@ -270,25 +270,46 @@ export default function LiveMarketChart({ activeTrades = [] }) {
               </div>
             </div>
 
-            {/* Recent signals strip */}
+            {/* Recent signals strip — 3 signals layer */}
             {assetSignals.length > 0 && (
               <div className="mt-3 border-t border-border pt-3">
-                <p className="text-xs text-muted-foreground font-mono mb-2">RECENT {asset} SIGNALS (last 10 min)</p>
-                <div className="flex flex-wrap gap-2">
-                  {assetSignals.slice(0, 6).map(s => {
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-xs font-semibold text-muted-foreground font-mono">RECENT {asset} SIGNALS</p>
+                  <Badge variant="outline" className="text-[10px] h-4">Last 10 min</Badge>
+                </div>
+                <div className="grid grid-cols-3 gap-2">
+                  {assetSignals.slice(0, 3).map((s, idx) => {
                     const age = Math.round((Date.now() - new Date(s.received_time || s.created_date).getTime()) / 1000);
                     const statusColor = s.status === 'executed' ? 'text-green-400 border-green-500/30 bg-green-500/10'
                       : s.status === 'rejected' ? 'text-red-400 border-red-500/30 bg-red-500/10'
                       : 'text-yellow-400 border-yellow-500/30 bg-yellow-500/10';
+                    const Icon = s.status === 'executed' ? TrendingUp : s.status === 'rejected' ? XCircle : Activity;
+                    
                     return (
-                      <div key={s.id} className={`flex items-center gap-1.5 px-2 py-1 rounded border text-xs font-mono ${statusColor}`}>
-                        {s.status === 'executed' ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                        <span>{s.net_edge_bps?.toFixed(1)} bps</span>
-                        <span className="opacity-60">{age}s ago</span>
+                      <div 
+                        key={s.id}
+                        className={`flex flex-col items-center justify-center p-3 rounded-lg border ${statusColor} transition-all hover:scale-105`}
+                      >
+                        <div className="flex items-center gap-1 mb-1">
+                          <Icon className="w-3.5 h-3.5" />
+                          <span className="text-xs font-bold font-mono">{idx + 1}</span>
+                        </div>
+                        <p className="text-lg font-bold font-mono">{s.net_edge_bps?.toFixed(1)} bps</p>
+                        <p className="text-xs opacity-60 mt-0.5">{age}s ago</p>
+                        {s.status === 'executed' && (
+                          <Badge className="text-[9px] mt-1 bg-green-500/20 text-green-400 border-green-500/30 border h-4">
+                            EXECUTED
+                          </Badge>
+                        )}
                       </div>
                     );
                   })}
                 </div>
+                {assetSignals.length > 3 && (
+                  <p className="text-xs text-muted-foreground text-center mt-2">
+                    +{assetSignals.length - 3} more signals
+                  </p>
+                )}
               </div>
             )}
           </>
