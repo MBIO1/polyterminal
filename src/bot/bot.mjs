@@ -43,6 +43,7 @@ const BYBIT_PERP_WS = 'wss://stream.bybit.com/v5/public/linear';
 const spotBooks  = {};   // pair → { bids: [[px, qty]], asks: [[px, qty]], ts }
 const perpBooks  = {};   // pair → { bids: [[px, qty]], asks: [[px, qty]], ts }
 const lastSignal = {};   // pair → { ts, buyPx, sellPx }
+const processedSignals = new Set(); // Deduplication set to prevent spam
 
 // Heartbeat counters (reset each minute)
 let hb = resetCounters();
@@ -165,12 +166,18 @@ function evaluate(pair, asset) {
   }
   hb.passed_dedupe_gate++;
 
-  // Fire signal
-  lastSignal[pair] = { ts: now, buyPx: spotAsk.px, sellPx: perpBid.px };
-  hb.posted++;
-  hb.post_attempts++;
+  // Fire signal (with deduplication)
+  const signalKey = `${pair}-${spotAsk.px}-${perpBid.px}`;
+  if (!processedSignals.has(signalKey)) {
+    processedSignals.add(signalKey);
+    // Clear the ID after 60 seconds so it can trade again later
+    setTimeout(() => processedSignals.delete(signalKey), 60000);
+    
+    lastSignal[pair] = { ts: now, buyPx: spotAsk.px, sellPx: perpBid.px };
+    hb.posted++;
+    hb.post_attempts++;
 
-  const payload = {
+    const payload = {
     signal_time:         new Date(now).toISOString(),
     pair,
     asset,
@@ -188,16 +195,19 @@ function evaluate(pair, asset) {
     confirmed_exchanges: 1,
   };
 
-  axios.post(INGEST_URL, payload, {
-    headers: { Authorization: `Bearer ${SECRET}`, 'Content-Type': 'application/json' },
-    timeout: 8000,
-  }).then(res => {
-    if (res.status < 200 || res.status >= 300) hb.post_non_2xx++;
-    else console.log(`✅ Signal posted: ${pair} net=${netEdgeBps.toFixed(2)}bps fill=$${Math.round(fillable)}`);
-  }).catch(e => {
-    hb.post_errors++;
-    console.error(`❌ Signal post failed: ${e.message}`);
-  });
+    axios.post(INGEST_URL, payload, {
+      headers: { Authorization: `Bearer ${SECRET}`, 'Content-Type': 'application/json' },
+      timeout: 8000,
+    }).then(res => {
+      if (res.status < 200 || res.status >= 300) hb.post_non_2xx++;
+      else console.log(`✅ Signal posted: ${pair} net=${netEdgeBps.toFixed(2)}bps fill=$${Math.round(fillable)}`);
+    }).catch(e => {
+      hb.post_errors++;
+      console.error(`❌ Signal post failed: ${e.message}`);
+    });
+  } else {
+    console.log(`⏭️  Duplicate signal skipped: ${signalKey}`);
+  }
 }
 
 // ─── Bybit WebSocket ──────────────────────────────────────────────────────────
