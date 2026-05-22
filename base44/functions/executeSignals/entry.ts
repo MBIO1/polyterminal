@@ -318,12 +318,28 @@ async function executeWithStateMachine(signal, qty, dropletIp, dropletSecret, po
         log('INFO', 'SM', `Backoff ${delay}ms before retry`, { pair: signal.pair });
         await sleep(delay);
       } else {
-        return { state: isTimeout ? 'TIMED_OUT' : 'FAILED', errorCode: errCode, errorMsg, orderSentAt, ackAt: null, fillAt: null, retryCount: attempt };
+        return { state: isTimeout ? 'TIMED_OUT' : 'FAILED', errorCode: errCode, errorMsg: errMsg, orderSentAt, ackAt: null, fillAt: null, retryCount: attempt };
       }
     }
   }
 
   return { state: 'FAILED', errorCode: ERR.EXEC_FAILED, errorMsg: 'all_retries_exhausted', orderSentAt, ackAt: null, fillAt: null, retryCount: RETRY_DELAYS_MS.length };
+}
+
+// ─── Debug: Test droplet connectivity ────────────────────────────────────────
+async function testDropletExecute(dropletIp, dropletSecret, port) {
+  const url = `http://${dropletIp}:${port}/execute`;
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${dropletSecret}` },
+      body: JSON.stringify({ signal_id: 'test', pair: 'BTC-USDT', asset: 'BTC', buy_exchange: 'Bybit-spot', sell_exchange: 'Bybit-perp', buy_price: 50000, sell_price: 50100, net_edge_bps: 20, qty: 0.001 }),
+      signal: AbortSignal.timeout(3000),
+    });
+    return { ok: res.ok, status: res.status, text: await res.text().catch(() => 'N/A') };
+  } catch (e) {
+    return { ok: false, error: e.message };
+  }
 }
 
 // ─── MODULE 3: Latency metric recorder ───────────────────────────────────────
@@ -611,15 +627,21 @@ Deno.serve(async (req) => {
 
       const isLive = !config.paper_trading;
 
+      // DEBUG: Log droplet connectivity
+      log('INFO', 'EXEC', `Preparing ${isLive ? 'LIVE' : 'PAPER'} execution`, { pair: sig.pair, dropletIp, port, url: `http://${dropletIp}:${port}/execute` });
+
       let execOutcome;
       try {
         if (isLive) {
           if (qty * buyPx > MAX_LIVE_NOTIONAL_USD) throw new Error(`hard_notional_cap: $${(qty * buyPx).toFixed(2)} > $${MAX_LIVE_NOTIONAL_USD}`);
+          log('INFO', 'SM', 'Calling executeWithStateMachine', { pair: sig.pair, qty, url: `http://${dropletIp}:${port}/execute` });
           execOutcome = await executeWithStateMachine(sig, qty, dropletIp, dropletSecret, port);
+          log('INFO', 'SM', 'executeWithStateMachine returned', { pair: sig.pair, state: execOutcome.state, error: execOutcome.errorMsg });
         } else {
           execOutcome = paperFill(sig, sizeUsd);
         }
       } catch (e) {
+        log('ERROR', 'EXEC', 'Exception in execution', { pair: sig.pair, error: e.message });
         execOutcome = { state: 'FAILED', errorCode: ERR.EXEC_FAILED, errorMsg: e.message?.slice(0, 120), orderSentAt: Date.now(), ackAt: null, fillAt: null, retryCount: 0 };
       }
 
