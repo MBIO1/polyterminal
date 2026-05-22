@@ -36,10 +36,14 @@ Deno.serve(async (req) => {
 
         if (response.ok) {
           data = await response.json();
+          console.log('Droplet balance raw:', JSON.stringify(data));
           break;
         }
-        lastError = { path, status: response.status, body: await response.text() };
+        const body = await response.text();
+        console.log(`Path ${path} returned status ${response.status}: ${body}`);
+        lastError = { path, status: response.status, body };
       } catch (e) {
+        console.log(`Path ${path} threw: ${e.message}`);
         lastError = { path, error: e.message };
       }
     }
