@@ -1,5 +1,5 @@
 // Serves the v4 WebSocket bot code
-// Run on droplet: curl -s https://polytrade.base44.app/functions/downloadBot -o /root/arb-ws-bot/bot.mjs && pm2 restart arb-bot --update-env
+// Run on droplet: curl -s https://kemdb.base44.app/functions/downloadBot -o /root/arb-ws-bot/bot.mjs && pm2 restart arb-bot --update-env
 
 const BOT_SOURCE = `import 'dotenv/config';
 import { WebsocketClient } from 'bybit-api';
