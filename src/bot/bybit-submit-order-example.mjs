@@ -10,12 +10,13 @@ const client = new RestClientV5({
   testnet: process.env.BYBIT_TESTNET === 'true',
 });
 
-const result = await client.submitOrder({
+const result = await client.placeOrder({
   category: 'spot', // or 'linear' for perp
   symbol: 'BTCUSDT',
   side: 'Buy',
   orderType: 'Market',
   qty: '10',
+  marketUnit: 'quoteCoin',
 });
 
 console.log(result);
