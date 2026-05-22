@@ -12,7 +12,7 @@ export default function ConnectionStatus() {
   });
 
   useEffect(() => {
-    // Check initial connection by recent activity freshness, not mere record existence
+    // Check initial connection by fetching recent records
     const checkInitialConnections = async () => {
       try {
         const [trades, signals, heartbeats] = await Promise.all([
@@ -20,17 +20,11 @@ export default function ConnectionStatus() {
           base44.entities.ArbSignal.list('-created_date', 1),
           base44.entities.ArbHeartbeat.list('-created_date', 1),
         ]);
-
-        const now = Date.now();
-        const getAgeMs = (row, field) => row?.[field] ? now - new Date(row[field]).getTime() : Infinity;
-        const latestTrade = trades[0];
-        const latestSignal = signals[0];
-        const latestHeartbeat = heartbeats[0];
-
+        
         setStatus({
-          trades: latestTrade ? (getAgeMs(latestTrade, 'updated_date') < 24 * 60 * 60 * 1000 ? 'connected' : 'disconnected') : 'connected',
-          signals: latestSignal ? (getAgeMs(latestSignal, 'received_time') < 10 * 60 * 1000 ? 'connected' : 'disconnected') : 'disconnected',
-          heartbeats: latestHeartbeat ? (getAgeMs(latestHeartbeat, 'snapshot_time') < 3 * 60 * 1000 ? 'connected' : 'disconnected') : 'disconnected',
+          trades: trades.length > 0 ? 'connected' : 'disconnected',
+          signals: signals.length > 0 ? 'connected' : 'disconnected',
+          heartbeats: heartbeats.length > 0 ? 'connected' : 'disconnected',
         });
       } catch (error) {
         console.error('Connection check failed:', error);
