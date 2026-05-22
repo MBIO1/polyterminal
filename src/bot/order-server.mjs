@@ -19,6 +19,7 @@ const client = new RestClientV5({
   key:     process.env.BYBIT_API_KEY,
   secret:  process.env.BYBIT_API_SECRET,
   testnet: process.env.BYBIT_TESTNET === 'true',
+  recv_window: 5000,
 });
 
 // Helper functions for order placement
