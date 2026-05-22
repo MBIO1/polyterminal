@@ -23,8 +23,61 @@ if (!INGEST_URL || !TOKEN) {
 const marketState = {};
 const stats = { evaluations: 0, posted: 0, bestEdge: -Infinity, bestPair: '', bestRoute: '' };
 
-const wsSpot = new WebsocketClient({ market: 'v5', testnet: false });
-const wsPerp = new WebsocketClient({ market: 'v5', testnet: false });
+let wsSpot = null;
+let wsPerp = null;
+
+function createWebSocketClients(symbol) {
+  console.log('🔌 Connecting to Bybit V5 WebSockets for ' + symbol + '...');
+
+  const wsConfig = {
+    market: 'v5',
+    testnet: false,
+    pingInterval: 20000,
+    reconnectTimeout: 5000,
+    logger: {
+      debug: (msg) => console.debug('DEBUG:', msg),
+      info: (msg) => console.info('INFO:', msg),
+      warn: (msg) => console.warn('WARN:', msg),
+      error: (msg) => console.error('ERROR:', msg),
+    },
+  };
+
+  wsSpot = new WebsocketClient(wsConfig);
+  wsPerp = new WebsocketClient(wsConfig);
+
+  SYMBOLS.forEach(sym => {
+    console.log('📡 Subscribing to ' + sym + ' orderbooks...');
+    wsSpot.subscribeV5('orderbook.50.' + sym, 'spot');
+    wsPerp.subscribeV5('orderbook.50.' + sym, 'linear');
+  });
+
+  wsSpot.on('update', (data) => {
+    if (data.topic && data.topic.startsWith('orderbook') && data.data) {
+      const parts = data.topic.split('.');
+      const sym = parts[parts.length - 1];
+      if (SYMBOLS.includes(sym)) {
+        updateMarketState(sym, 'spot', data.data);
+        evaluateSignal(sym);
+      }
+    }
+  });
+
+  wsPerp.on('update', (data) => {
+    if (data.topic && data.topic.startsWith('orderbook') && data.data) {
+      const parts = data.topic.split('.');
+      const sym = parts[parts.length - 1];
+      if (SYMBOLS.includes(sym)) {
+        updateMarketState(sym, 'perp', data.data);
+        evaluateSignal(sym);
+      }
+    }
+  });
+
+  wsSpot.on('open', (topic) => console.log('✅ Spot WS connected:', topic));
+  wsPerp.on('open', (topic) => console.log('✅ Perp WS connected:', topic));
+  wsSpot.on('error', (e) => console.error('❌ Spot WS:', e.message));
+  wsPerp.on('error', (e) => console.error('❌ Perp WS:', e.message));
+}
 
 console.log('🚀 Arb Bot v4 (WebSocket) starting');
 console.log('  symbols:', SYMBOLS.join(', '));
@@ -32,38 +85,7 @@ console.log('  min net edge:', MIN_NET_EDGE_BPS, 'bps');
 console.log('  min notional: $' + MIN_NOTIONAL_USD);
 console.log('  fees:', TOTAL_FEE_BPS, 'bps');
 
-SYMBOLS.forEach(symbol => {
-  console.log('📡 Subscribing to ' + symbol + ' orderbooks...');
-  wsSpot.subscribeV5('orderbook.50.' + symbol, 'spot');
-  wsPerp.subscribeV5('orderbook.50.' + symbol, 'linear');
-});
-
-wsSpot.on('update', (data) => {
-  if (data.topic && data.topic.startsWith('orderbook') && data.data) {
-    const parts = data.topic.split('.');
-    const symbol = parts[parts.length - 1];
-    if (SYMBOLS.includes(symbol)) {
-      updateMarketState(symbol, 'spot', data.data);
-      evaluateSignal(symbol);
-    }
-  }
-});
-
-wsPerp.on('update', (data) => {
-  if (data.topic && data.topic.startsWith('orderbook') && data.data) {
-    const parts = data.topic.split('.');
-    const symbol = parts[parts.length - 1];
-    if (SYMBOLS.includes(symbol)) {
-      updateMarketState(symbol, 'perp', data.data);
-      evaluateSignal(symbol);
-    }
-  }
-});
-
-wsSpot.on('open', (topic) => console.log('✅ Spot WS connected:', topic));
-wsPerp.on('open', (topic) => console.log('✅ Perp WS connected:', topic));
-wsSpot.on('error', (e) => console.error('❌ Spot WS:', e.message));
-wsPerp.on('error', (e) => console.error('❌ Perp WS:', e.message));
+createWebSocketClients(SYMBOLS[0]);
 
 function updateMarketState(symbol, marketType, data) {
   if (!marketState[symbol]) {
