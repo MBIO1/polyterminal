@@ -7,12 +7,19 @@ import { toast } from 'sonner';
 export default function BotControls({ config, onUpdated }) {
   const [loading, setLoading] = useState(null); // 'start' | 'stop'
 
-  const isRunning = config == null ? true : config?.bot_running && !config?.kill_switch_active;
+  const isRunning = config == null ? false : config?.bot_running && !config?.kill_switch_active;
 
-  const trigger = async (action) => {
+  const toggle = async (action) => {
+    if (!config?.id) {
+      toast.error('No config loaded');
+      return;
+    }
     setLoading(action);
     try {
-      await base44.functions.invoke('startStopBot', { action });
+      const updates = action === 'start'
+        ? { bot_running: true, kill_switch_active: false }
+        : { bot_running: false };
+      await base44.entities.ArbConfig.update(config.id, updates);
       toast.success(action === 'start' ? 'Bot started' : 'Bot stopped');
       if (onUpdated) onUpdated();
     } catch (e) {
@@ -27,7 +34,7 @@ export default function BotControls({ config, onUpdated }) {
       <Button
         size="sm"
         disabled={!!loading || isRunning || config == null}
-        onClick={() => trigger('start')}
+        onClick={() => toggle('start')}
         className="bg-green-600 hover:bg-green-700 text-white"
       >
         {loading === 'start' ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Play className="w-4 h-4 mr-1" />}
@@ -37,7 +44,7 @@ export default function BotControls({ config, onUpdated }) {
         size="sm"
         variant="destructive"
         disabled={!!loading || !isRunning || config == null}
-        onClick={() => trigger('stop')}
+        onClick={() => toggle('stop')}
       >
         {loading === 'stop' ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Square className="w-4 h-4 mr-1" />}
         Stop Bot

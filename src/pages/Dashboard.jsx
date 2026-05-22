@@ -32,7 +32,7 @@ export default function Dashboard() {
   const [recentTrades, setRecentTrades] = useState([]);
   const [recentSignals, setRecentSignals] = useState([]);
   const [strategyPnl, setStrategyPnl] = useState([]);
-  const [botStatus, setBotStatus] = useState('unknown');
+  const [botStatus, setBotStatus] = useState('stopped');
   const [arbConfig, setArbConfig] = useState(null);
 
 
@@ -83,9 +83,12 @@ export default function Dashboard() {
         ? (winningTrades.length / closedTradesWithPnl.length) * 100
         : 0;
 
-      setBotStatus('unknown');
+      const cfg = configs?.[0] || null;
+      setArbConfig(cfg);
       setStrategyPnl(trades);
-      setArbConfig(configs?.[0] || null);
+      if (cfg?.kill_switch_active) setBotStatus('killswitch');
+      else if (cfg?.bot_running) setBotStatus('running');
+      else setBotStatus('stopped');
 
 
       setStats({
@@ -110,13 +113,13 @@ export default function Dashboard() {
         </div>
         <div className="flex items-center gap-3 flex-wrap">
           <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border text-sm font-medium ${
-            botStatus === 'ok' ? 'bg-green-500/10 border-green-500/30 text-green-400'
-            : botStatus === 'alert' ? 'bg-red-500/10 border-red-500/30 text-red-400'
+            botStatus === 'running' ? 'bg-green-500/10 border-green-500/30 text-green-400'
+            : botStatus === 'killswitch' ? 'bg-red-500/10 border-red-500/30 text-red-400'
             : 'bg-muted border-border text-muted-foreground'
           }`}>
             <Cpu className="w-4 h-4" />
-            <span className={`w-2 h-2 rounded-full ${botStatus === 'ok' ? 'bg-green-400 animate-pulse' : botStatus === 'alert' ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
-            {botStatus === 'ok' ? 'Bot Healthy' : botStatus === 'alert' ? 'Bot Critical' : 'Unknown'}
+            <span className={`w-2 h-2 rounded-full ${botStatus === 'running' ? 'bg-green-400 animate-pulse' : botStatus === 'killswitch' ? 'bg-red-500 animate-pulse' : 'bg-gray-500'}`} />
+            {botStatus === 'running' ? 'Bot Running' : botStatus === 'killswitch' ? 'Kill Switch' : 'Bot Stopped'}
           </div>
           <BotControls config={arbConfig} onUpdated={loadDashboardData} />
           <Button onClick={loadDashboardData} variant="outline" size="sm">

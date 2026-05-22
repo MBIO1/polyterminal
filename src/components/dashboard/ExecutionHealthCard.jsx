@@ -11,6 +11,7 @@ const REJECTION_CLASSES = {
   ],
   EXECUTION_FAILURE: [
     'droplet_http_500', 'droplet_http_400', 'exec_error', 'droplet_exec_failed',
+    'http_500', 'http_400', 'exec_failed', 'TIMED_OUT',
   ],
   EXCHANGE_RULE: [
     'qty_below_min', 'min_notional', 'step_size', 'Insufficient balance',
@@ -142,7 +143,7 @@ export default function ExecutionHealthCard() {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <MetricTile label="Exec Success" value={`${data.execSuccessRate}%`} sub={`${data.executed} executed`} color="text-green-400" />
           <MetricTile label="Healthy Filters" value={data.healthyFilter} sub="Expected rejections" color="text-blue-400" />
-          <MetricTile label="Exec Failures" value={data.execFailure} sub="Droplet/network errors" color={data.execFailure > 0 ? 'text-red-400' : 'text-muted-foreground'} />
+          <MetricTile label="Exec Failures" value={data.execFailure} sub="Network/exec errors" color={data.execFailure > 0 ? 'text-red-400' : 'text-muted-foreground'} />
           <MetricTile label="Exchange Rules" value={data.exchangeRule} sub="Min size / balance" color={data.exchangeRule > 0 ? 'text-yellow-400' : 'text-muted-foreground'} />
         </div>
 
