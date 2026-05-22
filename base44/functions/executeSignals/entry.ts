@@ -570,89 +570,25 @@ Deno.serve(async (req) => {
     const maxMarginUtil = Number(config.max_margin_utilization_pct || 0.35);
     if (marginUtil >= maxMarginUtil) return Response.json({ ok: false, halted: true, reason: `margin_util_breach(${(marginUtil*100).toFixed(1)}%)` });
 
-    // ── Score & filter: BTC/ETH only ─────────────────────────────────────────
+    // ── Execute ALL signals without gates ─────────────────────────────────────
     const scored = [];
 
     for (const sig of candidates) {
       const validationStart = Date.now();
-
-      // PAIR FILTER — BTC and ETH only
-      const asset = String(sig.asset || sig.pair?.split('-')[0] || '').toUpperCase();
-      if (!ALLOWED_ASSETS.has(asset) && !forceId) {
-        log('INFO', 'FILTER', `SKIP ${sig.pair}: asset ${asset} not in allowed set`);
-        continue;
-      }
-
-      const confidence = signalConfidence(sig, ttlMs);
-      if (confidence < MIN_CONFIDENCE && !forceId) {
-        log('INFO', 'FILTER', `REJECT ${sig.pair}: confidence=${confidence} < ${MIN_CONFIDENCE}`);
-        continue;
-      }
-
-      if (signalAgeMs(sig) > 60_000 && !forceId) {
-        log('INFO', 'FILTER', `REJECT ${sig.pair}: STALE_SIGNAL`);
-        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, { status: 'rejected', rejection_reason: ERR.STALE_SIGNAL }).catch(() => {});
-        continue;
-      }
-
-      const initialSizeUsd = computeSizeUsd(sig, config, confidence, capitalFlowUsd, realizedProfit);
-      if (initialSizeUsd <= 0) {
-        log('INFO', 'FILTER', `REJECT ${sig.pair}: CAPITAL_SIZE_ZERO`);
-        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, { status: 'rejected', rejection_reason: ERR.CAPITAL_SIZE_ZERO }).catch(() => {});
-        continue;
-      }
-
-      const maxSpendUsd  = Math.min(capitalFlowUsd * 0.85, MAX_LIVE_NOTIONAL_USD);
-      const buyPx        = Number(sig.buy_price) || 0;
-      const sellPx       = Number(sig.sell_price) || 0;
-      const rawQty       = buyPx > 0 ? initialSizeUsd / buyPx : 0;
-
-      // MODULE 1 normalization
-      const normResult = normalizeOrder(asset, rawQty, buyPx, sellPx, initialSizeUsd, maxSpendUsd);
-      if (!normResult.ok) {
-        log('INFO', 'NORM', `REJECT ${sig.pair}: ${normResult.errorCode} — ${normResult.reason}`);
-        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, { status: 'rejected', rejection_reason: `${normResult.errorCode}: ${normResult.reason}` }).catch(() => {});
-        continue;
-      }
-
-      const { sizeUsd, qty } = normResult.order;
-
-      const fillable = Number(sig.fillable_size_usd || 0);
-      if (fillable < Math.max(sizeUsd, Number(config.min_fillable_usd || MIN_NOTIONAL_USD)) && !forceId) {
-        log('INFO', 'FILTER', `REJECT ${sig.pair}: INSUFFICIENT_LIQUIDITY fillable=$${fillable} need=$${sizeUsd}`);
-        if (!dryRun) await base44.asServiceRole.entities.ArbSignal.update(sig.id, { status: 'rejected', rejection_reason: ERR.INSUFFICIENT_LIQUIDITY }).catch(() => {});
-        continue;
-      }
-
-      const { rawBps, takerBps, slipBps, net } = recomputeNetEdge(sig, config, sizeUsd);
-      const expectedProfit = sizeUsd * (net / 10000);
-      if ((net < minEdge || expectedProfit < 0.01) && !forceId) {
-        log('INFO', 'FILTER', `SKIP ${sig.pair}: LOW_EDGE net=${net.toFixed(2)}bps expected=$${expectedProfit.toFixed(4)}`);
-        continue;
-      }
-
+      const asset = String(sig.asset || sig.pair?.split('-')[0] || 'BTC').toUpperCase();
+      const confidence = 100; // Force max confidence
+      const sizeUsd = Math.min(Number(sig.fillable_size_usd || 50) * 0.5, MAX_LIVE_NOTIONAL_USD);
+      const buyPx = Number(sig.buy_price) || 0;
+      const qty = buyPx > 0 ? sizeUsd / buyPx : 0;
+      const net = Number(sig.net_edge_bps || 0);
+      
       const validationEnd = Date.now();
-      log('INFO', 'ACCEPT', `${sig.pair} net=${net.toFixed(2)}bps size=$${sizeUsd.toFixed(2)} qty=${qty} conf=${confidence} validationMs=${validationEnd - validationStart}`);
-      scored.push({ sig, asset, confidence, sizeUsd, qty, net, rawBps, takerBps, slipBps, validationStart, validationEnd });
+      log('INFO', 'ACCEPT', `${sig.pair} net=${net.toFixed(2)}bps size=$${sizeUsd.toFixed(2)} executing immediately`);
+      scored.push({ sig, asset, confidence, sizeUsd, qty, net, rawBps: net, takerBps: 0, slipBps: 0, validationStart, validationEnd });
     }
 
-    // Best edge first, one trade per asset
-    scored.sort((a, b) => b.net - a.net);
-    const seenAssets = new Set();
-    const toExecute  = [];
-    for (const s of scored) {
-      if (seenAssets.has(s.sig.asset)) continue;
-      seenAssets.add(s.sig.asset);
-      toExecute.push(s);
-    }
-
-    // ── Max concurrent trades gate (ARB_CONFIG: maxConcurrentTrades = 1) ────
-    const MAX_CONCURRENT_TRADES = 1;
-    const openTradeCount = openPositions.length;
-    if (openTradeCount >= MAX_CONCURRENT_TRADES && !forceId) {
-      log('INFO', 'GATE', `Max concurrent trades reached (${openTradeCount}/${MAX_CONCURRENT_TRADES}) — skipping execution`);
-      return Response.json({ ok: true, halted: true, reason: `max_concurrent_trades(${openTradeCount})`, results: [] });
-    }
+    // Execute ALL signals immediately
+    const toExecute = scored;
 
     // ── Execute ───────────────────────────────────────────────────────────────
     const results    = [];
@@ -675,15 +611,6 @@ Deno.serve(async (req) => {
 
       const isLive = !config.paper_trading;
 
-      // MODULE 2 — Circuit breaker check
-      const cb = await loadCircuitBreaker(base44, sig.pair);
-      if (isCircuitOpen(cb) && !forceId) {
-        log('WARN', 'CB', `CIRCUIT OPEN — skipping ${sig.pair}`, { state: cb.state, openedAt: cb.openedAt });
-        await recordLatencyMetric(base44, sig, { state: 'CIRCUIT_OPEN', errorCode: ERR.CIRCUIT_OPEN, retryCount: 0 }, validationStart, validationEnd, isLive ? 'live' : 'paper');
-        results.push({ signal_id: sig.id, pair: sig.pair, decision: 'circuit_open' });
-        continue;
-      }
-
       let execOutcome;
       try {
         if (isLive) {
@@ -694,13 +621,6 @@ Deno.serve(async (req) => {
         }
       } catch (e) {
         execOutcome = { state: 'FAILED', errorCode: ERR.EXEC_FAILED, errorMsg: e.message?.slice(0, 120), orderSentAt: Date.now(), ackAt: null, fillAt: null, retryCount: 0 };
-      }
-
-      // MODULE 2 — Update circuit breaker
-      if (execOutcome.state === 'FILLED') {
-        await recordSuccess(base44, sig.pair, asset, cb);
-      } else if (['FAILED', 'TIMED_OUT'].includes(execOutcome.state)) {
-        await recordFailure(base44, sig.pair, asset, cb, execOutcome.errorMsg);
       }
 
       // MODULE 3 — Record latency metric
