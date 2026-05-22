@@ -44,16 +44,17 @@ export default function LiveSignalsFeed() {
 
   const loadSignals = async () => {
     try {
-      const recentSignals = await base44.entities.ArbSignal.list('-received_time', 50);
+      // Fetch most recent signals (use created_date since that's when they arrive)
+      const recentSignals = await base44.entities.ArbSignal.list('-created_date', 100);
       
       // Filter to last 30 minutes
       const now = Date.now();
       const filtered = recentSignals.filter(s => {
-        const age = now - new Date(s.received_time || s.created_date).getTime();
+        const age = now - new Date(s.created_date).getTime();
         return age < 30 * 60 * 1000;
       });
 
-      setSignals(filtered.slice(0, 20));
+      setSignals(filtered.slice(0, 30));
 
       // Calculate stats
       const executed = filtered.filter(s => s.status === 'executed');
@@ -98,6 +99,11 @@ export default function LiveSignalsFeed() {
     if (age < 60) return `${age}s`;
     if (age < 3600) return `${Math.floor(age / 60)}m`;
     return `${Math.floor(age / 3600)}h`;
+  };
+
+  const getStatusLabel = (signal) => {
+    if (signal.status === 'detected') return 'POSTED';
+    return signal.status.toUpperCase();
   };
 
   return (
@@ -207,7 +213,7 @@ export default function LiveSignalsFeed() {
                       <span className="font-mono">{age}</span>
                     </div>
                     <Badge variant="outline" className={`text-[10px] h-4 mt-1 ${colorClass}`}>
-                      {signal.status.toUpperCase()}
+                      {getStatusLabel(signal)}
                     </Badge>
                   </div>
                 </div>
