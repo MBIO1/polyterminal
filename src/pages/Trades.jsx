@@ -20,6 +20,14 @@ export default function Trades() {
 
   useEffect(() => {
     loadTrades();
+    
+    // Subscribe to real-time trade updates
+    const unsubscribe = base44.entities.ArbTrade.subscribe((event) => {
+      console.log('Trade update:', event.type, event.data);
+      loadTrades(); // Reload all trades on any change
+    });
+    
+    return () => unsubscribe();
   }, []);
 
   const loadTrades = async () => {

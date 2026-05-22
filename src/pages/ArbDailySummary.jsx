@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { base44 } from '@/api/base44Client';
 import Section from '@/components/arb/Section';
@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Download } from 'lucide-react';
 
 export default function ArbDailySummary() {
-  const { data: trades = [], isLoading } = useQuery({
+  const { data: trades = [], isLoading, refetch } = useQuery({
     queryKey: ['arb-trades-summary'],
     queryFn: () => base44.entities.ArbTrade.list('-trade_date', 1000),
   });
@@ -17,6 +17,13 @@ export default function ArbDailySummary() {
     queryKey: ['arb-transfers-summary'],
     queryFn: () => base44.entities.ArbTransfer.list('-transfer_date', 1000),
   });
+
+  // Subscribe to real-time updates
+  React.useEffect(() => {
+    const unsubTrade = base44.entities.ArbTrade.subscribe(() => refetch());
+    const unsubTransfer = base44.entities.ArbTransfer.subscribe(() => refetch());
+    return () => { unsubTrade(); unsubTransfer(); };
+  }, [refetch]);
 
   // Aggregate by date
   const byDate = {};

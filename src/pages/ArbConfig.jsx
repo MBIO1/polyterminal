@@ -72,10 +72,16 @@ const GROUPS = [
 
 export default function ArbConfig() {
   const qc = useQueryClient();
-  const { data: config, isLoading } = useQuery({
+  const { data: config, isLoading, refetch } = useQuery({
     queryKey: ['arb-config'],
     queryFn: async () => (await base44.entities.ArbConfig.list('-created_date', 1))[0],
   });
+
+  // Subscribe to config changes
+  React.useEffect(() => {
+    const unsub = base44.entities.ArbConfig.subscribe(() => refetch());
+    return () => unsub();
+  }, [refetch]);
 
   const [f, setF] = useState({});
   useEffect(() => { if (config) setF(config); }, [config]);

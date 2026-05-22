@@ -20,6 +20,7 @@ import BybitBalanceWidget from '@/components/dashboard/BybitBalanceWidget';
 import SignalAcceptanceChart from '@/components/dashboard/SignalAcceptanceChart';
 import ExecutionHealthCard from '@/components/dashboard/ExecutionHealthCard';
 import LiveMarketChart from '@/components/dashboard/LiveMarketChart';
+import ConnectionStatus from '@/components/dashboard/ConnectionStatus';
 
 export default function Dashboard() {
   const [stats, setStats] = useState({
@@ -38,6 +39,28 @@ export default function Dashboard() {
 
   useEffect(() => {
     loadDashboardData();
+    
+    // Subscribe to real-time updates for trades and signals
+    const unsubscribeTrades = base44.entities.ArbTrade.subscribe((event) => {
+      console.log('Trade update:', event.type);
+      loadDashboardData();
+    });
+    
+    const unsubscribeSignals = base44.entities.ArbSignal.subscribe((event) => {
+      console.log('Signal update:', event.type);
+      loadDashboardData();
+    });
+    
+    const unsubscribeConfig = base44.entities.ArbConfig.subscribe((event) => {
+      console.log('Config update:', event.type);
+      loadDashboardData();
+    });
+    
+    return () => {
+      unsubscribeTrades();
+      unsubscribeSignals();
+      unsubscribeConfig();
+    };
   }, []);
 
   const loadDashboardData = async () => {
@@ -131,8 +154,11 @@ export default function Dashboard() {
       {/* Live Market Chart — Bybit BTC/ETH prices + spread + signals */}
       <LiveMarketChart activeTrades={strategyPnl.filter(t => t.status === 'Open')} />
 
-      {/* Drawdown Gauge + Balance */}
+      {/* Connection Status Widget + Drawdown + Balance */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="md:col-span-1">
+          <ConnectionStatus />
+        </div>
         <DrawdownGauge trades={strategyPnl} config={arbConfig} />
         <BybitBalanceWidget />
 

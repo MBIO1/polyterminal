@@ -121,7 +121,22 @@ export default function SignalAudit() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { 
+    load();
+    
+    // Subscribe to heartbeat and signal updates for real-time audit data
+    const unsubHeartbeat = base44.entities.ArbHeartbeat.subscribe(() => {
+      console.log('Heartbeat update - reloading audit');
+      load();
+    });
+    
+    const unsubSignal = base44.entities.ArbSignal.subscribe(() => {
+      console.log('Signal update - reloading audit');
+      load();
+    });
+    
+    return () => { unsubHeartbeat(); unsubSignal(); };
+  }, []);
 
   const applyThreshold = async (pair, newBps) => {
     if (!config?.id) return;

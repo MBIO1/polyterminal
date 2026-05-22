@@ -20,7 +20,17 @@ export default function Signals() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({ total: 0, executed: 0, rejected: 0, avgEdge: 0 });
 
-  useEffect(() => { loadSignals(); }, []);
+  useEffect(() => { 
+    loadSignals();
+    
+    // Subscribe to real-time signal updates
+    const unsubscribe = base44.entities.ArbSignal.subscribe((event) => {
+      console.log('Signal update:', event.type, event.data);
+      loadSignals(); // Reload all signals on any change
+    });
+    
+    return () => unsubscribe();
+  }, []);
 
   const loadSignals = async () => {
     try {
