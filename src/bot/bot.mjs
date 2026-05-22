@@ -24,7 +24,7 @@ dotenv.config();
 const INGEST_URL        = process.env.BASE44_INGEST_URL;
 const HEARTBEAT_URL     = process.env.BASE44_HEARTBEAT_URL;
 const SECRET            = process.env.BOT_SECRET;
-const MIN_EDGE_BPS      = Number(process.env.MIN_EDGE_BPS) || 3;
+const MIN_EDGE_BPS      = Number(process.env.MIN_EDGE_BPS) || 0.5;
 const TAKER_FEE_PER_LEG = Number(process.env.TAKER_FEE_BPS_PER_LEG) || 2; // bps
 const TOTAL_FEE_BPS     = TAKER_FEE_PER_LEG * 2; // 2 legs
 const DEDUPE_MS         = 10_000;
