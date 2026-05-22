@@ -27,8 +27,8 @@ const CB_SUCCESS_TO_CLOSE    = 2;        // consecutive successes to close
 // Retry config: 2 attempts with [500ms, 1200ms] backoff (execution.retry)
 const RETRY_DELAYS_MS        = [500, 1200]; // attempts 1,2
 
-// ── RESTRICTED TO BTC and ETH only until bot proves productive ───────────────
-const ALLOWED_ASSETS = new Set(['BTC', 'ETH']);
+// ── Allowed assets for execution ─────────────────────────────────────────────
+const ALLOWED_ASSETS = new Set(['BTC', 'ETH', 'SOL', 'BNB']);
 
 // MODULE 1 — Production-grade exchange normalization specs
 // tickSize for price rounding; qtyStep + minQty + minNotionalUsd for order sizing
@@ -48,6 +48,22 @@ const EXCHANGE_SPECS = {
     minNotionalUsd: 1,
     pricePrecision: 2,
     qtyPrecision:  4,
+  },
+  SOL: {
+    tickSize:      0.01,
+    qtyStep:       0.01,
+    minQty:        0.01,
+    minNotionalUsd: 1,
+    pricePrecision: 2,
+    qtyPrecision:  2,
+  },
+  BNB: {
+    tickSize:      0.01,
+    qtyStep:       0.001,
+    minQty:        0.001,
+    minNotionalUsd: 1,
+    pricePrecision: 2,
+    qtyPrecision:  3,
   },
 };
 
