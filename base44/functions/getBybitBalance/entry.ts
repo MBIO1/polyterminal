@@ -23,13 +23,15 @@ Deno.serve(async (req) => {
     }
 
     // Try both known balance paths — deployed version may differ from repo
-    const paths = ['/api/balance', '/balance'];
+    const paths = ['/balance', '/api/balance'];
     let data = null;
     let lastError = null;
 
     for (const path of paths) {
       try {
-        const response = await fetch(`http://${dropletIp}:${orderServerPort}${path}`, {
+        const url = `http://${dropletIp}:${orderServerPort}${path}`;
+        console.log(`Trying ${url}...`);
+        const response = await fetch(url, {
           method: 'GET',
           headers: {
             'X-Droplet-Secret': dropletSecret,
@@ -39,14 +41,27 @@ Deno.serve(async (req) => {
           signal: AbortSignal.timeout(8000),
         });
 
-        if (response.ok) {
-          data = await response.json();
-          console.log('Droplet balance raw:', JSON.stringify(data));
-          break;
-        }
         const body = await response.text();
-        console.log(`Path ${path} returned status ${response.status}: ${body}`);
-        lastError = { path, status: response.status, body };
+        console.log(`Path ${path} returned ${response.status}: ${body}`);
+
+        if (response.ok) {
+          try {
+            data = JSON.parse(body);
+            // Skip if this is the health check response
+            if (data.status === 'online' && !data.totalEquity) {
+              console.log('Got health check instead of balance, continuing...');
+              lastError = { path, status: response.status, body, note: 'health check response' };
+              continue;
+            }
+            console.log('Droplet balance raw:', JSON.stringify(data));
+            break;
+          } catch (parseErr) {
+            console.log(`Failed to parse JSON: ${parseErr.message}`);
+            lastError = { path, error: 'JSON parse failed', body };
+          }
+        } else {
+          lastError = { path, status: response.status, body };
+        }
       } catch (e) {
         console.log(`Path ${path} threw: ${e.message}`);
         lastError = { path, error: e.message };
