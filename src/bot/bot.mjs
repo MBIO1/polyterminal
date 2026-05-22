@@ -25,11 +25,11 @@ const INGEST_URL        = process.env.BASE44_INGEST_URL;
 const HEARTBEAT_URL     = process.env.BASE44_HEARTBEAT_URL;
 const SECRET            = process.env.BOT_SECRET;
 const MIN_EDGE_BPS      = Number(process.env.MIN_EDGE_BPS) || 0.5;
-const TAKER_FEE_PER_LEG = Number(process.env.TAKER_FEE_BPS_PER_LEG) || 2; // bps
+const TAKER_FEE_PER_LEG = Number(process.env.TAKER_FEE_BPS_PER_LEG) || 1; // bps
 const TOTAL_FEE_BPS     = TAKER_FEE_PER_LEG * 2; // 2 legs
 const DEDUPE_MS         = 10_000;
-const MAX_SIGNAL_AGE_MS = 500;   // reject stale signals
-const MIN_FILLABLE_USD  = 500;
+const MAX_SIGNAL_AGE_MS = 1000;   // reject stale signals (increased to 1s)
+const MIN_FILLABLE_USD  = 50;    // lowered from $500 to $50
 const PAIRS = [
   { symbol: 'BTC-USDT', asset: 'BTC' },
   { symbol: 'ETH-USDT', asset: 'ETH' },

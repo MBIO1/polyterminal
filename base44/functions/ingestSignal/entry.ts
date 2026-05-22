@@ -148,9 +148,9 @@ Deno.serve(async (req) => {
       }
     }
 
-    // Reject signals below minimum edge floor
+    // Reject signals below minimum edge floor (lowered to 0.5 bps for testing)
     const netEdge = Number(body.net_edge_bps);
-    if (netEdge < 2) {
+    if (netEdge < 0.5) {
       return Response.json({ ok: true, rejected: true, reason: 'profit_floor' });
     }
 
@@ -191,10 +191,10 @@ Deno.serve(async (req) => {
       await pushTelegramAlert({ ...body, ...signal }, 'full');
     }
 
-    // Slack alert on any tradeable signal (net edge >= 5 bps)
+    // Slack alert on any tradeable signal (net edge >= 0.5 bps - lowered for testing)
     // Post directly to Slack webhook — avoids 403 from asServiceRole.functions.invoke
     // which fails when SDK client was initialized from a stripped-header droplet request.
-    if (netEdge >= 2) {
+    if (netEdge >= 0.5) {
       const slackUrl = Deno.env.get('SLACK_WEBHOOK_URL');
       if (slackUrl) {
         const sevLabel = netEdge >= 25 ? 'High' : netEdge >= 10 ? 'Medium' : 'Low';
@@ -224,7 +224,7 @@ Deno.serve(async (req) => {
     // SDK client was initialized from a stripped-header request (droplet calls),
     // which causes a 403 "app is private" error on function invokes.
     // Instead, we use the BASE44_USER_TOKEN to make a direct authenticated call.
-    if (netEdge >= 2) {
+    if (netEdge >= 0.5) {
       const userToken = Deno.env.get('BASE44_USER_TOKEN');
       const botSecret = Deno.env.get('BOT_SECRET') || Deno.env.get('DROPLET_SECRET') || '';
       const execUrl = Deno.env.get('BASE44_EXECUTE_URL') || `${Deno.env.get('BASE44_APP_URL')?.replace(/\/$/, '')}/api/functions/executeSignals`;
