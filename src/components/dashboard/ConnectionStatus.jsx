@@ -12,7 +12,28 @@ export default function ConnectionStatus() {
   });
 
   useEffect(() => {
-    // Test connections by subscribing to each entity
+    // Check initial connection by fetching recent records
+    const checkInitialConnections = async () => {
+      try {
+        const [trades, signals, heartbeats] = await Promise.all([
+          base44.entities.ArbTrade.list('-created_date', 1),
+          base44.entities.ArbSignal.list('-created_date', 1),
+          base44.entities.ArbHeartbeat.list('-created_date', 1),
+        ]);
+        
+        setStatus({
+          trades: trades.length > 0 ? 'connected' : 'disconnected',
+          signals: signals.length > 0 ? 'connected' : 'disconnected',
+          heartbeats: heartbeats.length > 0 ? 'connected' : 'disconnected',
+        });
+      } catch (error) {
+        console.error('Connection check failed:', error);
+      }
+    };
+
+    checkInitialConnections();
+
+    // Subscribe to each entity for real-time updates
     const unsubTrades = base44.entities.ArbTrade.subscribe(() => {
       setStatus(prev => ({ ...prev, trades: 'connected' }));
     });
@@ -24,15 +45,6 @@ export default function ConnectionStatus() {
     const unsubHeartbeats = base44.entities.ArbHeartbeat.subscribe(() => {
       setStatus(prev => ({ ...prev, heartbeats: 'connected' }));
     });
-
-    // Set connected after successful subscription
-    setTimeout(() => {
-      setStatus(prev => ({
-        trades: prev.trades === 'disconnected' ? 'connected' : prev.trades,
-        signals: prev.signals === 'disconnected' ? 'connected' : prev.signals,
-        heartbeats: prev.heartbeats === 'disconnected' ? 'connected' : prev.heartbeats,
-      }));
-    }, 1000);
 
     return () => {
       unsubTrades();

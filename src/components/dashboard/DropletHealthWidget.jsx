@@ -44,6 +44,17 @@ export default function DropletHealthWidget() {
       setLastCheck(new Date());
     } catch (error) {
       console.error('Health check failed:', error);
+      // Show degraded status on error instead of empty
+      setHealth({
+        overall_status: 'degraded',
+        checks: {
+          tokenauth: { status: 'unknown', details: 'Health monitor unreachable' },
+          websocket: { status: 'unknown', details: 'Check droplet connectivity' },
+        },
+        alerts: [{ severity: 'medium', message: 'Health check failed - Cloudflare protection or network issue' }],
+        recommendations: [{ action: 'Verify droplet can reach Base44 endpoints' }],
+        metrics: { rejection_breakdown: {}, gateway_performance: {} }
+      });
     } finally {
       setLoading(false);
     }
