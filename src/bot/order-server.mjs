@@ -27,14 +27,19 @@ async function placeMarketOrder(client, asset, exchange, side, qty, price) {
   const symbol = asset.replace('-USDT', '') + 'USDT';
   
   try {
-    const result = await client.placeOrder({
+    const orderParams = {
       category,
       symbol,
       side,
       orderType: 'Market',
       qty: qty.toString(),
-      marketUnit: 'USDT',
-    });
+    };
+
+    if (side === 'Buy') {
+      orderParams.marketUnit = 'quoteCoin';
+    }
+
+    const result = await client.placeOrder(orderParams);
     
     if (result.retCode !== 0) {
       throw new Error(`${category} ${side}: ${result.retMsg}`);
@@ -113,17 +118,18 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(body);
       const { signal_id, pair, asset, buy_exchange, sell_exchange, buy_price, sell_price, qty } = payload;
       
+      // Determine order sides
+      const buyIsPerp = /perp|swap|futures/i.test(buy_exchange);
+      const sellIsPerp = /perp|swap|futures/i.test(sell_exchange);
+
       console.log(`\n[EXEC] ========== EXECUTION REQUEST ==========`);
       console.log(`[EXEC] Signal: ${signal_id} | Pair: ${pair} | Asset: ${asset}`);
       console.log(`[EXEC] Qty: ${qty} | Buy: ${buy_exchange}@${buy_price} | Sell: ${sell_exchange}@${sell_price}`);
       console.log(`[EXEC] Strategy: buyIsPerp=${buyIsPerp} sellIsPerp=${sellIsPerp}`);
       
-      // Determine order sides
-      const buyIsPerp = /perp|swap|futures/i.test(buy_exchange);
-      const sellIsPerp = /perp|swap|futures/i.test(sell_exchange);
-      
       // Execute both legs based on strategy type
       let spotResult = null, perpResult = null;
+      let spotOk = false, perpOk = false;
       
       if (buyIsPerp && sellIsPerp) {
         // Perp/Perp cross-venue

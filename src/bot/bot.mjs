@@ -272,7 +272,7 @@ function buildBybitWs(url, topics, bookStore, label) {
 
 // ─── Connect WebSockets ───────────────────────────────────────────────────────
 buildBybitWs(BYBIT_SPOT_WS, PAIRS.map(p => `orderbook.50.${p.symbol.replace('-', '')}`), spotBooks, 'Bybit-SPOT');
-buildBybitWs(BYBIT_PERP_WS, PAIRS.map(p => `orderbook.50.${p.symbol.replace('-', '')}USDT`.replace('USDTUSDT','USDT')), perpBooks, 'Bybit-PERP');
+buildBybitWs(BYBIT_PERP_WS, PAIRS.map(p => `orderbook.50.${p.symbol.replace('-', '')}`), perpBooks, 'Bybit-PERP');
 
 // ─── Heartbeat (every 60s) ────────────────────────────────────────────────────
 setInterval(() => {
