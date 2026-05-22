@@ -1,7 +1,7 @@
 /**
  * MBIO Arb WS Bot — Production
  * 
- * Monitors OKX spot vs OKX perp orderbooks via WebSocket for BTC, ETH, SOL.
+ * Monitors Bybit spot vs Bybit perp orderbooks via WebSocket for BTC, ETH, SOL.
  * Posts qualified signals to Base44 ingestSignal endpoint.
  * Sends minute-level heartbeats to Base44 ingestHeartbeat endpoint.
  *
@@ -9,9 +9,6 @@
  *   BASE44_INGEST_URL      — full URL to /functions/ingestSignal
  *   BASE44_HEARTBEAT_URL   — full URL to /functions/ingestHeartbeat
  *   BOT_SECRET             — shared secret (Authorization: Bearer <BOT_SECRET>)
- *   OKX_API_KEY            — OKX API key (optional for public books)
- *   OKX_API_SECRET         — OKX API secret (optional)
- *   OKX_PASSPHRASE         — OKX passphrase (optional)
  *   MIN_EDGE_BPS           — minimum net edge to fire a signal (default: 3)
  *   TAKER_FEE_BPS_PER_LEG  — assumed taker fee per leg in bps (default: 2)
  *
@@ -39,9 +36,9 @@ const PAIRS = [
   { symbol: 'SOL-USDT', asset: 'SOL' },
 ];
 
-// OKX WebSocket URLs
-const OKX_SPOT_WS  = 'wss://ws.okx.com:8443/ws/v5/public';
-const OKX_PERP_WS  = 'wss://ws.okx.com:8443/ws/v5/public';
+// Bybit WebSocket URLs
+const BYBIT_SPOT_WS = 'wss://stream.bybit.com/v5/public/spot';
+const BYBIT_PERP_WS = 'wss://stream.bybit.com/v5/public/linear';
 
 // ─── State ────────────────────────────────────────────────────────────────────
 const spotBooks  = {};   // pair → { bids: [[px, qty]], asks: [[px, qty]], ts }
@@ -138,7 +135,7 @@ function evaluate(pair, asset) {
   if (netEdgeBps > hb.best_edge_bps) {
     hb.best_edge_bps   = netEdgeBps;
     hb.best_edge_pair  = pair;
-    hb.best_edge_route = `OKX-spot→OKX-perp`;
+    hb.best_edge_route = `Bybit-spot→Bybit-perp`;
   }
 
   if (netEdgeBps < MIN_EDGE_BPS) { hb.rejected_edge++; return; }
@@ -178,8 +175,8 @@ function evaluate(pair, asset) {
     signal_time:         new Date(now).toISOString(),
     pair,
     asset,
-    buy_exchange:        'OKX-spot',
-    sell_exchange:       'OKX-perp',
+    buy_exchange:        'Bybit-spot',
+    sell_exchange:       'Bybit-perp',
     buy_price:           spotAsk.px,
     sell_price:          perpBid.px,
     raw_spread_bps:      rawSpreadBps,
@@ -204,8 +201,8 @@ function evaluate(pair, asset) {
   });
 }
 
-// ─── OKX WebSocket ────────────────────────────────────────────────────────────
-function buildOkxWs(url, subscriptions, bookStore, label) {
+// ─── Bybit WebSocket ──────────────────────────────────────────────────────────
+function buildBybitWs(url, topics, bookStore, label) {
   let ws;
   let pingInterval;
   let reconnectTimer;
@@ -216,37 +213,36 @@ function buildOkxWs(url, subscriptions, bookStore, label) {
 
     ws.on('open', () => {
       console.log(`[${label}] Connected`);
-      ws.send(JSON.stringify({ op: 'subscribe', args: subscriptions }));
+      ws.send(JSON.stringify({ op: 'subscribe', args: topics }));
       pingInterval = setInterval(() => {
-        if (ws.readyState === WebSocket.OPEN) ws.send('ping');
+        if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ op: 'ping' }));
       }, 20000);
     });
 
     ws.on('message', (raw) => {
-      const msg = raw.toString();
-      if (msg === 'pong') return;
       let data;
-      try { data = JSON.parse(msg); } catch { return; }
-      if (!data.data || !data.arg) return;
+      try { data = JSON.parse(raw.toString()); } catch { return; }
+      if (data.op === 'pong' || data.op === 'subscribe') return;
+      if (!data.data || !data.topic) return;
 
-      const instId = data.arg.instId;
-      // Map OKX instId (e.g. BTC-USDT or BTC-USDT-SWAP) → our pair key (BTC-USDT)
-      const pairKey = instId.replace('-SWAP', '');
+      // Bybit topic: "orderbook.50.BTCUSDT" → map to "BTC-USDT"
+      const rawSymbol = data.topic.split('.')[2]; // e.g. BTCUSDT
+      const meta = PAIRS.find(p => p.symbol.replace('-', '') === rawSymbol);
+      if (!meta) return;
 
-      const book = data.data[0];
-      if (!book) return;
+      const book = data.data;
+      if (data.type === 'snapshot') {
+        bookStore[meta.symbol] = { bids: book.b || [], asks: book.a || [], ts: Date.now() };
+      } else if (data.type === 'delta') {
+        const existing = bookStore[meta.symbol];
+        if (!existing) return;
+        // Simple delta: replace top levels (sufficient for arb detection)
+        if (book.b?.length) existing.bids = book.b;
+        if (book.a?.length) existing.asks = book.a;
+        existing.ts = Date.now();
+      }
 
-      // OKX sends full snapshot on 'snapshot', incremental on 'update'
-      // For orderbook.1 we always get a full top-of-book replacement
-      bookStore[pairKey] = {
-        bids: book.bids || [],
-        asks: book.asks || [],
-        ts:   Date.now(),
-      };
-
-      // Evaluate on every book update
-      const meta = PAIRS.find(p => p.symbol === pairKey);
-      if (meta) evaluate(pairKey, meta.asset);
+      evaluate(meta.symbol, meta.asset);
     });
 
     ws.on('close', () => {
@@ -266,11 +262,8 @@ function buildOkxWs(url, subscriptions, bookStore, label) {
 }
 
 // ─── Connect WebSockets ───────────────────────────────────────────────────────
-const spotSubs = PAIRS.map(p => ({ channel: 'books', instId: p.symbol }));
-const perpSubs = PAIRS.map(p => ({ channel: 'books', instId: `${p.symbol}-SWAP` }));
-
-buildOkxWs(OKX_SPOT_WS, spotSubs, spotBooks, 'OKX-SPOT');
-buildOkxWs(OKX_PERP_WS, perpSubs, perpBooks, 'OKX-PERP');
+buildBybitWs(BYBIT_SPOT_WS, PAIRS.map(p => `orderbook.50.${p.symbol.replace('-', '')}`), spotBooks, 'Bybit-SPOT');
+buildBybitWs(BYBIT_PERP_WS, PAIRS.map(p => `orderbook.50.${p.symbol.replace('-', '')}USDT`.replace('USDTUSDT','USDT')), perpBooks, 'Bybit-PERP');
 
 // ─── Heartbeat (every 60s) ────────────────────────────────────────────────────
 setInterval(() => {
@@ -282,7 +275,7 @@ setInterval(() => {
     const pr = perpBooks[p.symbol];
     const sOk = s && Date.now() - s.ts < 5000;
     const pOk = pr && Date.now() - pr.ts < 5000;
-    return `${p.symbol}-spot:${sOk ? '✓' : '✗'} ${p.symbol}-perp:${pOk ? '✓' : '✗'}`;
+    return `Bybit-${p.symbol}-spot:${sOk ? '✓' : '✗'} Bybit-${p.symbol}-perp:${pOk ? '✓' : '✗'}`;
   }).join(' ');
 
   const payload = {
@@ -295,7 +288,7 @@ setInterval(() => {
     rejected_dedupe:      snap.rejected_dedupe,
     best_edge_bps:        snap.best_edge_bps,
     best_edge_pair:       snap.best_edge_pair,
-    best_edge_route:      snap.best_edge_route,
+    best_edge_route:      snap.best_edge_route || 'Bybit-spot→Bybit-perp',
     bucket_0_5:           snap.bucket_0_5,
     bucket_5_10:          snap.bucket_5_10,
     bucket_10_15:         snap.bucket_10_15,
@@ -324,4 +317,4 @@ setInterval(() => {
     .catch(e => console.error(`💓 Heartbeat failed: ${e.message}`));
 }, 60_000);
 
-console.log('🚀 MBIO Arb Bot started — monitoring BTC/ETH/SOL on OKX spot+perp');
+console.log('🚀 MBIO Arb Bot started — monitoring BTC/ETH/SOL on Bybit spot+perp');

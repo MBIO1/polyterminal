@@ -14,7 +14,7 @@ npm start
 
 ## What it does
 
-- Subscribes to OKX `books` channel for BTC-USDT, ETH-USDT, SOL-USDT (spot + perp)
+- Subscribes to Bybit `orderbook.50` channel for BTC-USDT, ETH-USDT, SOL-USDT (spot + perp)
 - On every book update, evaluates spot-ask vs perp-bid spread
 - If net edge (raw spread − 2× taker fee) ≥ `MIN_EDGE_BPS`, posts a signal to Base44
 - Sends a full diagnostic heartbeat every 60 seconds
@@ -41,4 +41,4 @@ npm install -g pm2
 pm2 start bot.mjs --name arb-bot
 pm2 save
 pm2 startup
-``
+`
