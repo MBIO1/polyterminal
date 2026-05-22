@@ -112,18 +112,18 @@ Deno.serve(async (req) => {
       stale_filter: totalStale
     };
 
-    // 7. Signal Age & Latency
+    // 7. Signal Latency from live droplet payload, not old stored signal age
     const recentSignals = signals.slice(0, 20);
-    const avgSignalAge = recentSignals.length > 0 
-      ? recentSignals.reduce((sum, s) => {
-          const age = Date.now() - new Date(s.received_time || s.created_date).getTime();
-          return sum + age;
-        }, 0) / recentSignals.length 
+    const liveSignalLatencyValues = recentSignals
+      .map(s => Number(s.signal_age_ms || 0))
+      .filter(v => Number.isFinite(v) && v > 0);
+    const avgSignalAge = liveSignalLatencyValues.length > 0
+      ? liveSignalLatencyValues.reduce((sum, v) => sum + v, 0) / liveSignalLatencyValues.length
       : 0;
     
     health.checks.signal_latency = {
-      status: avgSignalAge < 5000 ? 'healthy' : avgSignalAge < 15000 ? 'degraded' : 'critical',
-      details: `Avg signal age: ${(avgSignalAge/1000).toFixed(1)}s`,
+      status: liveSignalLatencyValues.length === 0 ? 'degraded' : avgSignalAge < 1500 ? 'healthy' : avgSignalAge < 5000 ? 'degraded' : 'critical',
+      details: liveSignalLatencyValues.length === 0 ? 'No recent live signal latency data' : `Avg signal age: ${(avgSignalAge/1000).toFixed(1)}s`,
       avg_age_ms: Math.round(avgSignalAge)
     };
 
@@ -180,9 +180,9 @@ Deno.serve(async (req) => {
       });
     }
 
-    if (avgSignalAge >= 15000) {
+    if (liveSignalLatencyValues.length > 0 && avgSignalAge >= 5000) {
       health.alerts.push({
-        severity: 'warning',
+        severity: avgSignalAge >= 15000 ? 'critical' : 'warning',
         message: `Signal ingestion latency high (${(avgSignalAge/1000).toFixed(1)}s avg)`
       });
     }
