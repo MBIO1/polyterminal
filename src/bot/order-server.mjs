@@ -32,22 +32,22 @@ async function placeMarketOrder(client, asset, exchange, side, qty, price) {
       symbol,
       side,
       orderType: 'Market',
-      qty: qty.toString(),
+      qty: qty.toFixed(6),
+      marketUnit: side === 'Buy' ? 'quoteCoin' : 'baseCoin',
     };
-
-    if (side === 'Buy') {
-      orderParams.marketUnit = 'quoteCoin';
-    }
 
     const result = await client.placeOrder(orderParams);
     
     if (result.retCode !== 0) {
+      console.error(`[ORDER] ${category} ${side} API error:`, result.retMsg);
       throw new Error(`${category} ${side}: ${result.retMsg}`);
     }
     
-    return { orderId: result.result.orderId, symbol, category };
+    const orderId = result.result?.orderId || null;
+    console.log(`[ORDER] ✅ ${category} ${side} ${symbol} qty=${qty} orderId=${orderId}`);
+    return { orderId, symbol, category, executedQty: result.result?.executedQty || '0' };
   } catch (err) {
-    console.error(`[ORDER] ${category} ${side} failed:`, err.message);
+    console.error(`[ORDER] ❌ ${category} ${side} failed:`, err.message);
     throw err;
   }
 }
@@ -57,21 +57,26 @@ async function placePerpOrder(client, asset, exchange, side, qty, price) {
   const symbol = asset.replace('-USDT', '') + 'USDT';
   
   try {
-    const result = await client.placeOrder({
+    const orderParams = {
       category,
       symbol,
       side,
       orderType: 'Market',
-      qty: qty.toString(),
-    });
+      qty: qty.toFixed(4),
+    };
+
+    const result = await client.placeOrder(orderParams);
     
     if (result.retCode !== 0) {
+      console.error(`[ORDER] ${category} ${side} API error:`, result.retMsg);
       throw new Error(`${category} ${side}: ${result.retMsg}`);
     }
     
-    return { orderId: result.result.orderId, symbol, category };
+    const orderId = result.result?.orderId || null;
+    console.log(`[ORDER] ✅ ${category} ${side} ${symbol} qty=${qty} orderId=${orderId}`);
+    return { orderId, symbol, category, executedQty: result.result?.executedQty || '0' };
   } catch (err) {
-    console.error(`[ORDER] ${category} ${side} failed:`, err.message);
+    console.error(`[ORDER] ❌ ${category} ${side} failed:`, err.message);
     throw err;
   }
 }
@@ -130,45 +135,54 @@ const server = http.createServer(async (req, res) => {
       // Execute both legs based on strategy type
       let spotResult = null, perpResult = null;
       let spotOk = false, perpOk = false;
+      let errors = [];
       
-      if (buyIsPerp && sellIsPerp) {
-        // Perp/Perp cross-venue
-        const [buyResult, sellResult] = await Promise.all([
-          placePerpOrder(client, asset, buy_exchange, 'Buy', qty, buy_price),
-          placePerpOrder(client, asset, sell_exchange, 'Sell', qty, sell_price),
-        ]);
-        perpResult = { buy: buyResult, sell: sellResult };
-        spotOk = true;
-        perpOk = !!buyResult && !!sellResult;
-      } else if (!buyIsPerp && !sellIsPerp) {
-        // Spot/Spot cross-venue
-        const [buyResult, sellResult] = await Promise.all([
-          placeMarketOrder(client, asset, buy_exchange, 'Buy', qty, buy_price),
-          placeMarketOrder(client, asset, sell_exchange, 'Sell', qty, sell_price),
-        ]);
-        spotResult = { buy: buyResult, sell: sellResult };
-        spotOk = !!buyResult && !!sellResult;
-        perpOk = true;
-      } else {
-        // Same-venue Spot/Perp carry
-        const [spotOrder, perpOrder] = await Promise.all([
-          buyIsPerp ? placePerpOrder(client, asset, buy_exchange, 'Buy', qty, buy_price) : placeMarketOrder(client, asset, buy_exchange, 'Buy', qty, buy_price),
-          sellIsPerp ? placePerpOrder(client, asset, sell_exchange, 'Sell', qty, sell_price) : placeMarketOrder(client, asset, sell_exchange, 'Sell', qty, sell_price),
-        ]);
-        if (buyIsPerp) {
-          perpResult = spotOrder;
-          spotResult = perpOrder;
+      try {
+        if (buyIsPerp && sellIsPerp) {
+          // Perp/Perp cross-venue
+          console.log(`[EXEC] Strategy: Perp/Perp - Buy ${buy_exchange}, Sell ${sell_exchange}`);
+          const [buyResult, sellResult] = await Promise.all([
+            placePerpOrder(client, asset, buy_exchange, 'Buy', qty, buy_price),
+            placePerpOrder(client, asset, sell_exchange, 'Sell', qty, sell_price),
+          ]);
+          perpResult = { buy: buyResult, sell: sellResult };
+          spotOk = true;
+          perpOk = !!buyResult && !!sellResult;
+        } else if (!buyIsPerp && !sellIsPerp) {
+          // Spot/Spot cross-venue
+          console.log(`[EXEC] Strategy: Spot/Spot - Buy ${buy_exchange}, Sell ${sell_exchange}`);
+          const [buyResult, sellResult] = await Promise.all([
+            placeMarketOrder(client, asset, buy_exchange, 'Buy', qty, buy_price),
+            placeMarketOrder(client, asset, sell_exchange, 'Sell', qty, sell_price),
+          ]);
+          spotResult = { buy: buyResult, sell: sellResult };
+          spotOk = !!buyResult && !!sellResult;
+          perpOk = true;
         } else {
-          spotResult = spotOrder;
-          perpResult = perpOrder;
+          // Same-venue Spot/Perp carry
+          console.log(`[EXEC] Strategy: Spot/Perp Carry - Buy ${buy_exchange}, Sell ${sell_exchange}`);
+          const [spotOrder, perpOrder] = await Promise.all([
+            buyIsPerp ? placePerpOrder(client, asset, buy_exchange, 'Buy', qty, buy_price) : placeMarketOrder(client, asset, buy_exchange, 'Buy', qty, buy_price),
+            sellIsPerp ? placePerpOrder(client, asset, sell_exchange, 'Sell', qty, sell_price) : placeMarketOrder(client, asset, sell_exchange, 'Sell', qty, sell_price),
+          ]);
+          if (buyIsPerp) {
+            perpResult = spotOrder;
+            spotResult = perpOrder;
+          } else {
+            spotResult = spotOrder;
+            perpResult = perpOrder;
+          }
+          spotOk = !!spotResult;
+          perpOk = !!perpResult;
         }
-        spotOk = !!spotResult;
-        perpOk = !!perpResult;
+      } catch (err) {
+        errors.push(err.message);
+        console.error(`[EXEC] Order execution error:`, err.message);
       }
       
       console.log(`[EXEC] ✅ SUCCESS: spotOk=${spotOk} perpOk=${perpOk}`);
-      if (spotResult) console.log(`[EXEC]   Spot orders:`, spotResult);
-      if (perpResult) console.log(`[EXEC]   Perp orders:`, perpResult);
+      if (spotResult) console.log(`[EXEC]   Spot orders:`, JSON.stringify(spotResult));
+      if (perpResult) console.log(`[EXEC]   Perp orders:`, JSON.stringify(perpResult));
       
       res.writeHead(200);
       res.end(JSON.stringify({
@@ -178,6 +192,7 @@ const server = http.createServer(async (req, res) => {
         spotOrderId: spotResult?.buy?.orderId || spotResult?.orderId,
         perpOrderId: perpResult?.buy?.orderId || perpResult?.orderId,
         mode: process.env.BYBIT_TESTNET === 'true' ? 'testnet' : 'live',
+        errors: errors.length > 0 ? errors : undefined,
       }));
     } catch (err) {
       console.error(`[EXEC] ❌ FAILED:`, err.message);
