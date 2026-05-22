@@ -34,14 +34,20 @@ async function placeMarketOrder(client, asset, exchange, side, qty, price) {
   const symbol = asset.replace('-USDT', '') + 'USDT';
   
   try {
-    const result = await client.placeOrder({
+    const orderParams = {
       category,
       symbol,
       side,
       orderType: 'Market',
       qty: qty.toString(),
-      marketUnit: 'USDT',
-    });
+    };
+    
+    // For spot market orders, specify quote currency for USDT pairs
+    if (symbol.endsWith('USDT')) {
+      orderParams.marketUnit = 'quoteCoin';
+    }
+    
+    const result = await client.placeOrder(orderParams);
     
     if (result.retCode !== 0) {
       throw new Error(`${category} ${side}: ${result.retMsg}`);
@@ -140,13 +146,13 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(body);
       const { signal_id, pair, asset, buy_exchange, sell_exchange, buy_price, sell_price, qty } = payload;
       
+      const buyIsPerp = /perp|swap|futures/i.test(buy_exchange);
+      const sellIsPerp = /perp|swap|futures/i.test(sell_exchange);
+      
       console.log(`\n[EXEC] ========== EXECUTION REQUEST ==========`);
       console.log(`[EXEC] Signal: ${signal_id} | Pair: ${pair} | Asset: ${asset}`);
       console.log(`[EXEC] Qty: ${qty} | Buy: ${buy_exchange}@${buy_price} | Sell: ${sell_exchange}@${sell_price}`);
       console.log(`[EXEC] Strategy: buyIsPerp=${buyIsPerp} sellIsPerp=${sellIsPerp}`);
-      
-      const buyIsPerp = /perp|swap|futures/i.test(buy_exchange);
-      const sellIsPerp = /perp|swap|futures/i.test(sell_exchange);
       
       let spotResult = null, perpResult = null;
       let spotOk = false, perpOk = false;
