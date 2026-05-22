@@ -1,14 +1,12 @@
 /**
  * MBIO Order Server — Production
  * Runs on port 4001 on the droplet.
- * Provides Bybit account balance and order execution endpoints.
  *
  * Required .env:
  *   BYBIT_API_KEY
  *   BYBIT_API_SECRET
- *   BYBIT_TESTNET  (set to "true" for testnet)
- *
- * Run: pm2 start order-server.mjs --name order-server
+ *   BYBIT_TESTNET  (true/false)
+ *   ORDER_SERVER_PORT (default 4001)
  */
 
 import 'dotenv/config';
@@ -24,8 +22,7 @@ const client = new RestClientV5({
 });
 
 const server = http.createServer(async (req, res) => {
-  const url = req.url.split('?')[0]; // strip query string
-
+  const url = req.url.split('?')[0];
   res.setHeader('Content-Type', 'application/json');
 
   if (url === '/health' || url === '/') {
@@ -36,9 +33,23 @@ const server = http.createServer(async (req, res) => {
 
   if (url === '/balance') {
     try {
-      const bal = await client.getWalletBalance({ accountType: 'UNIFIED' });
+      const raw = await client.getWalletBalance({ accountType: 'UNIFIED' });
+      const account = raw.result?.list?.[0] || {};
+      // Normalize to the shape getBybitBalance expects
       res.writeHead(200);
-      res.end(JSON.stringify(bal.result));
+      res.end(JSON.stringify({
+        totalEquity:            parseFloat(account.totalEquity || 0),
+        totalAvailableBalance:  parseFloat(account.totalAvailableBalance || 0),
+        totalWalletBalance:     parseFloat(account.totalWalletBalance || 0),
+        testnet:                process.env.BYBIT_TESTNET === 'true',
+        coins: (account.coin || []).map(c => ({
+          coin:              c.coin,
+          equity:            parseFloat(c.equity || 0),
+          walletBalance:     parseFloat(c.walletBalance || 0),
+          availableBalance:  parseFloat(c.availableToWithdraw || 0),
+          usdValue:          parseFloat(c.usdValue || 0),
+        })).filter(c => c.usdValue > 0.01),
+      }));
     } catch (err) {
       res.writeHead(500);
       res.end(JSON.stringify({ error: err.message }));
