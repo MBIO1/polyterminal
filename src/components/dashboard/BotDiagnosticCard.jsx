@@ -40,6 +40,7 @@ export default function BotDiagnosticCard() {
   const heartbeatOk   = heartbeatSec != null && heartbeatSec < 300;
   const heartbeatCritical = heartbeatSec == null || heartbeatSec >= 600; // truly offline >10min
   const posted        = health?.heartbeat?.total_posted_last_hour || 0;
+  const evals         = health?.heartbeat?.total_evaluations_last_hour || 0;
   const accepted      = health?.connectivity?.signals_accepted_last_hour || 0;
   const non2xx        = health?.connectivity?.non_2xx_last_hour || 0;
   const postErrors    = health?.connectivity?.post_errors_last_hour || 0;
@@ -54,7 +55,7 @@ export default function BotDiagnosticCard() {
   if (!health) authStatus = 'loading';
   else if (non2xx > 2) authStatus = 'failing';
   else if (postErrors > 2) authStatus = 'network_error';
-  else if (posted === 0 && accepted === 0 && heartbeatSec != null && heartbeatSec < 300) authStatus = 'unknown';
+  else if (heartbeatSec == null) authStatus = 'unknown';
   else authStatus = 'ok';
 
   // Signal flow label: distinguish filter rejections from auth rejections
@@ -126,7 +127,7 @@ export default function BotDiagnosticCard() {
             {!health
               ? <span className="text-muted-foreground">loading...</span>
               : signalFlowStatus === 'no_opportunities'
-              ? <span className="text-muted-foreground">market quiet · {posted} scanned</span>
+              ? <span className="text-muted-foreground">market quiet · {evals.toLocaleString()} evals</span>
               : signalFlowStatus === 'blocked'
                 ? <span className="text-red-400">blocked · {posted} rejected</span>
                 : <>
