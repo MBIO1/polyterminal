@@ -17,7 +17,6 @@ import StrategyPerformanceTable from '@/components/dashboard/StrategyPerformance
 import DailyPnlChart from '@/components/dashboard/DailyPnlChart';
 import DrawdownGauge from '@/components/dashboard/DrawdownGauge';
 import BybitBalanceWidget from '@/components/dashboard/BybitBalanceWidget';
-import BotDiagnosticCard from '@/components/dashboard/BotDiagnosticCard';
 import SignalAcceptanceChart from '@/components/dashboard/SignalAcceptanceChart';
 import ExecutionHealthCard from '@/components/dashboard/ExecutionHealthCard';
 import LiveMarketChart from '@/components/dashboard/LiveMarketChart';
@@ -45,21 +44,18 @@ export default function Dashboard() {
     try {
       setLoading(true);
 
-      const [tradesRes, signalsRes, healthRes, configsRes] = await Promise.allSettled([
+      const [tradesRes, signalsRes, configsRes] = await Promise.allSettled([
         base44.entities.ArbTrade.list('-created_date', 50),
         base44.entities.ArbSignal.list('-received_time', 50),
-        base44.functions.invoke('dropletHealth', {}),
         base44.entities.ArbConfig.list('-created_date', 1),
       ]);
 
       const trades = tradesRes.status === 'fulfilled' ? tradesRes.value : [];
       const allRecentSignals = signalsRes.status === 'fulfilled' ? signalsRes.value : [];
-      const health = healthRes.status === 'fulfilled' ? healthRes.value?.data : null;
       const configs = configsRes.status === 'fulfilled' ? configsRes.value : [];
 
       if (tradesRes.status === 'rejected') console.error('Trades load error:', tradesRes.reason);
       if (signalsRes.status === 'rejected') console.error('Signals load error:', signalsRes.reason);
-      if (healthRes.status === 'rejected') console.error('Health load error:', healthRes.reason);
       if (configsRes.status === 'rejected') console.error('Config load error:', configsRes.reason);
 
       setRecentTrades(trades.slice(0, 5));
@@ -87,21 +83,9 @@ export default function Dashboard() {
         ? (winningTrades.length / closedTradesWithPnl.length) * 100
         : 0;
 
-      // Use dropletHealth as single source of truth (same logic as /droplet-health page)
-      const overall = health?.overall_status;
-      if (overall === 'healthy') setBotStatus('ok');
-      else if (overall === 'critical' || overall === 'warning') setBotStatus('alert');
-      else setBotStatus('unknown');
-
-      setStrategyPnl(trades); // pass raw trades to component
-
-      // Load ArbConfig for drawdown gauge + bot controls, then auto-sync if droplet is healthy
-      let config = configs?.[0] || null;
-      if (config && overall === 'healthy' && !config.bot_running && !config.kill_switch_active) {
-        const syncRes = await base44.functions.invoke('startStopBot', { action: 'sync' });
-        if (syncRes?.data?.bot_running) config = { ...config, bot_running: true };
-      }
-      setArbConfig(config);
+      setBotStatus('unknown');
+      setStrategyPnl(trades);
+      setArbConfig(configs?.[0] || null);
 
 
       setStats({
@@ -140,9 +124,6 @@ export default function Dashboard() {
           </Button>
         </div>
       </div>
-
-      {/* Bot Diagnostics — heartbeat + token auth status */}
-      <BotDiagnosticCard />
 
       {/* Live Market Chart — Bybit BTC/ETH prices + spread + signals */}
       <LiveMarketChart activeTrades={strategyPnl.filter(t => t.status === 'Open')} />
