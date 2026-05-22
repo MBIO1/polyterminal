@@ -1,7 +1,7 @@
 /**
  * MBIO Arb WS Bot — Production
  * 
- * Monitors Bybit spot vs Bybit perp orderbooks via WebSocket for BTC, ETH, SOL.
+ * Monitors Bybit spot vs Bybit perp orderbooks via WebSocket for BTC and ETH.
  * Posts qualified signals to Base44 ingestSignal endpoint.
  * Sends minute-level heartbeats to Base44 ingestHeartbeat endpoint.
  *
@@ -33,7 +33,6 @@ const MIN_FILLABLE_USD  = 500;
 const PAIRS = [
   { symbol: 'BTC-USDT', asset: 'BTC' },
   { symbol: 'ETH-USDT', asset: 'ETH' },
-  { symbol: 'SOL-USDT', asset: 'SOL' },
 ];
 
 // Bybit WebSocket URLs
@@ -317,4 +316,4 @@ setInterval(() => {
     .catch(e => console.error(`💓 Heartbeat failed: ${e.message}`));
 }, 60_000);
 
-console.log('🚀 MBIO Arb Bot started — monitoring BTC/ETH/SOL on Bybit spot+perp');
+console.log('🚀 MBIO Arb Bot started — monitoring BTC/ETH on Bybit spot+perp');
