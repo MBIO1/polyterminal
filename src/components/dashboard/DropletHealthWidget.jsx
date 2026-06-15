@@ -108,6 +108,7 @@ export default function DropletHealthWidget() {
   const statusColor = STATUS_COLORS[health.overall_status] || STATUS_COLORS.degraded;
 
   const renderCheck = (key, check) => {
+    if (!check) return null;
     const Icon = check.status === 'healthy' ? CheckCircle2 : check.status === 'critical' ? XCircle : AlertTriangle;
     const color = check.status === 'healthy' ? 'text-green-400' : check.status === 'critical' ? 'text-red-400' : 'text-yellow-400';
     
