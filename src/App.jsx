@@ -13,6 +13,7 @@ import AlertSettings from '@/pages/AlertSettings';
 import ArbConfig from '@/pages/ArbConfig';
 import ArbDailySummary from '@/pages/ArbDailySummary';
 import SignalAudit from '@/pages/SignalAudit';
+import PerformanceDashboard from '@/pages/PerformanceDashboard';
 
 // Simple layout component
 const Layout = ({ children }) => (
@@ -32,6 +33,7 @@ const Layout = ({ children }) => (
             <Link to="/daily-summary" className="text-sm font-medium hover:text-primary">Daily Summary</Link>
             <Link to="/signal-audit" className="text-sm font-medium hover:text-primary">Signal Audit</Link>
             <Link to="/config" className="text-sm font-medium hover:text-primary">Config</Link>
+            <Link to="/performance" className="text-sm font-medium hover:text-primary">Performance</Link>
             <Link to="/alert-settings" className="text-sm font-medium hover:text-primary">Alerts</Link>
           </div>
         </div>
@@ -57,6 +59,7 @@ function App() {
           <Route path="/config" element={<ArbConfig />} />
           <Route path="/daily-summary" element={<ArbDailySummary />} />
           <Route path="/signal-audit" element={<SignalAudit />} />
+          <Route path="/performance" element={<PerformanceDashboard />} />
           <Route path="*" element={<div className="p-6"><h1>404 - Page Not Found</h1></div>} />
         </Routes>
       </Layout>
